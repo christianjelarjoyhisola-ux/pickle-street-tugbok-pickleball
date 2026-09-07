@@ -1,79 +1,71 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-pb-data-scope="auth">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-<title>Paddle Rage Pickleball — Admin Login</title>
-<link rel="icon" type="image/png" href="paddleragelogo.jpg">
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Pickle Street Tugbok Pickleball — Admin Login</title>
+<link rel="icon" type="image/svg+xml" href="assets/pickle-street-mark.svg" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=League+Spartan:wght@600;700;800&amp;display=swap" rel="stylesheet"/>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:manipulation}
-:root{--navy:#143d63;--navy-dark:#0b2744;--court-red:#c83d26;--court-red-dark:#9f2f1f;--pickle-lime:#c9cf43;--green:var(--navy);--green-dark:var(--navy-dark);--cta:var(--court-red);--cta-dark:var(--court-red-dark);--glow:rgba(20,61,99,.18);--ac:20,61,99;--bg:#f4f7f8;--card:#fff;--border:#d7e0e6;--text:#0f2438;--muted:#657486;--input:#eef3f6;--red:#c83d26;}
-body.light{--bg:#f4f7f8;--card:#fff;--border:#d7e0e6;--text:#0f2438;--muted:#657486;--input:#eef3f6;}body.dark{--bg:#091521;--card:#12283b;--border:#29475f;--text:#f8faf6;--muted:#aec0cf;--input:#0f2234;--green:#7fa9cc;--green-dark:#143d63;--glow:rgba(127,169,204,.18);--ac:127,169,204;}
-body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;min-height:100dvh;display:flex;align-items:center;justify-content:center;position:relative;overflow-x:hidden;overflow-y:auto;transition:background .3s,color .3s;touch-action:manipulation;padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));}
+:root{--navy:#045896;--navy-dark:#023a64;--court-blue:#0a74b8;--pickle-lime:#4FFE01;--green:var(--navy);--green-dark:var(--navy-dark);--cta:#4FFE01;--cta-dark:#3ed600;--glow:rgba(4,88,150,.18);--ac:4,88,150;--bg:#f4f9fc;--card:#fff;--border:#c7d8e5;--text:#082235;--muted:#526979;--input:#eaf2f7;--red:#c43d4d;}
+body.light{--bg:#f4f9fc;--card:#fff;--border:#c7d8e5;--text:#082235;--muted:#526979;--input:#eaf2f7;}body.dark{--bg:#061b2b;--card:#0b2b42;--border:#28506b;--text:#f7fbfe;--muted:#b9c9d4;--input:#0d334e;--green:#4FFE01;--green-dark:#3ed600;--glow:rgba(79,254,1,.18);--ac:79,254,1;}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;transition:background .3s,color .3s;touch-action:manipulation;padding:16px;}
 button,input,select,textarea,label,a,[role="button"],.btn{touch-action:manipulation}
 .bg-glow{position:fixed;top:-100px;left:50%;transform:translateX(-50%);width:700px;height:500px;border-radius:50%;background:radial-gradient(ellipse,rgba(var(--ac),.1) 0%,transparent 70%);pointer-events:none;}
 .bg-grid{position:fixed;inset:0;opacity:.035;background-image:repeating-linear-gradient(0deg,var(--green) 0,var(--green) 1px,transparent 1px,transparent 72px),repeating-linear-gradient(90deg,var(--green) 0,var(--green) 1px,transparent 1px,transparent 80px);pointer-events:none;}
-.card{position:relative;z-index:10;background:var(--card);border:1px solid var(--border);border-radius:20px;padding:44px 38px;width:100%;min-width:0;max-width:400px;box-shadow:0 24px 64px rgba(20,61,99,.12);}
+.card{position:relative;z-index:10;background:var(--card);border:1px solid var(--border);border-radius:20px;padding:44px 38px;width:100%;max-width:400px;box-shadow:0 24px 64px rgba(20,61,99,.12);}
 .logo{text-align:center;margin-bottom:28px;}
-.logo-ic{width:76px;height:76px;background:#fff;border:2px solid rgba(var(--ac),.28);border-radius:50%;display:block;object-fit:contain;padding:5px;margin:0 auto 14px;box-shadow:0 8px 24px var(--glow);}
-.logo-tx{font-family:'Bebas Neue',sans-serif;font-size:2rem;letter-spacing:2px;}
+.logo-ic{width:min(248px,100%);height:96px;background:#045896;border:2px solid rgba(var(--ac),.28);border-radius:12px;display:block;object-fit:contain;object-position:center;padding:4px;margin:0 auto 14px;box-shadow:0 8px 24px var(--glow);}
+.logo-tx{font-family:'League Spartan',sans-serif;font-size:2rem;letter-spacing:2px;}
 .logo-sub{color:var(--muted);font-size:.88rem;margin-top:4px;}
 .divider{height:1px;background:var(--border);margin:22px 0;}
 .err{background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);border-radius:8px;padding:11px 14px;font-size:.86rem;color:#ff7875;margin-bottom:14px;display:none;}
 .err.show{display:block;}
 .fl{display:block;font-size:.77rem;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px;}
-.fi{width:100%;padding:11px 13px;background:var(--input);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'Outfit',sans-serif;font-size:.92rem;transition:border-color .2s,box-shadow .2s;margin-bottom:14px;}
+.fi{width:100%;padding:11px 13px;background:var(--input);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'Inter',sans-serif;font-size:.92rem;transition:border-color .2s,box-shadow .2s;margin-bottom:14px;}
 .fi:focus{outline:none;border-color:var(--green);box-shadow:0 0 0 3px rgba(var(--ac),.14);}
 .fi::placeholder{color:var(--muted);}
 @media (pointer: coarse){.fi,input,select,textarea,button,.btn{font-size:16px!important;}}
-.btn{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;min-width:0;min-height:46px;padding:13px 20px;border:none;border-radius:9px;font-family:'Outfit',sans-serif;font-size:.95rem;font-weight:700;line-height:1.4;white-space:normal;overflow-wrap:anywhere;cursor:pointer;transition:all .2s;}
-.btn-p{background:linear-gradient(135deg,var(--cta),var(--cta-dark));color:#fff;box-shadow:0 4px 14px rgba(200,61,38,.22);}
-.btn-p:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(200,61,38,.28);}
+.btn{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;padding:13px 20px;border:none;border-radius:9px;font-family:'Inter',sans-serif;font-size:.95rem;font-weight:700;cursor:pointer;transition:all .2s;}
+.btn-p{background:linear-gradient(135deg,var(--cta),var(--cta-dark));color:#062035;box-shadow:0 4px 14px rgba(4,88,150,.2);}
+.btn-p:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(4,88,150,.28);}
 .hint{background:rgba(var(--ac),.07);border:1px solid rgba(var(--ac),.22);border-radius:8px;padding:12px;font-size:.82rem;color:var(--muted);margin-top:18px;text-align:center;}
 .hint strong{color:var(--green);}
-.back{display:flex;align-items:center;justify-content:center;gap:6px;min-height:44px;margin-top:8px;padding:8px 0;font-size:.86rem;line-height:1.4;text-align:center;color:var(--muted);transition:color .2s;text-decoration:none;}
+.back{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:20px;font-size:.86rem;color:var(--muted);transition:color .2s;text-decoration:none;}
 .back:hover{color:var(--green);}
-.forgot-link{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:8px 0;border:0;background:transparent;text-align:center;font-family:inherit;font-size:.84rem;line-height:1.4;white-space:normal;color:var(--muted);cursor:pointer;transition:color .2s;}
+.forgot-link{display:block;text-align:right;font-family:inherit;font-size:.8rem;color:var(--muted);margin-top:-8px;margin-bottom:14px;padding:0;border:0;background:none;cursor:pointer;transition:color .2s;}
 .forgot-link:hover{color:var(--green);}
-.login-options{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 12px;margin:0 0 12px;}
-.login-remember{display:flex;align-items:center;gap:8px;min-height:44px;cursor:pointer;font-size:.84rem;color:var(--muted);}
-.login-remember input{width:18px;height:18px;flex:0 0 18px;accent-color:var(--green);cursor:pointer;}
-.login-options .forgot-link{margin-left:auto;}
-.forgot-back{width:100%;margin-top:8px;}
-.forgot-link:focus-visible,.back:focus-visible{outline:2px solid var(--green);outline-offset:3px;border-radius:4px;}
+.forgot-link:focus-visible{outline:3px solid rgba(var(--ac),.34);outline-offset:4px;border-radius:4px;}
 .reset-panel{display:none;margin-top:18px;}
 .reset-panel.show{display:block;}
 .ok-msg{background:rgba(var(--ac),.08);border:1px solid rgba(var(--ac),.25);border-radius:8px;padding:12px 14px;font-size:.84rem;color:var(--green);margin-bottom:14px;display:none;}
 .ok-msg.show{display:block;}
 .new-pass-panel{display:none;margin-top:4px;}
 .new-pass-panel.show{display:block;}
+.new-pass-title{font-family:'League Spartan',sans-serif;font-size:1.3rem;line-height:1.2;margin-bottom:7px;}
+.new-pass-copy{color:var(--muted);font-size:.84rem;line-height:1.55;margin-bottom:18px;}
 /* toast */
 .toasts{position:fixed;top:20px;right:20px;z-index:999;display:flex;flex-direction:column;gap:8px;}
 .toast{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:10px;min-width:240px;box-shadow:0 6px 24px rgba(0,0,0,.4);animation:tin .3s ease;font-size:.86rem;}
 @keyframes tin{from{transform:translateX(110%);opacity:0}to{transform:translateX(0);opacity:1}}
 .toast.err{border-left:3px solid var(--red);}
-@media(max-width:600px),(max-height:650px){
-  .card{padding:28px 22px;}
-  .logo{margin-bottom:20px;}
-  .logo-tx{font-size:1.75rem;line-height:1.15;}
-  .divider{margin:18px 0;}
-  .fi{min-width:0;min-height:44px;font-size:16px;}
-}
 </style>
-<link rel="stylesheet" href="brand-theme.css?v=20260903-manage-booking-v1">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="pickle-street.css?v=2">
+<meta name="robots" content="noindex,nofollow">
 </head>
-<body class="dark">
+<body class="light">
 <div class="bg-glow"></div>
 <div class="bg-grid"></div>
 <div class="toasts" id="toasts"></div>
 
 <div class="card">
   <div class="logo">
-    <img class="logo-ic" src="paddleragelogo.jpg" alt="Paddle Rage Pickleball logo">
-    <div class="logo-tx">PICKLEBALL COURT DASHBOARD</div>
-    <div class="logo-sub">Admin Control Panel</div>
+    <img class="logo-ic" src="assets/pickle-street-mark.svg" alt="Pickle Street Tugbok logo">
+    <div class="logo-tx">PICKLE STREET TUGBOK</div>
+    <div class="logo-sub">Secure Court Dashboard</div>
   </div>
   <div class="divider"></div>
 
@@ -83,15 +75,15 @@ button,input,select,textarea,label,a,[role="button"],.btn{touch-action:manipulat
   <div id="loginPanel">
     <form id="loginForm" onsubmit="doLogin(event)" autocomplete="on">
       <label class="fl" for="uname">✉️ Email</label>
-      <input type="text" inputmode="email" class="fi" id="uname" placeholder="admin@yourdomain.com" autocomplete="username"/>
+      <input type="text" inputmode="email" class="fi" id="uname" placeholder="admin@yourdomain.com" autocomplete="username" autofocus/>
       <label class="fl" for="upass">🔒 Password</label>
       <input type="password" class="fi" id="upass" placeholder="Enter password" autocomplete="current-password"/>
-      <div class="login-options">
-        <label class="login-remember">
-          <input type="checkbox" id="rememberMe"/>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;margin-top:-4px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.84rem;color:var(--muted)">
+          <input type="checkbox" id="rememberMe" style="width:15px;height:15px;accent-color:var(--green);cursor:pointer"/>
           Keep me logged in
         </label>
-        <button class="forgot-link" type="button" onclick="showForgot()">Forgot password?</button>
+        <button type="button" class="forgot-link" style="margin:0" onclick="showForgot()">Forgot password?</button>
       </div>
       <button type="submit" class="btn btn-p">Login to Dashboard →</button>
     </form>
@@ -103,25 +95,29 @@ button,input,select,textarea,label,a,[role="button"],.btn{touch-action:manipulat
     <label class="fl">✉️ Enter your admin email</label>
     <input type="email" class="fi" id="resetEmail" placeholder="admin@yourdomain.com"/>
     <button class="btn btn-p" onclick="doReset()">Send Reset Link</button>
-    <button class="forgot-link forgot-back" type="button" onclick="showLogin()">← Back to login</button>
+    <button type="button" class="forgot-link" style="text-align:center;margin:12px auto 0;" onclick="showLogin()">← Back to login</button>
   </div>
 
-  <!-- New password panel (after clicking reset link) -->
-  <div class="new-pass-panel" id="newPassPanel">
-    <label class="fl">🔒 New Password</label>
-    <input type="password" class="fi" id="newPass" placeholder="Enter new password (min 8 chars)"/>
-    <label class="fl">🔒 Confirm Password</label>
-    <input type="password" class="fi" id="newPassConfirm" placeholder="Confirm new password"/>
-    <button class="btn btn-p" onclick="doSetPassword()">Set New Password</button>
+  <!-- Password creation panel for verified recovery and invitation callbacks -->
+  <div class="new-pass-panel" id="newPassPanel" role="region"
+    aria-labelledby="newPassTitle" aria-describedby="newPassInstructions" aria-hidden="true">
+    <h2 class="new-pass-title" id="newPassTitle" tabindex="-1">Choose a new password</h2>
+    <p class="new-pass-copy" id="newPassInstructions">Create a strong password to secure your dashboard account.</p>
+    <label class="fl" for="newPass">🔒 New Password</label>
+    <input type="password" class="fi" id="newPass" minlength="14" maxlength="200"
+      placeholder="14+ characters with upper/lowercase, number, and symbol" autocomplete="new-password"/>
+    <label class="fl" for="newPassConfirm">🔒 Confirm Password</label>
+    <input type="password" class="fi" id="newPassConfirm" minlength="14" maxlength="200"
+      placeholder="Confirm new password" autocomplete="new-password"/>
+    <button type="button" class="btn btn-p" id="setPasswordButton" onclick="doSetPassword()">Set New Password</button>
   </div>
 
   <a class="back" href="index.html">← Back to Booking Page</a>
-  <a class="back" href="host.html">Open Play Host Portal</a>
 </div>
 
 <script>
 // Dark mode sync
-const dark = localStorage.getItem('pb_template_theme') !== 'light';
+const dark = localStorage.getItem('pb_template_theme') === 'dark';
 document.body.classList.toggle('dark', dark);
 document.body.classList.toggle('light', !dark);
 
@@ -133,41 +129,119 @@ async function doLogin(e) {
   btn.disabled = true;
   btn.textContent = 'Logging in…';
   const remember = document.getElementById('rememberMe').checked;
-  const r = await Auth.login(u, p, remember);
-  if (r.ok) {
-    const params = new URLSearchParams(window.location.search);
-    window.location.href = params.get('next') || 'admin.html';
-  } else {
+  try {
+    const r = await Auth.login(u, p, remember);
+    if (r.ok) {
+      // Never navigate to a caller-supplied URL after authentication.
+      const requested = new URLSearchParams(window.location.search).get('next');
+      window.location.href = requested === 'admin.html' ? requested : 'admin.html';
+      return;
+    }
     document.getElementById('errBox').textContent = r.msg || 'Invalid email or password.';
     document.getElementById('errBox').classList.add('show');
+  } catch (error) {
+    console.error('Dashboard login failed:', error);
+    document.getElementById('errBox').textContent = 'Could not sign in right now. Please check your connection and try again.';
+    document.getElementById('errBox').classList.add('show');
+  } finally {
     btn.disabled = false;
     btn.textContent = 'Login to Dashboard →';
   }
 }
 
 // Redirect if already logged in (skip if we were sent here from admin — avoids redirect loop)
+async function applyLoginBranding() {
+  try {
+    const settings = await DB.getSettings();
+    const staticDisplayName = "Pickle Street Tugbok Pickleball";
+    const name = String(settings.business_display_name || '').trim() || staticDisplayName;
+    const wordmarkName = name === staticDisplayName ? "Pickle Street Tugbok" : name;
+    let branding = {};
+    try { branding = JSON.parse(settings.business_branding || '{}'); } catch (_) {}
+    if (name) {
+      document.title = `${name} — Admin Login`;
+      document.querySelector('.logo-tx').textContent = wordmarkName.toUpperCase();
+      document.querySelector('.logo-ic').alt = `${name} logo`;
+    }
+    const logoUrl = String(branding.logoUrl || '').trim();
+    if (/^https:\/\/[^\s]+$/i.test(logoUrl)) document.querySelector('.logo-ic').src = logoUrl;
+    const primary = /^#[0-9a-f]{6}$/i.test(branding.primaryColor || '') ? branding.primaryColor : '';
+    const secondary = /^#[0-9a-f]{6}$/i.test(branding.secondaryColor || '') ? branding.secondaryColor : '';
+    const accent = /^#[0-9a-f]{6}$/i.test(branding.accentColor || '') ? branding.accentColor : '';
+    if (primary) {
+      document.documentElement.style.setProperty('--green', primary);
+      document.documentElement.style.setProperty('--navy', primary);
+      const rgb = [primary.slice(1,3), primary.slice(3,5), primary.slice(5,7)]
+        .map(value => Number.parseInt(value, 16)).join(',');
+      document.documentElement.style.setProperty('--ac', rgb);
+    }
+    if (secondary) document.documentElement.style.setProperty('--navy-dark', secondary);
+    if (accent) {
+      document.documentElement.style.setProperty('--cta', accent);
+      document.documentElement.style.setProperty('--pickle-lime', accent);
+    }
+  } catch (_) {
+    // The static tenant brand remains visible when the public bootstrap is
+    // temporarily unavailable; authentication still fails closed.
+  }
+}
+
+let passwordCallbackType = '';
+
+function authCallbackTypeFromHash() {
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const type = String(hashParams.get('type') || '').toLowerCase();
+  return type === 'invite' || type === 'recovery' ? type : '';
+}
+
+// Capture the callback before the Auth client consumes or cleans the URL hash.
+const initialAuthCallbackType = authCallbackTypeFromHash();
+
+function showPasswordCallbackPanel(type) {
+  passwordCallbackType = type;
+  document.getElementById('loginPanel').style.display = 'none';
+  document.getElementById('resetPanel').classList.remove('show');
+  const panel = document.getElementById('newPassPanel');
+  const title = document.getElementById('newPassTitle');
+  const instructions = document.getElementById('newPassInstructions');
+  const button = document.getElementById('setPasswordButton');
+  const isInvite = type === 'invite';
+  title.textContent = isInvite ? 'Create your Court Owner password' : 'Choose a new password';
+  instructions.textContent = isInvite
+    ? 'Your invitation is verified. Create a strong password to finish securing your Court Owner dashboard account.'
+    : 'Your recovery link is verified. Choose a strong new password for your dashboard account.';
+  button.textContent = isInvite ? 'Create Password' : 'Set New Password';
+  panel.classList.add('show');
+  panel.setAttribute('aria-hidden', 'false');
+  requestAnimationFrame(() => title.focus({ preventScroll: true }));
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  applyLoginBranding();
+  const callbackType = initialAuthCallbackType || authCallbackTypeFromHash();
+  if (callbackType) {
+    showPasswordCallbackPanel(callbackType);
+    return;
+  }
   const params = new URLSearchParams(window.location.search);
   const comingFromAdmin = !!params.get('next');
   if (!comingFromAdmin && Auth.getSession()) window.location.href = 'admin.html';
-  // Check if redirected here from a password reset email
-  const hash = window.location.hash;
-  if (hash.includes('type=recovery')) {
-    document.getElementById('loginPanel').style.display = 'none';
-    document.getElementById('newPassPanel').classList.add('show');
-  }
 });
 
 function showForgot() {
   document.getElementById('loginPanel').style.display = 'none';
   document.getElementById('resetPanel').classList.add('show');
   document.getElementById('errBox').classList.remove('show');
+  requestAnimationFrame(() => document.getElementById('resetEmail')?.focus({ preventScroll: true }));
 }
 
 function showLogin() {
   document.getElementById('loginPanel').style.display = 'block';
+  requestAnimationFrame(() => document.getElementById('uname')?.focus({ preventScroll: true }));
   document.getElementById('resetPanel').classList.remove('show');
   document.getElementById('resetOk').classList.remove('show');
+  document.getElementById('newPassPanel').classList.remove('show');
+  document.getElementById('newPassPanel').setAttribute('aria-hidden', 'true');
 }
 
 async function doReset() {
@@ -186,18 +260,25 @@ async function doReset() {
 async function doSetPassword() {
   const p1 = document.getElementById('newPass').value;
   const p2 = document.getElementById('newPassConfirm').value;
-  if (p1.length < 8) { alert('Password must be at least 8 characters.'); return; }
+  const strong = p1.length >= 14 && !/\s/.test(p1) && /[a-z]/.test(p1) && /[A-Z]/.test(p1) && /\d/.test(p1) && /[^A-Za-z0-9]/.test(p1);
+  if (!strong) { alert('Use at least 14 characters with uppercase, lowercase, a number, and a symbol, without spaces.'); return; }
   if (p1 !== p2) { alert('Passwords do not match.'); return; }
   const { error } = await _sb.auth.updateUser({ password: p1 });
   if (error) {
     alert('Error: ' + error.message);
   } else {
-    alert('✅ Password updated! You can now log in.');
+    const successMessage = passwordCallbackType === 'invite'
+      ? '✅ Password created. Your dashboard access will open after your invitation is activated.'
+      : '✅ Password updated! You can now log in.';
+    alert(successMessage);
+    // Always return to this fixed same-origin page; never honor callback input.
     window.location.href = 'login.html';
   }
 }
 </script>
 <script src="supabase.min.js"></script>
-<script src="supabase-config.js?v=20260905-grouped-reschedule-v3"></script>
+<script src="tenant-config.js?v=20260801-openplay-fee-backend-contract"></script>
+<script src="supabase-config.js?v=20260801-openplay-fee-backend-contract"></script>
+<script src="pickle-street.js?v=2"></script>
 </body>
 </html>

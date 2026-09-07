@@ -3,43 +3,87 @@
 // Replace these with your actual project credentials.
 // Find them at: Supabase Dashboard → Project Settings → API
 // =============================================
-// Dedicated Paddle Rage project. The anon key is safe for browser use because
-// database access is enforced by the project's Row Level Security policies.
-const SUPABASE_URL = 'https://qhvrowoqeyeypmefwkha.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFodnJvd29xZXlleXBtZWZ3a2hhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQzNzk3ODUsImV4cCI6MjA5OTk1NTc4NX0.hXwxcD6O4tebgJXHf0uxnjcr8-hkEnGCNOeC3dl39Mo';
+// This frontend uses a tenant-scoped connection to the shared platform.
+// The explicit backendEnabled flag prevents an unfinished platform from being
+// activated merely by filling in a URL or key.
+const PB_RUNTIME_CONFIG = window.PB_TENANT_CONFIG || {};
+const PB_TENANT_SLUG = String(PB_RUNTIME_CONFIG.tenantSlug || '').trim().toLowerCase();
+if (!/^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$/.test(PB_TENANT_SLUG)) {
+  throw new Error('A valid configured tenant slug is required.');
+}
+const PB_AUTH_ENABLED = PB_RUNTIME_CONFIG.authEnabled === true;
+const PB_BACKEND_ENABLED = PB_RUNTIME_CONFIG.backendEnabled === true;
+const PB_REFUND_RESCHEDULE_POLICY_ENABLED =
+  PB_RUNTIME_CONFIG.refundReschedulePolicyEnabled === true;
+// The schema marker describes the contract; the rollout flag authorizes data
+// access. Keeping both checks here prevents auth-only previews from touching
+// production tenant tables or public booking RPCs.
+const PB_PLATFORM_V1 = PB_BACKEND_ENABLED && PB_RUNTIME_CONFIG.schemaVersion === 'multi-tenant-v1';
+const PB_SUPABASE_CONNECTION_ENABLED = PB_AUTH_ENABLED || PB_BACKEND_ENABLED;
+const SUPABASE_URL = PB_SUPABASE_CONNECTION_ENABLED
+  ? String(PB_RUNTIME_CONFIG.supabaseUrl || '')
+  : 'https://YOUR_PLATFORM_PROJECT_REF.supabase.co';
+const SUPABASE_ANON_KEY = PB_SUPABASE_CONNECTION_ENABLED
+  ? String(PB_RUNTIME_CONFIG.supabasePublishableKey || '')
+  : 'YOUR_PLATFORM_PUBLISHABLE_KEY';
+const PB_SUPABASE_CREDENTIALS_CONFIGURED =
+  !SUPABASE_URL.includes('YOUR_PLATFORM_PROJECT_REF') &&
+  !SUPABASE_ANON_KEY.includes('YOUR_PLATFORM_PUBLISHABLE_KEY');
+const PB_SUPABASE_AUTH_CONFIGURED =
+  PB_AUTH_ENABLED && PB_SUPABASE_CREDENTIALS_CONFIGURED;
+const PB_SUPABASE_CONFIGURED =
+  PB_BACKEND_ENABLED && PB_SUPABASE_CREDENTIALS_CONFIGURED;
+window.PB_SUPABASE_CONFIGURED = PB_SUPABASE_CONFIGURED;
+window.PB_SUPABASE_AUTH_CONFIGURED = PB_SUPABASE_AUTH_CONFIGURED;
+// The deploy-time switch is only a request to enable booking. The server must
+// independently report that the tenant is ready (billing, payment destination,
+// and tenant activation are configured) before the public UI can open checkout.
+const PB_PUBLIC_BOOKING_REQUESTED =
+  PB_RUNTIME_CONFIG.publicBookingEnabled === true && PB_PLATFORM_V1 && PB_SUPABASE_CONFIGURED;
+window.PB_PUBLIC_BOOKING_ENABLED = false;
+window.PB_PLATFORM_READINESS = null;
+window.PB_PAYMENT_METHOD_CODES = Object.freeze(Object.create(null));
+window.PB_PAYMENT_METHODS_BY_CODE = Object.freeze(Object.create(null));
+window.PB_TENANT_SLUG = PB_TENANT_SLUG;
+window.PB_PLATFORM_V1 = PB_PLATFORM_V1;
+window.PB_REFUND_RESCHEDULE_POLICY_ENABLED = PB_REFUND_RESCHEDULE_POLICY_ENABLED;
 
 const PB_REQUEST_TIMEOUT_MS = 45000;
+const PB_PAGE_DATA_SCOPE = document.documentElement.dataset.pbDataScope || 'auth';
+let _pbBusinessRevision = null;
+let _pbPolicyRevision = null;
+function _pbCaptureBusinessRevision(data) {
+  const revision = data?.tenantRevision || data?.updatedAt || data?.settings?.updatedAt;
+  if (revision) _pbBusinessRevision = revision;
+  return data;
+}
 const PB_RECEIPT_TIMEOUT_MS = 90000;
-const PB_PRIVATE_DATA_SURFACE = /^\/(?:admin|signature-view)(?:\.html)?\/?$/i.test(location.pathname);
-const _pbLocalStagedReceipts = new Map();
-
-function normalizeOpenPlaySkillLevel(value, fallback = 1) {
-  const level = Number(value);
-  return Number.isInteger(level) && level >= 1 && level <= 6 ? level : fallback;
-}
-
-function openPlayPerformanceSeed(skillLevel) {
-  if (window.PBOpenPlayRating?.seedRating) {
-    return window.PBOpenPlayRating.seedRating(skillLevel);
-  }
-  return 1000 + (normalizeOpenPlaySkillLevel(skillLevel) - 1) * 100;
-}
-
-function normalizeOpenPlayRankingMode(value) {
-  if (window.PBOpenPlayRating?.normalizeRankingMode) {
-    return window.PBOpenPlayRating.normalizeRankingMode(value);
-  }
-  if (value === 'competitive') return 'competitive';
-  return value === 'win_percentage' ? 'win_percentage' : 'performance';
-}
-
-function _pbApiError(message, code) {
-  const error = new Error(message);
-  error.code = code;
-  return error;
-}
 
 async function _pbFetchWithTimeout(input, init = {}, timeoutMs = PB_REQUEST_TIMEOUT_MS) {
+  const requestUrl = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
+  if (requestUrl.origin !== 'https://neqvrwtofiolcuxewdze.supabase.co') throw new Error('Unexpected booking service address.');
+  if (requestUrl.pathname.startsWith('/rest/v1/') && !requestUrl.pathname.startsWith('/rest/v1/rpc/')) throw new Error('Direct table access is disabled for this website.');
+  if (requestUrl.pathname.startsWith('/functions/v1/')) {
+    if (requestUrl.searchParams.get('tenantSlug') !== PB_TENANT_SLUG) throw new Error('A venue-scoped request is required.');
+    const headers = new Headers(init.headers || {});
+    headers.set('X-Tenant-Slug', PB_TENANT_SLUG);
+    init = {...init, headers};
+  }
+  if (requestUrl.pathname.startsWith('/rest/v1/rpc/')) {
+    const body = typeof init.body === 'string' ? JSON.parse(init.body) : {};
+    const rpc = requestUrl.pathname.split('/').pop();
+    const idOnlyManagerRpc = ['cancel_tenant_booking','reinstate_tenant_booking'].includes(rpc)
+      && PB_PAGE_DATA_SCOPE === 'manager' && /^[0-9a-f-]{36}$/i.test(body.p_booking_id || '');
+    const originBoundBlockRpc = ['manage_blocked_dates','get_blocked_date_access','set_blocked_date_access'].includes(rpc) && PB_PAGE_DATA_SCOPE === 'manager'
+      && body.p_tenant_slug === PB_TENANT_SLUG;
+    // These existing RPCs validate the actual request Origin and actor in SQL;
+    // their published signatures intentionally omit the hostname parameter.
+    if (!idOnlyManagerRpc && !originBoundBlockRpc &&
+      (body.p_tenant_slug !== PB_TENANT_SLUG || body.p_hostname !== _pbTenantHostname())) {
+      throw new Error('A verified venue context is required.');
+    }
+  }
+
   const supportsAbort = typeof AbortController === 'function';
   const controller = supportsAbort && !init.signal ? new AbortController() : null;
   let timer = null;
@@ -59,49 +103,62 @@ async function _pbFetchWithTimeout(input, init = {}, timeoutMs = PB_REQUEST_TIME
   }
 }
 
+// Keep Supabase Auth in the selected browser scope. Session storage is used
+// unless the user explicitly chooses "Keep me logged in".
+const PB_AUTH_REMEMBER_KEY = 'pickle-street-tugbok-remember';
+const _pbAuthStorage = {
+  getItem(key) {
+    return localStorage.getItem(key) || sessionStorage.getItem(key);
+  },
+  setItem(key, value) {
+    const remember = localStorage.getItem(PB_AUTH_REMEMBER_KEY) === '1';
+    const target = remember ? localStorage : sessionStorage;
+    const other = remember ? sessionStorage : localStorage;
+    target.setItem(key, value);
+    other.removeItem(key);
+  },
+  removeItem(key) {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
+  },
+};
 // Initialize Supabase client (uses UMD global loaded from CDN). A bounded
 // fetch prevents embedded browsers from leaving the booking button hanging.
 const _sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   global: { fetch: (input, init) => _pbFetchWithTimeout(input, init) },
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    storage: _pbAuthStorage,
+    storageKey: 'pickle-street-tugbok-auth',
+  },
 });
 
 // Expose globally so HTML pages can use real-time subscriptions
 window._supabase = _sb;
 
 const PB_IS_LOCAL_HOST = ['localhost', '127.0.0.1', '::1'].includes(location.hostname);
-const PB_DATA_MODE_KEY = 'pb_data_mode';
-const PB_HAS_PLACEHOLDER_BACKEND = SUPABASE_URL.includes('YOUR_PROJECT_REF') || SUPABASE_ANON_KEY.includes('YOUR_SUPABASE');
-const PB_IS_PADDLE_RAGE_PAGES = location.hostname === 'paddle-rage-pickleball.pages.dev'
-  || location.hostname.endsWith('.paddle-rage-pickleball.pages.dev');
-const PB_IS_CLOUDFLARE_DEMO = PB_HAS_PLACEHOLDER_BACKEND && PB_IS_PADDLE_RAGE_PAGES;
+const PB_DATA_MODE_KEY = `pb_data_mode:${PB_TENANT_SLUG}`;
 
-if (PB_IS_LOCAL_HOST) {
-  const params = new URLSearchParams(location.search);
-  if (['1', 'true', 'local'].includes((params.get('localData') || '').toLowerCase())) {
-    localStorage.setItem(PB_DATA_MODE_KEY, 'local');
-  }
-  if (['1', 'true', 'remote'].includes((params.get('remoteData') || '').toLowerCase())) {
-    localStorage.removeItem(PB_DATA_MODE_KEY);
-  }
+function _pbTenantHostname() {
+  return PB_IS_LOCAL_HOST
+    ? String(PB_RUNTIME_CONFIG.productionHosts?.[0] || window.location.hostname)
+    : window.location.hostname;
 }
 
-// The isolated Paddle Rage Pages site automatically uses browser-only demo data
-// until a dedicated Supabase project replaces the placeholders above.
-window.PB_USE_LOCAL_DATA = PB_IS_CLOUDFLARE_DEMO
-  || (PB_IS_LOCAL_HOST && localStorage.getItem(PB_DATA_MODE_KEY) === 'local');
+// Production and development both use the shared backend. Browser-local demo
+// data and sample credentials are intentionally disabled for this tenant.
+try { localStorage.removeItem(PB_DATA_MODE_KEY); } catch (_) {}
+window.PB_USE_LOCAL_DATA = false;
 
 const PB_FAST_CACHE_MS = {
   courts: 60000,
   settings: 30000,
   blockedDates: 30000,
   bookings: 3500,
-  openPlay: 3500,
 };
-const PB_BOOKING_ACCESS_TOKENS_KEY = 'pb_booking_access_tokens_v1';
-const PB_BOOKING_ACCESS_TOKEN_LEGACY_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-const PB_BOOKING_ACCESS_TOKEN_HARD_MAX_AGE_MS = 400 * 24 * 60 * 60 * 1000;
 const _pbFastCache = new Map();
-let _pbAccountRoleCache = null;
 
 function _pbClone(value) {
   if (value == null) return value;
@@ -149,166 +206,1165 @@ function _pbClearFastCache(scopes = []) {
   }
 }
 
-async function _pbCurrentAccountRole() {
-  const { data: sessionData, error: sessionError } = await _sb.auth.getSession();
-  if (sessionError) throw sessionError;
-  const userId = sessionData?.session?.user?.id || '';
-  if (!userId) return '';
-
-  const now = Date.now();
-  if (_pbAccountRoleCache?.userId === userId && now - _pbAccountRoleCache.at < 30000) {
-    return _pbAccountRoleCache.role;
-  }
-
-  const { data, error } = await _sb
-    .from('accounts')
-    .select('role,status')
-    .eq('id', userId)
-    .maybeSingle();
-  if (error) throw error;
-  const role = data?.status === 'active' ? String(data.role || '') : '';
-  _pbAccountRoleCache = { userId, role, at: now };
-  return role;
-}
-
-async function _pbHasActiveAccount() {
-  return !!(await _pbCurrentAccountRole());
-}
-
-function _pbLoadBookingAccessTokens() {
-  let stored = {};
-  let needsCleanup = false;
-  try {
-    stored = JSON.parse(localStorage.getItem(PB_BOOKING_ACCESS_TOKENS_KEY) || '{}');
-  } catch (_) {
-    stored = {};
-    needsCleanup = true;
-  }
-  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) {
-    stored = {};
-    needsCleanup = true;
-  }
-
-  const now = Date.now();
-  const legacyCutoff = now - PB_BOOKING_ACCESS_TOKEN_LEGACY_MAX_AGE_MS;
-  const cleaned = Object.fromEntries(
-    Object.entries(stored)
-      .filter(([, entry]) => {
-        if (!entry || typeof entry.token !== 'string') return false;
-        const createdAt = Number(entry.createdAt || 0);
-        const expiresAt = Number(entry.expiresAt || 0);
-        if (Number.isFinite(expiresAt) && expiresAt > 0) {
-          return expiresAt > now && expiresAt <= createdAt + PB_BOOKING_ACCESS_TOKEN_HARD_MAX_AGE_MS;
-        }
-        // Legacy hold tokens had no explicit booking-bound expiry. Preserve
-        // their original 24-hour behavior rather than silently extending them.
-        return createdAt >= legacyCutoff;
-      })
-      .sort(([, a], [, b]) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
-      .slice(0, 100)
-  );
-  if (needsCleanup || JSON.stringify(cleaned) !== JSON.stringify(stored)) {
-    _pbSaveBookingAccessTokens(cleaned);
-  }
-  return cleaned;
-}
-
-function _pbSaveBookingAccessTokens(tokens) {
-  try {
-    localStorage.setItem(PB_BOOKING_ACCESS_TOKENS_KEY, JSON.stringify(tokens || {}));
-  } catch (_) {}
-}
-
-function _pbBookingAccessToken(ref, create = false, expiresAt = 0) {
-  const key = String(ref || '').trim().toUpperCase();
-  if (!key) return '';
-  const tokens = _pbLoadBookingAccessTokens();
-  if (tokens[key]?.token) {
-    const requestedExpiry = Number(expiresAt || 0);
-    if (create && Number.isFinite(requestedExpiry) && requestedExpiry > Date.now()) {
-      const hardExpiry = Number(tokens[key].createdAt || Date.now()) + PB_BOOKING_ACCESS_TOKEN_HARD_MAX_AGE_MS;
-      tokens[key].expiresAt = Math.min(requestedExpiry, hardExpiry);
-      _pbSaveBookingAccessTokens(tokens);
+async function _pbPlatformBootstrap() {
+  return _pbCached('platformBootstrap', {}, PB_FAST_CACHE_MS.settings, async () => {
+    const { data, error } = await _sb.rpc('get_public_tenant_bootstrap', {
+      p_tenant_slug: PB_TENANT_SLUG,
+      p_hostname: _pbTenantHostname(),
+    });
+    if (error) throw error;
+    if (!data?.tenant || data.tenant.slug !== PB_TENANT_SLUG || data.tenant.id !== 'f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a' || !Array.isArray(data?.courts)) {
+      throw new Error('This booking website is not configured for the current domain.');
     }
-    return tokens[key].token;
-  }
-  if (!create) return '';
-  if (!globalThis.crypto?.getRandomValues) {
-    throw new Error('This browser cannot securely create a booking access token.');
-  }
-  const bytes = new Uint8Array(32);
-  globalThis.crypto.getRandomValues(bytes);
-  const token = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
-  const createdAt = Date.now();
-  const requestedExpiry = Number(expiresAt || 0);
-  tokens[key] = {
-    token,
-    createdAt,
-    ...(Number.isFinite(requestedExpiry) && requestedExpiry > createdAt
-      ? { expiresAt: Math.min(requestedExpiry, createdAt + PB_BOOKING_ACCESS_TOKEN_HARD_MAX_AGE_MS) }
-      : {}),
-  };
-  _pbSaveBookingAccessTokens(tokens);
-  return token;
-}
-
-function _pbRememberBookingAccessToken(ref, token, expiresAt = 0) {
-  const key = String(ref || '').trim().toUpperCase();
-  if (!key || !token) return;
-  const tokens = _pbLoadBookingAccessTokens();
-  const existing = tokens[key];
-  const createdAt = existing?.token === String(token) ? Number(existing.createdAt || Date.now()) : Date.now();
-  const requestedExpiry = Number(expiresAt || 0);
-  tokens[key] = {
-    token: String(token),
-    createdAt,
-    ...(Number.isFinite(requestedExpiry) && requestedExpiry > Date.now()
-      ? { expiresAt: Math.min(requestedExpiry, createdAt + PB_BOOKING_ACCESS_TOKEN_HARD_MAX_AGE_MS) }
-      : existing?.expiresAt ? { expiresAt: existing.expiresAt } : {}),
-  };
-  _pbSaveBookingAccessTokens(tokens);
-}
-
-function _pbBookingAccessExpiry() {
-  // Keep the device proof long enough to survive a staff reschedule. The RPC
-  // remains authoritative and refuses access seven days after the current
-  // booking date, with the same absolute 400-day cap enforced server-side.
-  return Date.now() + PB_BOOKING_ACCESS_TOKEN_HARD_MAX_AGE_MS;
-}
-
-function _pbForgetBookingAccessToken(ref) {
-  const key = String(ref || '').trim().toUpperCase();
-  if (!key) return;
-  const tokens = _pbLoadBookingAccessTokens();
-  if (!Object.prototype.hasOwnProperty.call(tokens, key)) return;
-  delete tokens[key];
-  _pbSaveBookingAccessTokens(tokens);
-}
-
-function _pbForgetBookingAccessTokenFamily(token) {
-  const normalized = String(token || '');
-  if (!normalized) return;
-  const tokens = _pbLoadBookingAccessTokens();
-  let changed = false;
-  Object.keys(tokens).forEach(key => {
-    if (String(tokens[key]?.token || '') !== normalized) return;
-    delete tokens[key];
-    changed = true;
+    const readiness = data?.readiness && typeof data.readiness === 'object'
+      ? data.readiness
+      : {};
+    window.PB_PLATFORM_READINESS = Object.freeze({ ...readiness });
+    window.PB_PUBLIC_BOOKING_ENABLED =
+      PB_PUBLIC_BOOKING_REQUESTED && readiness.publicBookingEnabled === true && Boolean(String(PB_RUNTIME_CONFIG.turnstileSiteKey || '').trim());
+    return data;
   });
-  if (changed) _pbSaveBookingAccessTokens(tokens);
 }
 
-async function _pbSha256Hex(value) {
-  if (!globalThis.crypto?.subtle || typeof TextEncoder !== 'function') {
-    throw new Error('This browser cannot securely protect the booking access token.');
+async function _pbPlatformAvailability(date) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return null;
+  return _pbCached('platformAvailability', { date }, PB_FAST_CACHE_MS.bookings, async () => {
+    const { data, error } = await _sb.rpc('get_public_availability', {
+      p_tenant_slug: PB_TENANT_SLUG,
+      p_hostname: _pbTenantHostname(),
+      p_date: date,
+    });
+    if (error) throw error;
+    if (!data || data.tenantSlug !== PB_TENANT_SLUG) {
+      throw new Error('Availability is not configured for the current domain.');
+    }
+    _pbRememberPlatformBlockedHours(data);
+    return data;
+  });
+}
+
+function _pbClockHour(value, endOfDay = false) {
+  const match = /^(\d{2}):(\d{2})/.exec(String(value || ''));
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || minute !== 0) return null;
+  if (endOfDay && hour === 0) return 24;
+  return hour;
+}
+
+function _pbPlatformCourtToLegacy(court, { publicPublished = false } = {}) {
+  const regular = court?.pricingConfig?.regular || {};
+  const bands = Array.isArray(regular.bands) ? regular.bands : [];
+  const rateSchedule = bands.map(band => ({
+    from: _pbClockHour(band.start),
+    to: String(band.end) === '24:00' ? 24 : _pbClockHour(band.end, true),
+    rate: Number(band.hourlyRate),
+  })).filter(band => Number.isInteger(band.from) && Number.isInteger(band.to) && band.to > band.from && Number.isFinite(band.rate) && band.rate > 0);
+  const surface = String(court?.publicConfig?.surface || '').trim();
+  const suppliedStatus = String(court?.status || '').toLowerCase();
+  const status = ['active', 'inactive', 'maintenance'].includes(suppliedStatus)
+    ? suppliedStatus
+    // The public bootstrap publishes only bookable courts, but older versions
+    // of its DTO omitted status. Keep the manager path fail-closed while
+    // recognizing a court returned by that trusted public projection as active.
+    : publicPublished ? 'active' : 'inactive';
+  return {
+    id: court.id,
+    slug: court.slug,
+    name: court.name,
+    desc: court.description || '',
+    rate: Number(rateSchedule[0]?.rate || 0),
+    status,
+    blocked: status === 'maintenance',
+    sortOrder: Number(court.sortOrder || 0),
+    surface,
+    feats: surface ? [surface] : [],
+    photo: court?.publicConfig?.photoUrl || '',
+    rateSchedule,
+    opensAt: court.opensAt,
+    closesAt: court.closesAt,
+    currency: String(court.currency || '').trim(),
+    pricingConfig: court.pricingConfig || {},
+    publicConfig: court.publicConfig || {},
+  };
+}
+
+function _pbPublicPlatformCourtToLegacy(court) {
+  return _pbPlatformCourtToLegacy(court, { publicPublished: true });
+}
+
+function _pbPlatformRawCourtToLegacy(row) {
+  return _pbPlatformCourtToLegacy({
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    description: row.description,
+    status: row.status,
+    sortOrder: row.sort_order,
+    opensAt: String(row.opens_at || '').slice(0, 5),
+    closesAt: String(row.closes_at || '').slice(0, 5),
+    currency: row.currency,
+    pricingConfig: row.pricing_config || {},
+    publicConfig: row.public_config || {},
+  });
+}
+
+async function _pbAuthenticatedSession() {
+  const { data } = await _sb.auth.getSession();
+  return data?.session || null;
+}
+
+function _pbZonedHour(timestamp, timeZone) {
+  if (!timestamp) return null;
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: timeZone || 'Asia/Manila',
+      hour: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(new Date(timestamp));
+    const hour = Number(parts.find(part => part.type === 'hour')?.value);
+    return Number.isInteger(hour) ? hour : null;
+  } catch (_) {
+    return null;
   }
-  const input = new TextEncoder().encode(String(value || ''));
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', input);
-  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function _pbPlatformRescheduleEventToLegacy(event) {
+  const row = event && typeof event === 'object' ? event : {};
+  const email = row.email && typeof row.email === 'object'
+    ? row.email
+    : row.notification && typeof row.notification === 'object'
+      ? row.notification
+      : {};
+  return {
+    id: row.id || row.eventId || row.event_id || null,
+    reasonCode: row.reasonCode || row.reason_code || '',
+    publicReason: row.publicReason || row.public_reason || '',
+    internalNote: row.internalNote || row.internal_note || '',
+    oldStartsAt: row.oldStartsAt || row.old_starts_at || '',
+    oldEndsAt: row.oldEndsAt || row.old_ends_at || '',
+    newStartsAt: row.newStartsAt || row.new_starts_at || '',
+    newEndsAt: row.newEndsAt || row.new_ends_at || '',
+    rescheduledAt: row.rescheduledAt || row.rescheduled_at || row.createdAt || row.created_at || '',
+    rescheduledBy: row.rescheduledBy || row.rescheduled_by || row.actorName || row.actor_name || row.actorEmail || row.actor_email || '',
+    notifyCustomer: row.notifyCustomer ?? row.notify_customer ?? false,
+    emailStatus: row.emailStatus || row.email_status || email.status || '',
+    emailSentAt: row.emailSentAt || row.email_sent_at || email.sentAt || email.sent_at || '',
+    emailDeliveryId: row.emailDeliveryId || row.email_delivery_id || row.emailProviderReference || row.email_provider_reference || email.deliveryId || email.delivery_id || email.providerReference || email.provider_reference || null,
+    emailErrorCode: row.emailErrorCode || row.email_error_code || row.emailLastErrorCode || row.email_last_error_code || email.errorCode || email.error_code || '',
+    emailAttemptCount: Number(row.emailAttemptCount ?? row.email_attempt_count ?? email.attemptCount ?? email.attempt_count ?? 0),
+  };
+}
+
+function _pbPlatformRescheduleEmailToLegacy(email) {
+  const row = email && typeof email === 'object' ? email : {};
+  return {
+    status: String(row.status || ''),
+    deliveryId: row.deliveryId || row.delivery_id || row.providerReference || row.provider_reference || null,
+    errorCode: row.errorCode || row.error_code || '',
+    sentAt: row.sentAt || row.sent_at || '',
+    attemptCount: Number(row.attemptCount ?? row.attempt_count ?? 0),
+  };
+}
+
+function _pbWeatherRefundNumber(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined || value === '') continue;
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
+}
+
+function _pbWeatherRefundExpectedAmount(basisAmount, refundPercent) {
+  if (!Number.isFinite(basisAmount) || !Number.isFinite(refundPercent)) return null;
+  return Math.round(basisAmount * refundPercent) / 100;
+}
+
+function _pbWeatherRefundAmountMatches(actualAmount, expectedAmount) {
+  return Number.isFinite(actualAmount) &&
+    Number.isFinite(expectedAmount) &&
+    Math.abs(actualAmount - expectedAmount) < 0.011;
+}
+
+function _pbNormalizeWeatherRefund(value, { kind = 'summary' } = {}) {
+  const source = value && typeof value === 'object'
+    ? (value.incident && typeof value.incident === 'object'
+      ? value.incident
+      : value.preview && typeof value.preview === 'object'
+        ? value.preview
+        : value.weatherRefund && typeof value.weatherRefund === 'object'
+          ? value.weatherRefund
+          : value)
+    : null;
+  if (!source) return null;
+  const notes = source.notes && typeof source.notes === 'object' ? source.notes : {};
+  const actors = source.actors && typeof source.actors === 'object' ? source.actors : {};
+  const timestamps = source.timestamps && typeof source.timestamps === 'object' ? source.timestamps : {};
+  const payout = source.payout && typeof source.payout === 'object' ? source.payout : {};
+  const status = String(source.status || '').trim().toLowerCase();
+  const payoutStatus = String(source.payoutStatus || source.payout_status || payout.status || '').trim().toLowerCase();
+  const grossPaidAmount = _pbWeatherRefundNumber(
+    source.grossPaidAmount,
+    source.gross_paid_amount,
+    source.paidAmount,
+    source.paid_amount,
+  );
+  const normalized = {
+    id: source.id || source.incidentId || source.incident_id || null,
+    bookingReference: String(source.bookingReference || source.booking_reference || source.reference || '').trim(),
+    courtId: source.courtId || source.court_id || null,
+    courtName: String(source.courtName || source.court_name || '').trim(),
+    bookingStartsAt: source.bookingStartsAt || source.booking_starts_at || '',
+    bookingEndsAt: source.bookingEndsAt || source.booking_ends_at || '',
+    actualPlayStartedAt: source.actualPlayStartedAt || source.actual_play_started_at || '',
+    rainStoppedPlayAt: source.rainStoppedPlayAt || source.rain_stopped_play_at || '',
+    elapsedSeconds: _pbWeatherRefundNumber(source.elapsedSeconds, source.elapsed_seconds),
+    elapsedMinutes: _pbWeatherRefundNumber(source.elapsedMinutes, source.elapsed_minutes),
+    refundPercent: _pbWeatherRefundNumber(source.refundPercent, source.refund_percent),
+    paidAmount: grossPaidAmount,
+    grossPaidAmount,
+    courtRentalAmount: _pbWeatherRefundNumber(
+      source.courtRentalAmount,
+      source.court_rental_amount,
+    ),
+    equipmentRentalAmount: _pbWeatherRefundNumber(
+      source.equipmentRentalAmount,
+      source.equipment_rental_amount,
+    ),
+    platformBookingFeeAmount: _pbWeatherRefundNumber(
+      source.platformBookingFeeAmount,
+      source.platform_booking_fee_amount,
+      source.serviceFeeAmount,
+      source.service_fee_amount,
+    ),
+    refundableBasisAmount: _pbWeatherRefundNumber(
+      source.refundableBasisAmount,
+      source.refundable_basis_amount,
+    ),
+    calculationBasis: String(
+      source.calculationBasis || source.calculation_basis || '',
+    ).trim().toLowerCase(),
+    refundAmount: _pbWeatherRefundNumber(source.refundAmount, source.refund_amount),
+    ruleVersion: String(source.ruleVersion || source.rule_version || '').trim(),
+    currency: String(source.currency || 'PHP').trim().toUpperCase(),
+    status,
+    payoutStatus,
+    reportNote: String(source.reportNote || source.report_note || notes.report || '').trim(),
+    decisionNote: String(source.decisionNote || source.decision_note || notes.decision || '').trim(),
+    payoutNote: String(source.payoutNote || source.payout_note || payout.note || notes.payout || '').trim(),
+    reportedBy: source.reportedBy || source.reported_by || actors.reportedBy || actors.reported_by || null,
+    decidedBy: source.decidedBy || source.decided_by || actors.decidedBy || actors.decided_by || null,
+    payoutSentBy: source.payoutSentBy || source.payout_sent_by || payout.sentBy || payout.sent_by || actors.payoutSentBy || null,
+    reportedAt: source.reportedAt || source.reported_at || timestamps.reportedAt || timestamps.reported_at || '',
+    decidedAt: source.decidedAt || source.decided_at || source.reviewedAt || source.reviewed_at || timestamps.decidedAt || timestamps.reviewedAt || '',
+    payoutSentAt: source.payoutSentAt || source.payout_sent_at || payout.sentAt || payout.sent_at || timestamps.payoutSentAt || '',
+    payoutReference: String(source.payoutReference || source.payout_reference || payout.reference || '').trim(),
+    payoutMethod: String(source.payoutMethod || source.payout_method || payout.method || '').trim(),
+    source: String(source.source || source.reportSource || source.report_source || 'staff_manual').trim().toLowerCase(),
+    playerClaimId: source.playerClaimId || source.player_claim_id || null,
+    proofAvailable: source.proofAvailable === true || source.proof_available === true,
+    playerReportedAt: source.playerReportedAt || source.player_reported_at || '',
+    scheduledPlayStartedAt: source.scheduledPlayStartedAt || source.scheduled_play_started_at || source.bookingStartsAt || source.booking_starts_at || '',
+    actualPlayStartOverridden: source.actualPlayStartOverridden === true || source.actual_play_start_overridden === true,
+  };
+  const validStatus = ['reported', 'approved', 'rejected'].includes(normalized.status);
+  const publicSummary = kind === 'summary';
+  const validPayoutStatus = (
+    publicSummary
+      ? ['awaiting_approval', 'pending', 'sent', 'not_required']
+      : ['pending', 'sent', 'not_required']
+  ).includes(normalized.payoutStatus);
+  const validMoney = [normalized.grossPaidAmount, normalized.refundAmount]
+    .every(amount => Number.isFinite(amount) && amount >= 0);
+  const splitValues = [
+    normalized.courtRentalAmount,
+    normalized.equipmentRentalAmount,
+    normalized.platformBookingFeeAmount,
+    normalized.refundableBasisAmount,
+  ];
+  const hasCompleteSplit = splitValues.every(amount => Number.isFinite(amount) && amount >= 0);
+  const splitAddsToGross = hasCompleteSplit &&
+    Math.abs(
+      normalized.courtRentalAmount +
+      normalized.equipmentRentalAmount +
+      normalized.platformBookingFeeAmount -
+      normalized.grossPaidAmount
+    ) < 0.011;
+  const currentRule = normalized.ruleVersion === 'rain-v3';
+  const legacyRule = ['rain-v1', 'rain-v2'].includes(normalized.ruleVersion);
+  const validBasis = currentRule
+    ? normalized.calculationBasis === 'court-rental-v1' &&
+      hasCompleteSplit &&
+      splitAddsToGross &&
+      Math.abs(normalized.refundableBasisAmount - normalized.courtRentalAmount) < 0.011
+    : legacyRule &&
+      normalized.calculationBasis === 'gross-paid-legacy' &&
+      hasCompleteSplit &&
+      splitAddsToGross &&
+      Math.abs(normalized.refundableBasisAmount - normalized.grossPaidAmount) < 0.011;
+  const validRuleVersion = currentRule || legacyRule;
+  const expectedRefundAmount = _pbWeatherRefundExpectedAmount(
+    normalized.refundableBasisAmount,
+    normalized.refundPercent,
+  );
+  const validAccounting = validMoney && validBasis && validRuleVersion &&
+    normalized.currency === 'PHP' &&
+    _pbWeatherRefundAmountMatches(normalized.refundAmount, expectedRefundAmount);
+  const validCalculation = Number.isFinite(normalized.elapsedMinutes) && normalized.elapsedMinutes >= 0 &&
+    Number.isFinite(normalized.refundPercent) && normalized.refundPercent >= 0 && normalized.refundPercent <= 100 &&
+    validAccounting;
+  const validDate = timestamp => Boolean(timestamp) && !Number.isNaN(new Date(timestamp).getTime());
+  const payoutSentAtValid = validDate(normalized.payoutSentAt);
+  const payoutLifecycleValid = normalized.status === 'reported'
+    ? normalized.payoutStatus === (publicSummary ? 'awaiting_approval' : 'pending') &&
+      !normalized.payoutSentAt
+    : normalized.status === 'rejected'
+      ? normalized.payoutStatus === 'not_required' && !normalized.payoutSentAt
+      : normalized.status === 'approved' && normalized.refundAmount === 0
+        ? normalized.payoutStatus === 'not_required' && !normalized.payoutSentAt
+        : normalized.status === 'approved' && normalized.refundAmount > 0
+          ? (normalized.payoutStatus === 'pending' && !normalized.payoutSentAt) ||
+            (normalized.payoutStatus === 'sent' && payoutSentAtValid)
+          : false;
+  const validSummary = validStatus && validPayoutStatus &&
+    Number.isFinite(normalized.refundPercent) && normalized.refundPercent >= 0 && normalized.refundPercent <= 100 &&
+    validAccounting && payoutLifecycleValid;
+  const validIncident = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(normalized.id || '')) &&
+    Boolean(normalized.bookingReference) && validStatus && validPayoutStatus && validCalculation && payoutLifecycleValid &&
+    validDate(normalized.bookingStartsAt) && validDate(normalized.bookingEndsAt) &&
+    validDate(normalized.actualPlayStartedAt) && validDate(normalized.rainStoppedPlayAt) &&
+    validDate(normalized.reportedAt) &&
+    (!['approved', 'rejected'].includes(normalized.status) || validDate(normalized.decidedAt)) &&
+    (normalized.payoutStatus !== 'sent' || payoutSentAtValid);
+  if (kind === 'preview') {
+    return validCalculation && normalized.ruleVersion === 'rain-v3' ? normalized : null;
+  }
+  if (kind === 'incident') return validIncident ? normalized : null;
+  return validSummary ? normalized : null;
+}
+
+function _pbNormalizePlayerRainPayoutDestination(value) {
+  const source = value && typeof value === 'object' ? value : null;
+  if (!source) return null;
+  const destination = {
+    method: String(source.method || '').trim().toLowerCase(),
+    accountName: String(source.accountName || source.account_name || '').trim(),
+    mobileNumber: String(source.mobileNumber || source.mobile_number || '').trim(),
+    collectedAt: source.collectedAt || source.collected_at || '',
+  };
+  const collectedAt = new Date(destination.collectedAt || '');
+  return destination.method === 'gcash' &&
+    destination.accountName.length >= 2 && destination.accountName.length <= 100 &&
+    /^\+639\d{9}$/.test(destination.mobileNumber) &&
+    !Number.isNaN(collectedAt.getTime())
+    ? destination
+    : null;
+}
+
+function _pbPlayerRainExpectedPercent(elapsedSeconds) {
+  if (!Number.isInteger(elapsedSeconds) || elapsedSeconds < 1) return null;
+  if (elapsedSeconds <= 900) return 75;
+  if (elapsedSeconds <= 1800) return 50;
+  if (elapsedSeconds <= 2700) return 25;
+  return 0;
+}
+
+function _pbPlayerRainStartPolicyAccepted(claim, idempotent = false) {
+  if (!claim || typeof claim !== 'object') return false;
+  return (
+    claim.ruleVersion === 'rain-v3' &&
+    claim.calculationBasis === 'court-rental-v1'
+  ) || (
+    idempotent === true &&
+    claim.ruleVersion === 'rain-v2' &&
+    claim.calculationBasis === 'gross-paid-legacy'
+  );
+}
+
+function _pbNormalizePlayerRainClaim(value, { kind = 'full' } = {}) {
+  const source = value && typeof value === 'object'
+    ? (value.claim && typeof value.claim === 'object' ? value.claim : value)
+    : null;
+  if (!source || !['full', 'booking-summary'].includes(kind)) return null;
+  const number = (...values) => _pbWeatherRefundNumber(...values);
+  const elapsedSeconds = number(source.elapsedSeconds, source.elapsed_seconds);
+  const grossPaidAmount = number(
+    source.grossPaidAmount,
+    source.gross_paid_amount,
+    source.paidAmount,
+    source.paid_amount,
+  );
+  const claim = {
+    id: String(source.id || source.claimId || source.claim_id || '').trim(),
+    status: String(source.status || '').trim().toLowerCase(),
+    bookingReference: String(source.bookingReference || source.booking_reference || '').trim().toUpperCase(),
+    bookingId: source.bookingId || source.booking_id || null,
+    courtId: source.courtId || source.court_id || null,
+    courtName: String(source.courtName || source.court_name || '').trim(),
+    customerName: String(source.customerName || source.customer_name || '').trim(),
+    customerEmail: String(source.customerEmail || source.customer_email || '').trim(),
+    customerPhone: String(source.customerPhone || source.customer_phone || '').trim(),
+    accessMethod: String(source.accessMethod || source.access_method || '').trim(),
+    bookingDate: String(source.bookingDate || source.booking_date || '').trim(),
+    bookingStartsAt: source.bookingStartsAt || source.booking_starts_at || '',
+    bookingEndsAt: source.bookingEndsAt || source.booking_ends_at || '',
+    rainReportedAt: source.rainReportedAt || source.rain_reported_at || '',
+    proofDueAt: source.proofDueAt || source.proof_due_at || '',
+    submittedAt: source.submittedAt || source.submitted_at || '',
+    decidedAt: source.decidedAt || source.decided_at || '',
+    elapsedSeconds,
+    elapsedMinutes: Number.isInteger(elapsedSeconds)
+      ? (kind === 'booking-summary'
+        ? Math.round(elapsedSeconds / 6) / 10
+        : Math.round((elapsedSeconds / 60) * 100) / 100)
+      : null,
+    ruleVersion: String(source.ruleVersion || source.rule_version || '').trim(),
+    refundPercent: number(source.refundPercent, source.refund_percent),
+    paidAmount: grossPaidAmount,
+    grossPaidAmount,
+    courtRentalAmount: number(
+      source.courtRentalAmount,
+      source.court_rental_amount,
+    ),
+    equipmentRentalAmount: number(
+      source.equipmentRentalAmount,
+      source.equipment_rental_amount,
+    ),
+    platformBookingFeeAmount: number(
+      source.platformBookingFeeAmount,
+      source.platform_booking_fee_amount,
+      source.serviceFeeAmount,
+      source.service_fee_amount,
+    ),
+    refundableBasisAmount: number(
+      source.refundableBasisAmount,
+      source.refundable_basis_amount,
+    ),
+    calculationBasis: String(
+      source.calculationBasis || source.calculation_basis || '',
+    ).trim().toLowerCase(),
+    estimatedRefundAmount: number(source.estimatedRefundAmount, source.estimated_refund_amount),
+    refundAmount: number(source.refundAmount, source.refund_amount),
+    currency: String(source.currency || 'PHP').trim().toUpperCase(),
+    proofAvailable: source.proofAvailable === true || source.proof_available === true,
+    reportNote: String(source.reportNote || source.report_note || '').trim(),
+    decisionNote: String(source.decisionNote || source.decision_note || '').trim(),
+    playStartOverrideReason: String(source.playStartOverrideReason || source.play_start_override_reason || '').trim(),
+    actualPlayStartedAt: source.actualPlayStartedAt || source.actual_play_started_at || '',
+    scheduledPlayStartedAt: source.scheduledPlayStartedAt || source.scheduled_play_started_at || source.bookingStartsAt || source.booking_starts_at || '',
+    actualPlayStartOverridden: source.actualPlayStartOverridden === true || source.actual_play_start_overridden === true,
+    incidentId: source.incidentId || source.incident_id || null,
+    payoutStatus: String(
+      source.payoutStatus || source.payout_status || '',
+    ).trim().toLowerCase(),
+    payoutSentAt: source.payoutSentAt || source.payout_sent_at || '',
+    payoutDestination: _pbNormalizePlayerRainPayoutDestination(
+      source.payoutDestination || source.payout_destination
+    ),
+    createdAt: source.createdAt || source.created_at || '',
+    updatedAt: source.updatedAt || source.updated_at || '',
+  };
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const validId = uuidPattern.test(claim.id);
+  const validStatus = ['awaiting_proof', 'submitted', 'approved', 'rejected', 'expired'].includes(claim.status);
+  const validDate = timestamp => Boolean(timestamp) && !Number.isNaN(new Date(timestamp).getTime());
+  const splitValues = [
+    claim.courtRentalAmount,
+    claim.equipmentRentalAmount,
+    claim.platformBookingFeeAmount,
+    claim.refundableBasisAmount,
+  ];
+  const hasCompleteSplit = splitValues.every(amount => Number.isFinite(amount) && amount >= 0);
+  const splitAddsToGross = hasCompleteSplit &&
+    Math.abs(
+      claim.courtRentalAmount +
+      claim.equipmentRentalAmount +
+      claim.platformBookingFeeAmount -
+      claim.grossPaidAmount
+    ) < 0.011;
+  const currentRule = claim.ruleVersion === 'rain-v3';
+  const legacyRule = claim.ruleVersion === 'rain-v2';
+  const validBasis = currentRule
+    ? claim.calculationBasis === 'court-rental-v1' &&
+      hasCompleteSplit &&
+      splitAddsToGross &&
+      Math.abs(claim.refundableBasisAmount - claim.courtRentalAmount) < 0.011
+    : legacyRule &&
+      claim.calculationBasis === 'gross-paid-legacy' &&
+      hasCompleteSplit &&
+      Math.abs(claim.refundableBasisAmount - claim.grossPaidAmount) < 0.011;
+  const expectedRefundAmount = _pbWeatherRefundExpectedAmount(
+    claim.refundableBasisAmount,
+    claim.refundPercent,
+  );
+  const payoutSentAtValid = validDate(claim.payoutSentAt);
+  const expectedPercent = _pbPlayerRainExpectedPercent(claim.elapsedSeconds);
+  const preDecision = ['awaiting_proof', 'submitted', 'expired', 'rejected'].includes(claim.status);
+  const estimateMatches = _pbWeatherRefundAmountMatches(
+    claim.estimatedRefundAmount,
+    expectedRefundAmount,
+  );
+  const finalMatches = _pbWeatherRefundAmountMatches(
+    claim.refundAmount,
+    expectedRefundAmount,
+  );
+  const preDecisionMoneyValid = preDecision &&
+    estimateMatches &&
+    claim.refundAmount === null &&
+    !claim.payoutStatus &&
+    !claim.payoutSentAt;
+  const approvedPayoutValid = claim.status === 'approved' && finalMatches &&
+    (claim.refundAmount === 0
+      ? claim.payoutStatus === 'not_required' && !claim.payoutSentAt
+      : claim.refundAmount > 0 &&
+        ((claim.payoutStatus === 'pending' && !claim.payoutSentAt) ||
+          (claim.payoutStatus === 'sent' && payoutSentAtValid)));
+  const submittedAtValid = validDate(claim.submittedAt);
+  const decidedAtValid = validDate(claim.decidedAt);
+  const workflowDatesValid = ['awaiting_proof', 'expired'].includes(claim.status)
+    ? !claim.submittedAt && !claim.decidedAt
+    : claim.status === 'submitted'
+      ? submittedAtValid && !claim.decidedAt
+      : claim.status === 'rejected' || claim.status === 'approved'
+        ? submittedAtValid && decidedAtValid
+        : false;
+  const validCalculation = Number.isFinite(claim.elapsedMinutes) && claim.elapsedMinutes > 0 &&
+    Number.isInteger(claim.elapsedSeconds) && claim.elapsedSeconds > 0 &&
+    claim.refundPercent === expectedPercent &&
+    Number.isFinite(claim.grossPaidAmount) && claim.grossPaidAmount >= 0 &&
+    validBasis && (currentRule || legacyRule) &&
+    (preDecisionMoneyValid || approvedPayoutValid) &&
+    workflowDatesValid &&
+    claim.currency === 'PHP';
+  const bookingIdentityValid = kind === 'booking-summary' ||
+    (claim.bookingReference &&
+      validDate(claim.bookingStartsAt) &&
+      validDate(claim.bookingEndsAt));
+  const approvedIncidentValid = claim.status !== 'approved' ||
+    kind === 'booking-summary' ||
+    uuidPattern.test(String(claim.incidentId || ''));
+  const rawPayoutDestination = source.payoutDestination || source.payout_destination || null;
+  const payoutDestinationValid = !rawPayoutDestination || Boolean(claim.payoutDestination);
+  let nestedIncidentValid = true;
+  const nestedIncidentSource = source.incident && typeof source.incident === 'object'
+    ? source.incident
+    : null;
+  if (nestedIncidentSource) {
+    const incident = _pbNormalizeWeatherRefund(nestedIncidentSource, { kind: 'incident' });
+    nestedIncidentValid = Boolean(incident) &&
+      String(incident.id || '').toLowerCase() === String(claim.incidentId || '').toLowerCase() &&
+      incident.ruleVersion === claim.ruleVersion &&
+      incident.refundPercent === claim.refundPercent &&
+      _pbWeatherRefundAmountMatches(incident.grossPaidAmount, claim.grossPaidAmount) &&
+      _pbWeatherRefundAmountMatches(incident.courtRentalAmount, claim.courtRentalAmount) &&
+      _pbWeatherRefundAmountMatches(incident.equipmentRentalAmount, claim.equipmentRentalAmount) &&
+      _pbWeatherRefundAmountMatches(incident.platformBookingFeeAmount, claim.platformBookingFeeAmount) &&
+      _pbWeatherRefundAmountMatches(incident.refundableBasisAmount, claim.refundableBasisAmount) &&
+      incident.calculationBasis === claim.calculationBasis &&
+      _pbWeatherRefundAmountMatches(incident.refundAmount, claim.refundAmount) &&
+      incident.currency === claim.currency;
+  }
+  if (claim.status === 'approved') claim.estimatedRefundAmount = null;
+  return validId && validStatus && bookingIdentityValid && approvedIncidentValid &&
+    validDate(claim.rainReportedAt) && validDate(claim.proofDueAt) &&
+    payoutDestinationValid && nestedIncidentValid && validCalculation
+    ? claim
+    : null;
+}
+
+function _pbNormalizePublicBookingStatus(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const booking = { ...value };
+  const rawWeatherRefund = value.weatherRefund || value.weather_refund || null;
+  const rawPlayerClaim = value.playerRainClaim || value.player_rain_claim ||
+    value.rainClaim || value.rain_claim || null;
+  delete booking.weather_refund;
+  delete booking.player_rain_claim;
+  delete booking.rainClaim;
+  delete booking.rain_claim;
+  if (rawWeatherRefund) {
+    const weatherRefund = _pbNormalizeWeatherRefund(rawWeatherRefund, { kind: 'summary' });
+    if (weatherRefund) booking.weatherRefund = weatherRefund;
+    else return null;
+  }
+  if (rawPlayerClaim) {
+    const playerRainClaim = _pbNormalizePlayerRainClaim(rawPlayerClaim, {
+      kind: 'booking-summary',
+    });
+    if (playerRainClaim) booking.playerRainClaim = playerRainClaim;
+    else return null;
+  }
+  return booking;
+}
+
+function _pbWeatherRefundIdempotencyKey() {
+  if (!window.crypto?.randomUUID) {
+    throw new Error('This browser cannot create a secure refund request. Please update it and try again.');
+  }
+  return window.crypto.randomUUID();
+}
+
+async function _pbManageWeatherRefund(action, payload = {}) {
+  if (!PB_PLATFORM_V1) throw new Error('Rain refunds require the protected tenant platform.');
+  if (!await _pbAuthenticatedSession()) {
+    const error = new Error('Your session is no longer available. Please sign in again.');
+    error.code = 'AUTHENTICATION_REQUIRED';
+    throw error;
+  }
+  const result = await _invokeEdgeFunction(
+    `manage-weather-refund?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+    {
+      action: String(action || ''),
+      tenantSlug: PB_TENANT_SLUG,
+      ...payload,
+    },
+    { preferDirect: true },
+  );
+  if (!result?.ok) {
+    const message = result?.error?.message || result?.message || 'The rain refund service returned an invalid response.';
+    const error = new Error(message);
+    error.code = result?.error?.code || null;
+    throw error;
+  }
+  return result;
+}
+
+function _pbPlatformRescheduleOptionToLegacy(option) {
+  const row = option && typeof option === 'object' ? option : {};
+  const startsAt = row.startsAt || row.starts_at || '';
+  const endsAt = row.endsAt || row.ends_at || '';
+  const startTime = String(row.startTime || row.start_time || String(startsAt).slice(11, 16));
+  const endTime = String(row.endTime || row.end_time || String(endsAt).slice(11, 16));
+  const unavailableReason = String(row.unavailableReason || row.unavailable_reason || '');
+  const prices = {};
+  for (const [key, snake] of Object.entries({courtSubtotalAmount:'court_subtotal_amount',newSubtotalAmount:'new_subtotal_amount',newTotalAmount:'new_total_amount',originalTotalAmount:'original_total_amount',amountPaid:'amount_paid',additionalAmount:'additional_amount'})) {
+    const value = row[key] ?? row[snake];
+    if (row.available !== false && !unavailableReason && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) throw new Error('The new schedule price could not be verified. Refresh before rescheduling.');
+    prices[key] = typeof value === 'number' && Number.isFinite(value) ? value : null;
+  }
+  const paymentRequired = row.paymentRequired ?? row.payment_required;
+  if (row.available !== false && !unavailableReason && (typeof paymentRequired !== 'boolean' || paymentRequired !== (prices.additionalAmount > 0))) throw new Error('The new schedule payment requirement could not be verified.');
+  return {
+    startsAt,
+    endsAt,
+    startTime,
+    endTime,
+    label: String(row.label || `${startTime} - ${endTime}`),
+    available: row.available !== false && !unavailableReason,
+    unavailableReason,
+    ...prices,
+    paymentRequired: paymentRequired === true,
+  };
+}
+
+async function _pbPlatformBookingResponseToLegacy(row) {
+  if (!row || typeof row !== 'object') return null;
+  const bootstrap = await _pbPlatformBootstrap();
+  const courts = (bootstrap?.courts || []).map(_pbPublicPlatformCourtToLegacy);
+  return _pbPlatformBookingToLegacy(
+    row,
+    new Map(courts.map(court => [String(court.id), court])),
+    bootstrap?.tenant?.timezone || 'Asia/Manila',
+  );
+}
+
+function _pbPlatformBookingToLegacy(row, courtMap, timeZone) {
+  const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+  const lastReschedule = metadata.lastReschedule && typeof metadata.lastReschedule === 'object'
+    ? metadata.lastReschedule
+    : {};
+  const bookingSlots = Array.isArray(row.booking_slots)
+    ? [...row.booking_slots]
+    : Array.isArray(row.bookingSlots)
+      ? [...row.bookingSlots]
+      : [];
+  const startsAt = row.starts_at || row.startsAt;
+  const endsAt = row.ends_at || row.endsAt;
+  const slots = bookingSlots
+    .filter(slot => ['held', 'confirmed'].includes(slot.status))
+    .map(slot => _pbZonedHour(slot.starts_at || slot.startsAt, timeZone))
+    .filter(Number.isInteger)
+    .sort((a, b) => a - b);
+  const fallbackStart = _pbZonedHour(startsAt, timeZone);
+  const calculatedDuration = Math.round((new Date(endsAt) - new Date(startsAt)) / 3600000);
+  const declaredDuration = Number(row.durationHours ?? row.duration_hours ?? row.duration);
+  const duration = Number.isFinite(calculatedDuration) && calculatedDuration > 0
+    ? calculatedDuration
+    : Number.isFinite(declaredDuration) && declaredDuration > 0
+      ? declaredDuration
+      : 1;
+  if (!slots.length && Number.isInteger(fallbackStart)) {
+    for (let index = 0; index < duration; index++) slots.push((fallbackStart + index) % 24);
+  }
+  const rawStatus = row.status;
+  const status = {
+    pending_payment: 'verifying',
+    payment_review: 'pending',
+    confirmed: 'confirmed',
+    cancelled: 'cancelled',
+    completed: 'completed',
+    expired: 'forfeited',
+  }[rawStatus] || rawStatus;
+  const rawPaymentStatus = row.payment_status || row.paymentStatus;
+  const paymentStatus = {
+    unpaid: 'unpaid',
+    pending: 'for_verification',
+    partial: 'downpayment_paid',
+    paid: 'paid',
+    refunded: 'refunded',
+    rejected: 'rejected',
+  }[rawPaymentStatus] || rawPaymentStatus;
+  const courtId = row.court_id || row.courtId;
+  const court = courtMap.get(String(courtId));
+  const receipts = Array.isArray(row.receipt_verifications)
+    ? [...row.receipt_verifications].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+    : Array.isArray(row.receiptVerifications)
+      ? [...row.receiptVerifications].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+    : [];
+  const receipt = receipts[0] || null;
+  const paymentSessions = Array.isArray(row.payment_sessions)
+    ? [...row.payment_sessions].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+    : Array.isArray(row.paymentSessions)
+      ? [...row.paymentSessions].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+    : [];
+  const paymentSession = paymentSessions[0] || null;
+  const rawPaymentPayload = paymentSession?.provider_payload || paymentSession?.providerPayload;
+  const paymentPayload = rawPaymentPayload && typeof rawPaymentPayload === 'object'
+    ? rawPaymentPayload
+    : {};
+  const rawRescheduleEvents = Array.isArray(row.booking_reschedule_events)
+    ? row.booking_reschedule_events
+    : Array.isArray(row.rescheduleEvents)
+      ? row.rescheduleEvents
+      : Array.isArray(row.reschedule_events)
+        ? row.reschedule_events
+        : [];
+  const rescheduleEvents = rawRescheduleEvents
+    .map(_pbPlatformRescheduleEventToLegacy)
+    .sort((a, b) => String(b.rescheduledAt || '').localeCompare(String(a.rescheduledAt || '')));
+  const balanceRequests = Array.isArray(row.booking_balance_requests)
+    ? [...row.booking_balance_requests]
+    : Array.isArray(row.bookingBalanceRequests)
+      ? [...row.bookingBalanceRequests]
+      : [];
+  const balanceRequest = balanceRequests
+    .sort((a, b) => String(b.created_at || b.createdAt || '').localeCompare(String(a.created_at || a.createdAt || '')))[0] || null;
+  const acceptedBalanceAmount = Number(balanceRequest?.accepted_amount ?? balanceRequest?.acceptedAmount);
+  const mappedDownpayment = Number.isFinite(acceptedBalanceAmount) && acceptedBalanceAmount > 0
+    ? acceptedBalanceAmount
+    : metadata.fullPaymentOnly
+      ? Number(row.total_amount ?? row.totalAmount ?? row.total ?? 0)
+      : null;
+  const rawWeatherRefund = row.weatherRefund
+    || row.weather_refund
+    || row.weather_refund_incident
+    || (Array.isArray(row.weather_refund_incidents) ? row.weather_refund_incidents[0] : null)
+    || (Array.isArray(row.weatherRefundIncidents) ? row.weatherRefundIncidents[0] : null);
+  const subtotalAmount = Number(
+    row.subtotal_amount ?? row.subtotalAmount ?? row.courtFee ?? 0,
+  );
+  const rawEquipmentRentalAmount = Number(
+    metadata.equipmentRentalFeeAmount ?? metadata.equipment_rental_fee_amount ?? 0,
+  );
+  const equipmentRentalAmount = Number.isFinite(rawEquipmentRentalAmount)
+    ? Math.max(0, rawEquipmentRentalAmount)
+    : 0;
+  const storedCourtRentalAmount = Number(
+    metadata.courtSubtotalAmount ??
+    metadata.court_subtotal_amount ??
+    (subtotalAmount - equipmentRentalAmount),
+  );
+  const courtRentalAmount = Number.isFinite(storedCourtRentalAmount)
+    ? Math.max(0, storedCourtRentalAmount)
+    : Math.max(0, subtotalAmount - equipmentRentalAmount);
+  const platformBookingFeeAmount = Number(
+    row.service_fee_amount ?? row.serviceFeeAmount ?? row.serviceFee ?? 0,
+  );
+  return {
+    id: row.id,
+    ref: row.reference || row.ref || row.bookingReference,
+    groupRef: row.groupRef || row.group_ref || row.bookingGroupRef || row.booking_group_ref || null,
+    fullName: row.customer_name || row.customerName || row.fullName,
+    contactNumber: row.customer_phone || row.customerPhone || row.contactNumber,
+    email: row.customer_email || row.customerEmail || row.email,
+    courtId,
+    courtName: court?.name || row.courtName || row.court_name || 'Court',
+    date: row.local_booking_date || row.localBookingDate || String(startsAt || '').slice(0, 10),
+    slots,
+    startTime: slots.length ? _fmtBookingHour(slots[0]) : '',
+    endTime: slots.length ? _fmtBookingHour(slots[slots.length - 1] + 1) : '',
+    timeLabel: _bookingSlotsTimeLabel(slots),
+    duration,
+    rate: subtotalAmount / duration,
+    total: Number(row.total_amount ?? row.totalAmount ?? row.total ?? 0),
+    courtFee: subtotalAmount,
+    courtRentalAmount,
+    equipmentRentalAmount,
+    platformBookingFeeAmount: Number.isFinite(platformBookingFeeAmount)
+      ? Math.max(0, platformBookingFeeAmount)
+      : 0,
+    serviceFee: platformBookingFeeAmount,
+    downpayment: mappedDownpayment,
+    bookingType: row.booking_type || row.bookingType || 'regular',
+    eventType: metadata.eventType || null,
+    eventGuestCount: Number(row.guest_count || row.guestCount || 1),
+    eventSetupNotes: metadata.notes || null,
+    paymentMethod: (() => {
+      const code = String(metadata.paymentMethod || paymentPayload.paymentMethod || '').toLowerCase();
+      return code === 'bdo' ? 'bdopay' : (code || null);
+    })(),
+    gcashRef: receipt?.payment_reference || paymentPayload.submittedReference || null,
+    paymentStatus,
+    receiptVerificationId: receipt?.id || null,
+    // The source image stays private. This sentinel only tells the dashboard
+    // that an authenticated, short-lived viewing URL can be requested.
+    receiptImageUrl: receipt?.storage_path ? 'protected' : null,
+    receiptStatus: receipt?.status || 'none',
+    receiptFlags: receipt?.flags || [],
+    receiptExtracted: receipt?.extracted_data || null,
+    receiptConfidence: receipt?.confidence == null ? null : Number(receipt.confidence),
+    receiptVerifiedAt: receipt?.reviewed_at || receipt?.verified_at || null,
+    receiptExpectedAmount: receipt?.expected_amount == null ? null : Number(receipt.expected_amount),
+    receiptBalanceRequestId: receipt?.balance_request_id || null,
+    balanceRequestId: balanceRequest?.id || null,
+    balanceRequestType: balanceRequest?.request_type || balanceRequest?.requestType || null,
+    balanceRequestStatus: balanceRequest?.status || null,
+    balanceAcceptedAmount: balanceRequest ? Number(balanceRequest.accepted_amount ?? balanceRequest.acceptedAmount ?? 0) : null,
+    remainingBalance: balanceRequest ? Number(balanceRequest.remaining_amount ?? balanceRequest.remainingAmount ?? 0) : null,
+    balanceDeadlineAt: balanceRequest?.deadline_at || balanceRequest?.deadlineAt || null,
+    balanceSettledAt: balanceRequest?.settled_at || balanceRequest?.settledAt || null,
+    status,
+    platformStatus: rawStatus,
+    startsAt,
+    endsAt,
+    archivedAt: row.archived_at || row.archivedAt || null,
+    archivedBy: row.archived_by || row.archivedBy || null,
+    archiveReason: row.archive_reason || row.archiveReason || null,
+    expiresAt: row.expires_at || row.expiresAt || null,
+    createdAt: row.created_at || row.createdAt,
+    lastRescheduleEventId: lastReschedule.eventId || lastReschedule.event_id || null,
+    rescheduleEvents,
+    weatherRefund: _pbNormalizeWeatherRefund(rawWeatherRefund, { kind:'summary' }),
+  };
+}
+
+function _pbPlatformSettingsToLegacy(bootstrap) {
+  const settings = { ...(bootstrap?.settings || {}) };
+  const tenant = bootstrap?.tenant && typeof bootstrap.tenant === 'object' ? bootstrap.tenant : {};
+  const business = bootstrap?.business && typeof bootstrap.business === 'object'
+    ? bootstrap.business
+    : {};
+  const branding = business.branding && typeof business.branding === 'object'
+    ? business.branding
+    : tenant.branding && typeof tenant.branding === 'object'
+      ? tenant.branding
+      : {};
+  const contact = tenant.contact && typeof tenant.contact === 'object' ? tenant.contact : {};
+  const publicConfig = tenant.publicConfig && typeof tenant.publicConfig === 'object' ? tenant.publicConfig : {};
+  const publicBusiness = Object.freeze({
+    displayName: String(business.displayName || tenant.displayName || tenant.name || '').trim(),
+    contactPhone: String(business.contactPhone || tenant.contactPhone || contact.phone || '').trim(),
+    facebookUrl: String(business.facebookUrl || tenant.facebookUrl || publicConfig.facebookUrl || '').trim(),
+    tagline: String(business.tagline || tenant.tagline || publicConfig.tagline || '').trim(),
+    eventBookingEnabled: business.eventBookingEnabled === true || tenant.eventBookingEnabled === true,
+    branding: Object.freeze({
+      primaryColor: String(branding.primaryColor || '').trim(),
+      secondaryColor: String(branding.secondaryColor || '').trim(),
+      accentColor: String(branding.accentColor || '').trim(),
+      logoUrl: String(branding.logoUrl || '').trim(),
+      socialImageUrl: String(branding.socialImageUrl || branding.shareImageUrl || '').trim(),
+    }),
+  });
+  window.PB_TENANT_BUSINESS = publicBusiness;
+  settings.business_display_name = publicBusiness.displayName;
+  settings.business_contact_phone = publicBusiness.contactPhone;
+  settings.business_facebook_url = publicBusiness.facebookUrl;
+  settings.business_tagline = publicBusiness.tagline;
+  settings.business_branding = JSON.stringify(publicBusiness.branding);
+  settings.event_booking_enabled = publicBusiness.eventBookingEnabled ? '1' : '0';
+  const bookingFee = bootstrap?.bookingFee || bootstrap?.billing || null;
+  if (bookingFee && typeof bookingFee === 'object') {
+    const amount = Number(bookingFee.amount ?? bookingFee.feeAmount);
+    const mode = String(bookingFee.mode ?? bookingFee.feeMode ?? '');
+    if (Number.isFinite(amount) && amount >= 0) settings.maintenance_fee = String(amount);
+    if (mode) {
+      settings.fee_type = mode === 'fixed_per_booking' ? 'flat' : 'per_hour';
+    }
+  }
+  // Court hours and pricing are court-scoped on the tenant platform. Never
+  // project the first court into legacy global settings: doing so makes every
+  // other court silently inherit the wrong schedule and enables destructive
+  // bulk writes from the old settings UI.
+  const paymentMode = settings['booking.payment_mode'] || bootstrap?.tenant?.publicConfig?.paymentAcceptanceMode;
+  if (paymentMode) settings.payment_acceptance_mode = paymentMode;
+
+  // Payment options are opt-in on the public platform. Missing destination
+  // settings must never render placeholder accounts as payable methods.
+  const paymentConfigs = Array.isArray(bootstrap?.paymentMethods) ? bootstrap.paymentMethods : [];
+  const supportedUiCodes = new Set(['cash', 'gcash', 'bdopay', 'maya', 'bpi', 'gotyme', 'pnb']);
+  const paymentCodeAliases = Object.create(null);
+  const paymentMethodsByCode = Object.create(null);
+  const ambiguousUiCodes = new Set();
+  for (const method of paymentConfigs) {
+    const backendCode = String(method.code || '').trim().toLowerCase();
+    if (!/^[a-z][a-z0-9_-]{1,39}$/.test(backendCode)) continue;
+    const uiCode = backendCode === 'bdo' ? 'bdopay' : backendCode;
+    const dto = Object.freeze({
+      code: backendCode,
+      uiCode,
+      displayName: String(method.displayName || backendCode).trim(),
+      accountName: String(method.accountName || '').trim(),
+      accountReference: String(method.accountReference || '').trim(),
+      qrImageUrl: String(method.qrImageUrl || '').trim(),
+      instructions: String(method.instructions || '').trim(),
+    });
+    paymentMethodsByCode[backendCode] = dto;
+    if (!supportedUiCodes.has(uiCode)) continue;
+    if (paymentCodeAliases[uiCode] && paymentCodeAliases[uiCode] !== backendCode) {
+      ambiguousUiCodes.add(uiCode);
+      continue;
+    }
+    paymentCodeAliases[uiCode] = backendCode;
+  }
+  for (const uiCode of ambiguousUiCodes) delete paymentCodeAliases[uiCode];
+  window.PB_PAYMENT_METHOD_CODES = Object.freeze(paymentCodeAliases);
+  window.PB_PAYMENT_METHODS_BY_CODE = Object.freeze(paymentMethodsByCode);
+  // The platform bootstrap is authoritative even when it returns no methods.
+  // Falling back to legacy browser settings here could expose a stale or
+  // placeholder destination while the server has checkout closed.
+  const publicMethods = PB_PLATFORM_V1
+    ? Object.keys(paymentCodeAliases)
+    : Array.isArray(settings['payment.public_methods'])
+      ? settings['payment.public_methods'].map(value => String(value).toLowerCase())
+      : ['cash', 'gcash', 'bdopay', 'maya', 'bpi', 'gotyme', 'pnb']
+        .filter(method => settings[`payment_method_${method}`] === '1');
+  for (const method of ['cash', 'gcash', 'bdopay', 'maya', 'bpi', 'gotyme', 'pnb']) {
+    settings[`payment_method_${method}`] = publicMethods.includes(method) ? '1' : '0';
+  }
+  const configFor = code => paymentMethodsByCode[paymentCodeAliases[code] || code];
+  const gcash = configFor('gcash');
+  const gotyme = configFor('gotyme');
+  const pnb = configFor('pnb');
+  if (gcash) {
+    settings.gcash_merchant_number = gcash.accountReference || '';
+    settings.gcash_merchant_name = gcash.accountName || '';
+    settings.gcash_qr_image = gcash.qrImageUrl || '';
+  }
+  if (gotyme) {
+    settings.gotyme_merchant_number = gotyme.accountReference || '';
+    settings.gotyme_merchant_name = gotyme.accountName || '';
+    settings.gotyme_qr_image = gotyme.qrImageUrl || '';
+  }
+  if (pnb) {
+    settings.pnb_merchant_number = pnb.accountReference || '';
+    settings.pnb_merchant_name = pnb.accountName || '';
+    settings.pnb_qr_image = pnb.qrImageUrl || '';
+  }
+  return settings;
+}
+
+function _pbNormalizeTenantActivationSettings(value) {
+  const raw = value && typeof value === 'object' ? value : {};
+  const venue = raw.venue && typeof raw.venue === 'object' ? raw.venue : {};
+  const tenant = raw.tenant && typeof raw.tenant === 'object' ? raw.tenant : {};
+  const billing = raw.platformBilling && typeof raw.platformBilling === 'object'
+    ? raw.platformBilling
+    : raw.billing && typeof raw.billing === 'object'
+      ? raw.billing
+      : null;
+  const openPlayServiceFee = raw.openPlayServiceFee && typeof raw.openPlayServiceFee === 'object'
+    ? raw.openPlayServiceFee
+    : raw.openPlayBilling && typeof raw.openPlayBilling === 'object'
+      ? raw.openPlayBilling
+      : raw.openPlay && typeof raw.openPlay === 'object'
+        ? raw.openPlay
+        : null;
+  const readiness = raw.readiness && typeof raw.readiness === 'object'
+    ? { ...raw.readiness }
+    : { publicBookingEnabled: false, blockingReasons: ['server_readiness_unavailable'] };
+  const paymentMethods = Array.isArray(raw.paymentMethods) ? raw.paymentMethods : [];
+  return {
+    tenant: {
+      id: tenant.id || '',
+      slug: tenant.slug || PB_TENANT_SLUG,
+      name: tenant.name || '',
+      contactEmail: tenant.contactEmail || venue.contactEmail || '',
+      replyToEmail: venue.replyToEmail || tenant.replyToEmail || '',
+      emailEnabled: venue.emailEnabled === true,
+      publicBookingRequested: venue.publicBookingEnabled === true ||
+        readiness.requestedPublicBookingEnabled === true,
+    },
+    permissions: raw.permissions && typeof raw.permissions === 'object'
+      ? { ...raw.permissions }
+      : {},
+    setupStatus: String(raw.setupStatus || 'setup_required'),
+    business: raw.business && typeof raw.business === 'object' ? { ...raw.business } : {},
+    billing: billing ? {
+      feeMode: String(billing.feeMode || ''),
+      feeAmount: Number(billing.feeAmount),
+    } : null,
+    openPlayServiceFee: openPlayServiceFee ? {
+      feeMode: String(openPlayServiceFee.feeMode || openPlayServiceFee.mode || 'fixed_per_player'),
+      feeAmount: Number(
+        openPlayServiceFee.feeAmount ??
+        openPlayServiceFee.amount ??
+        openPlayServiceFee.serviceFeePerPerson ??
+        openPlayServiceFee.service_fee_per_person ??
+        0
+      ),
+      isConfigured: openPlayServiceFee.isConfigured === true ||
+        openPlayServiceFee.configured === true ||
+        Number.isFinite(Number(
+          openPlayServiceFee.feeAmount ??
+          openPlayServiceFee.amount ??
+          openPlayServiceFee.serviceFeePerPerson ??
+          openPlayServiceFee.service_fee_per_person
+        )),
+    } : null,
+    paymentMethods: paymentMethods.map(method => ({
+      code: String(method.methodCode || method.code || '').toLowerCase(),
+      displayName: method.displayName || method.methodCode || method.code || '',
+      accountName: method.accountName || '',
+      accountReference: method.accountNumber || method.accountReference || '',
+      qrImageUrl: method.qrUrl || method.qrImageUrl || '',
+      instructions: method.instructions || '',
+      isActive: method.isActive === true,
+      sortOrder: Number(method.sortOrder || 0),
+    })).filter(method => method.code),
+    readiness,
+  };
+}
+
+function _pbLocalIntervalHours(startsAt, endsAt, targetDate) {
+  const startText = String(startsAt || '');
+  const endText = String(endsAt || '');
+  const startDate = startText.slice(0, 10);
+  const endDate = endText.slice(0, 10);
+  if (startDate !== targetDate) return [];
+  const startHour = Number(startText.slice(11, 13));
+  let endHour = Number(endText.slice(11, 13));
+  if (endDate > startDate && endHour === 0) endHour = 24;
+  if (!Number.isInteger(startHour) || !Number.isInteger(endHour) || endHour <= startHour) return [];
+  return Array.from({ length: endHour - startHour }, (_, index) => startHour + index);
+}
+
+const _pbPlatformBlockedHoursByDate = new Map();
+
+function _pbPlatformBlockLabel(value) {
+  const label = String(value || '').trim().toLowerCase();
+  if (label === 'private event') return 'private';
+  if (['reserved', 'maintenance', 'closed', 'blocked'].includes(label)) return label;
+  return 'reserved';
+}
+
+function _pbRememberPlatformBlockedHours(availability) {
+  const date = String(availability?.date || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+  const rules = [];
+  for (const block of (availability.blockedDates || [])) {
+    let slots = _pbLocalIntervalHours(block.startsAt, block.endsAt, date);
+    if (!block.startsAt && !block.endsAt) {
+      slots = Array.from({ length: 24 }, (_, hour) => hour);
+    }
+    if (!slots.length) continue;
+    rules.push(Object.freeze({
+      enabled: true,
+      mode: 'specific',
+      dates: Object.freeze([date]),
+      courtId: block.courtId == null ? null : String(block.courtId),
+      slots: Object.freeze([...slots]),
+      label: _pbPlatformBlockLabel(block.label),
+    }));
+  }
+  _pbPlatformBlockedHoursByDate.set(date, Object.freeze(rules));
+}
+
+function _pbPlatformBlockedRuleFor(date, hour, courtId = null) {
+  const rules = _pbPlatformBlockedHoursByDate.get(String(date || '')) || [];
+  const targetHour = Number(hour);
+  const targetCourt = courtId == null ? null : String(courtId);
+  return rules.find(rule =>
+    (rule.courtId == null || rule.courtId === targetCourt) &&
+    rule.slots.includes(targetHour)
+  ) || null;
+}
+
+window.PB_PLATFORM_BLOCKED_RULE_FOR = _pbPlatformBlockedRuleFor;
+
+function _pbPlatformAvailabilityToLegacyBookings(availability, bootstrap) {
+  if (!availability) return [];
+  const date = availability.date;
+  const courts = Array.isArray(availability.courts) ? availability.courts : [];
+  const courtConfig = new Map((bootstrap?.courts || []).map(court => [String(court.id), court]));
+  const rows = [];
+
+  for (const court of courts) {
+    for (const interval of (court.unavailable || [])) {
+      const slots = _pbLocalIntervalHours(interval.startsAt, interval.endsAt, date);
+      if (!slots.length) continue;
+      rows.push({
+        ref: `availability-${court.id}-${interval.startsAt}`,
+        courtId: court.id,
+        courtName: court.name,
+        date,
+        slots,
+        status: 'confirmed',
+        paymentStatus: 'paid',
+        createdAt: null,
+      });
+    }
+  }
+
+  for (const block of (availability.blockedDates || [])) {
+    const targetCourts = block.courtId
+      ? courts.filter(court => String(court.id) === String(block.courtId))
+      : courts;
+    for (const court of targetCourts) {
+      const config = courtConfig.get(String(court.id)) || {};
+      let slots = _pbLocalIntervalHours(block.startsAt, block.endsAt, date);
+      if (!block.startsAt && !block.endsAt) {
+        const open = _pbClockHour(config.opensAt);
+        const close = String(config.closesAt || '').startsWith('00:00')
+          ? 24
+          : _pbClockHour(config.closesAt, true);
+        slots = Number.isInteger(open) && Number.isInteger(close) && close > open
+          ? Array.from({ length: close - open }, (_, index) => open + index)
+          : [];
+      }
+      if (!slots.length) continue;
+      rows.push({
+        ref: `closure-${court.id}-${date}-${slots[0]}`,
+        courtId: court.id,
+        courtName: court.name,
+        date,
+        slots,
+        status: 'maintenance',
+        paymentStatus: 'unpaid',
+        publicLabel: block.label || 'Unavailable',
+        createdAt: null,
+      });
+    }
+  }
+  return rows;
 }
 
 function _safeJsonParse(v) {
   try { return JSON.parse(v); } catch(_) { return null; }
+}
+
+function _pbApiErrorMessage(payload, rawText = '', fallback = 'Request failed') {
+  if (payload?.error && typeof payload.error === 'object' && payload.error.message) {
+    return String(payload.error.message);
+  }
+  if (typeof payload?.error === 'string' && payload.error.trim()) return payload.error;
+  if (typeof payload?.message === 'string' && payload.message.trim()) return payload.message;
+  return String(rawText || fallback);
+}
+
+function _pbIsUnsupportedSettingsPatchError(error) {
+  return /settings patch contains an unsupported field/i.test(_extractFnError(error, ''));
 }
 
 function _pbFileToDataUrl(file) {
@@ -324,6 +1380,8 @@ function _pbFileToDataUrl(file) {
 
 async function _pbPrepareReceiptImage(file) {
   if (!file) throw new Error('Receipt screenshot is required.');
+  const maxReceiptBytes = 8 * 1024 * 1024;
+  if (Number(file.size || 0) > maxReceiptBytes) throw new Error('The receipt image must be 8 MB or smaller.');
   const rawType = String(file.type || '').toLowerCase();
   const type = rawType === 'image/jpg' ? 'image/jpeg' : rawType;
   const directlySupported = ['image/jpeg', 'image/png', 'image/webp'].includes(type);
@@ -362,7 +1420,9 @@ async function _pbPrepareReceiptImage(file) {
     const encode = quality => new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
     let encoded = await encode(0.84);
     if (encoded?.size > targetBytes) encoded = await encode(0.72);
-    return encoded?.size ? encoded : file;
+    const output = encoded?.size ? encoded : file;
+    if (Number(output.size || 0) > maxReceiptBytes) throw new Error('The receipt image must be 8 MB or smaller.');
+    return output;
   } catch (_) {
     return file;
   } finally {
@@ -370,83 +1430,29 @@ async function _pbPrepareReceiptImage(file) {
   }
 }
 
-async function _pbVerifyReceiptBase64Fallback(fnUrl, payload, imageFile, authHeader = '') {
+async function _pbVerifyReceiptBase64Fallback(fnUrl, payload, imageFile) {
   const imageBase64 = await _pbFileToDataUrl(imageFile);
   const fallbackPayload = {
-    action: String(payload?.action || 'verify'),
+    action: 'verify',
     bookingRef: String(payload?.bookingRef || ''),
     provider: String(payload?.provider || 'gcash'),
     contentType: imageFile?.type || payload?.contentType || 'image/jpeg',
     imageBase64,
     ...(payload?.bookingData ? { bookingData: payload.bookingData } : {}),
-    ...(payload?.bookingAccessToken ? { bookingAccessToken: payload.bookingAccessToken } : {}),
   };
   const res = await _pbFetchWithTimeout(fnUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'apikey': SUPABASE_ANON_KEY,
-      'Authorization': authHeader || `Bearer ${SUPABASE_ANON_KEY}`,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
     },
     body: JSON.stringify(fallbackPayload),
   }, PB_RECEIPT_TIMEOUT_MS);
   const txt = await res.text();
   const json = _safeJsonParse(txt);
   if (!res.ok) throw new Error(json?.error || txt || `HTTP ${res.status}`);
-  if (!json) throw new Error('Receipt service returned an invalid response.');
-  return json;
-}
-
-function _pbCanFallbackReceiptTransport(error, startedAt) {
-  const elapsedMs = Math.max(0, Date.now() - Number(startedAt || 0));
-  const name = String(error?.name || '');
-  const code = String(error?.code || '');
-  const message = String(error?.message || error || '');
-  if (
-    name === 'AbortError' ||
-    code === 'PB_REQUEST_TIMEOUT' ||
-    /timed out|timeout|aborted/i.test(message)
-  ) return false;
-
-  // A later network failure is ambiguous: the multipart request may already
-  // have reached Storage. Retry only failures that surface immediately and
-  // look like a browser/FormData transport incompatibility.
-  return elapsedMs <= 1000 && (
-    name === 'TypeError' ||
-    /failed to fetch|network request failed|load failed|formdata|multipart/i.test(message)
-  );
-}
-
-async function _pbReceiptCheckpointRequest(action, payload = {}) {
-  const bookingRef = String(payload?.bookingRef || '').trim();
-  if (!bookingRef) throw new Error('Booking reference is required.');
-  const storedBookingToken = _pbBookingAccessToken(bookingRef, false);
-  const sessionResult = await _sb.auth.getSession();
-  const userAccessToken = sessionResult?.data?.session?.access_token || '';
-  const authHeader = `Bearer ${userAccessToken || SUPABASE_ANON_KEY}`;
-  const fnUrl = `${SUPABASE_URL.replace(/\/+$/, '')}/functions/v1/verify-gcash-receipt`;
-  const requestPayload = {
-    ...(payload || {}),
-    action,
-    bookingRef,
-    ...(storedBookingToken ? { bookingAccessToken: storedBookingToken } : {}),
-  };
-  const res = await _pbFetchWithTimeout(fnUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': SUPABASE_ANON_KEY,
-      'Authorization': authHeader,
-    },
-    body: JSON.stringify(requestPayload),
-  }, PB_RECEIPT_TIMEOUT_MS);
-  const txt = await res.text();
-  const json = _safeJsonParse(txt);
-  if (!res.ok) throw _pbApiError(
-    String(json?.error || txt || `HTTP ${res.status}`),
-    String(json?.code || `HTTP_${res.status}`),
-  );
-  if (!json) throw new Error('Receipt checkpoint service returned an invalid response.');
+  if (!json) throw new Error('Receipt verification returned an invalid response.');
   return json;
 }
 
@@ -497,11 +1503,11 @@ async function _invokePaymentSessionFallback(payload) {
   return json;
 }
 
-async function _invokeEdgeFunction(name, payload = {}, {
-  allowFailure = false,
-  preferDirect = false,
-  retryDirect = true,
-} = {}) {
+async function _invokeEdgeFunction(name, payload = {}, { allowFailure = false, preferDirect = false } = {}) {
+  const endpoint = String(name).split('?')[0];
+  const guestEndpoint = ['create-booking','booking-status','cancel-booking','balance-payment-status','player-rain-report'].includes(endpoint);
+  if (PB_PLATFORM_V1 && payload.tenantSlug !== PB_TENANT_SLUG) throw new Error('A venue-scoped request is required.');
+  if (guestEndpoint) preferDirect = true;
   let data = null;
   let error = null;
   if (!preferDirect) {
@@ -511,22 +1517,15 @@ async function _invokeEdgeFunction(name, payload = {}, {
       error = invokeErr;
     }
     if (!error && data) return data;
-    if (!retryDirect) {
-      const reason = error
-        ? _extractFnError(error, 'Function invoke failed')
-        : 'Function returned an empty response';
-      if (allowFailure) return { ok: false, error: reason };
-      throw new Error(reason);
-    }
   }
 
   const fnUrl = `${SUPABASE_URL.replace(/\/+$/, '')}/functions/v1/${name}`;
-  const sess = await _sb.auth.getSession();
+  const sess = guestEndpoint ? null : await _sb.auth.getSession();
   const accessToken = sess?.data?.session?.access_token || '';
   const authHeader = accessToken ? `Bearer ${accessToken}` : `Bearer ${SUPABASE_ANON_KEY}`;
 
   try {
-    const res = await fetch(fnUrl, {
+    const res = await _pbFetchWithTimeout(fnUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -537,13 +1536,21 @@ async function _invokeEdgeFunction(name, payload = {}, {
     });
     const txt = await res.text();
     const json = _safeJsonParse(txt) || {};
-    if (!res.ok) throw new Error(json.error || txt || `HTTP ${res.status}`);
+    if (!res.ok) {
+      const failure = new Error(_pbApiErrorMessage(json, txt, `HTTP ${res.status}`));
+      failure.code = json?.error?.code || null;
+      failure.httpStatus = res.status;
+      throw failure;
+    }
     return json;
   } catch (fallbackErr) {
     const fallbackReason = _extractFnError(fallbackErr, 'Fallback call failed');
     const reason = error ? `${_extractFnError(error, 'Function invoke failed')}. ${fallbackReason}` : fallbackReason;
     if (allowFailure) return { ok: false, error: reason };
-    throw new Error(reason);
+    const failure = new Error(reason);
+    failure.code = fallbackErr?.code || null;
+    failure.httpStatus = fallbackErr?.httpStatus || null;
+    throw failure;
   }
 }
 
@@ -564,9 +1571,7 @@ function _bookingEmailPayload(b) {
       ? b.groupItems
       : [];
   return {
-    // Always send a real row reference to the Edge Function. Group display
-    // labels can omit the internal "-G" suffix and are not database keys.
-    bookingRef: b.primaryRef || b.ref || b.displayRef,
+    bookingRef: b.displayRef || b.ref,
     email: b.email,
     fullName: b.fullName,
     courtName: b.courtName,
@@ -592,25 +1597,31 @@ function _bookingEmailPayload(b) {
   };
 }
 
+function _telegramBookingPayload(b, extras = {}) {
+  return {
+    bookingRef: b.ref,
+    fullName: b.fullName,
+    contactNumber: b.contactNumber,
+    courtName: b.courtName,
+    date: b.date,
+    startTime: b.startTime,
+    endTime: b.endTime,
+    duration: b.duration,
+    total: b.total,
+    downpayment: b.downpayment || Math.round((b.total || 0) * 0.5),
+    paymentMethod: b.paymentMethod,
+    paymentStatus: b.paymentStatus,
+    bookingStatus: b.status,
+    gcashRef: b.gcashRef || null,
+    ...extras,
+  };
+}
+
 // =============================================
 // ROW ↔ JS OBJECT MAPPING
 // SQL uses snake_case; JS objects use camelCase
 // =============================================
-const PB_DIGITAL_PAYMENT_METHODS = ['gcash', 'bdopay', 'maya', 'bpi', 'gotyme', 'maribank', 'pnb'];
-
-function _pbNormalizeReceiptOutcome(result) {
-  const source = result && typeof result === 'object' ? result : {};
-  if (String(source.status || '').toLowerCase() === 'auto_approved') return source;
-  return {
-    ...source,
-    status: 'manual_review',
-    paymentStatus: ['pending', 'for_verification'].includes(String(source.paymentStatus || '').toLowerCase())
-      ? source.paymentStatus
-      : 'for_verification',
-    bookingStatus: 'pending',
-    publicReason: source.publicReason || source.message || 'Receipt needs court-owner review.',
-  };
-}
+const PB_DIGITAL_PAYMENT_METHODS = ['gcash', 'bdopay', 'maya', 'bpi', 'gotyme', 'pnb'];
 
 function normalizePaymentKey(value, fallback = '') {
   return String(value || fallback || '').toLowerCase().trim();
@@ -621,8 +1632,7 @@ function receivedAccountForBooking(b = {}) {
   if (explicit) return explicit;
 
   const method = normalizePaymentKey(b.paymentMethod || b.payment_method, 'cash');
-  if (method === 'cash') return 'cash';
-  return 'gcash';
+  return method;
 }
 
 function _fmtBookingHour(h) {
@@ -674,13 +1684,10 @@ function rowToBooking(r) {
     paidAt:        r.paid_at || null,
     gcashRef:      r.gcash_ref || null,
     downpayment:   r.downpayment || null,
-    bookingFeeAmountSnapshot: r.booking_fee_amount_snapshot != null ? Number(r.booking_fee_amount_snapshot) : null,
-    bookingFeeRateSnapshot: r.booking_fee_rate_snapshot != null ? Number(r.booking_fee_rate_snapshot) : null,
-    bookingFeeTypeSnapshot: r.booking_fee_type_snapshot || null,
-    bookingFeeUnitsSnapshot: r.booking_fee_units_snapshot != null ? Number(r.booking_fee_units_snapshot) : null,
-    bookingFeeSnapshotSource: r.booking_fee_snapshot_source || null,
-    bookingFeeLedgerEligibleSnapshot: !!r.booking_fee_ledger_eligible_snapshot,
-    bookingFeeEarnedAt: r.booking_fee_earned_at || null,
+    bookingType:   r.booking_type || 'regular',
+    eventType:     r.event_type || null,
+    eventGuestCount: r.event_guest_count != null ? Number(r.event_guest_count) : null,
+    eventSetupNotes: r.event_setup_notes || null,
     balanceDueAt:  r.balance_due_at || null,
     forfeitedAt:   r.forfeited_at || null,
     forfeitureReason: r.forfeiture_reason || null,
@@ -698,13 +1705,7 @@ function rowToBooking(r) {
     receiptExtracted:  r.receipt_extracted || null,
     receiptConfidence: r.receipt_confidence != null ? Number(r.receipt_confidence) : null,
     receiptImageUrl:   r.receipt_image_url || null,
-    receiptImageHash:  r.receipt_image_hash || null,
-    receiptPhash:      r.receipt_phash || null,
     receiptVerifiedAt: r.receipt_verified_at || null,
-    receiptVerificationId: Number(r.receipt_verification_id) || null,
-    paymentTransferId: r.payment_transfer_id || null,
-    paymentReassignedFromRef: r.payment_reassigned_from_ref || null,
-    paymentReassignedToRef: r.payment_reassigned_to_ref || null,
     billedAt:      r.billed_at || null,
     weeklyFeeId:   r.weekly_fee_id || null,
     confirmationEmailId: r.confirmation_email_id || null,
@@ -747,112 +1748,6 @@ function rowToDeletedBookingArchive(r) {
 }
 
 const PB_RESERVATION_HOLD_MINUTES = 15;
-const PB_PUBLIC_COURT_OPENING_DATE = '2026-09-19';
-
-function _pbManilaToday() {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat('en-US', {
-      timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit',
-    }).formatToParts(new Date()).filter(part => part.type !== 'literal').map(part => [part.type, part.value])
-  );
-  return `${parts.year}-${parts.month}-${parts.day}`;
-}
-
-function _pbMinimumPublicBookingDate() {
-  const today = _pbManilaToday();
-  return today > PB_PUBLIC_COURT_OPENING_DATE ? today : PB_PUBLIC_COURT_OPENING_DATE;
-}
-
-function _pbRpcResultError(data, fallback) {
-  return _pbApiError(
-    String(data?.error || data?.message || fallback),
-    String(data?.code || 'RPC_REQUEST_FAILED'),
-  );
-}
-
-function _pbNormalizeAvailabilityGraphicSnapshot(payload, requestedDate, requestedCourtIds = []) {
-  const value = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : null;
-  const expectedDate = String(requestedDate || '');
-  if (!value || value.version !== 1 || value.date !== expectedDate || value.timezone !== 'Asia/Manila') {
-    throw new Error('The availability service returned an invalid snapshot. Refresh and try again.');
-  }
-
-  const openHour = Number(value.openHour);
-  const closeHour = Number(value.closeHour);
-  const asOf = String(value.asOf || '');
-  const courts = Array.isArray(value.courts) ? value.courts : null;
-  if (!Number.isInteger(openHour) || !Number.isInteger(closeHour) || openHour < 0 || closeHour > 24 || closeHour <= openHour
-      || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?\+08:00$/.test(asOf)
-      || !courts || courts.length === 0) {
-    throw new Error('The availability service returned an incomplete snapshot. Refresh and try again.');
-  }
-
-  const seenCourts = new Set();
-  const expectedCourtIds = new Set((Array.isArray(requestedCourtIds) ? requestedCourtIds : []).map(String));
-  const expectedSlotCount = closeHour - openHour;
-  const normalizedCourts = courts.map(court => {
-    const id = String(court?.id || '').trim();
-    const name = String(court?.name || '').trim();
-    const slots = Array.isArray(court?.slots) ? court.slots : null;
-    if (!id || !name || seenCourts.has(id) || !slots || slots.length !== expectedSlotCount) {
-      throw new Error('The availability service returned incomplete court data. Refresh and try again.');
-    }
-    seenCourts.add(id);
-
-    const normalizedSlots = slots.map((slot, index) => {
-      const hour = Number(slot?.hour);
-      const startHour = Number(slot?.startHour);
-      const endHour = Number(slot?.endHour);
-      const startLabel = String(slot?.startLabel || '').trim();
-      const endLabel = String(slot?.endLabel || '').trim();
-      const label = String(slot?.label || '').trim();
-      const state = String(slot?.state || '');
-      const reason = slot?.reason == null ? null : String(slot.reason);
-      if (hour !== openHour + index || startHour !== hour || endHour !== hour + 1
-          || !startLabel || !endLabel || !label || !['free', 'unavailable'].includes(state)
-          || (state === 'free' && reason !== null) || (state === 'unavailable' && !reason)) {
-        throw new Error('The availability service returned an invalid slot state. Refresh and try again.');
-      }
-      return {
-        hour,
-        startHour,
-        endHour,
-        startLabel,
-        endLabel,
-        state,
-        reason,
-        label,
-      };
-    });
-    const availableCount = normalizedSlots.filter(slot => slot.state === 'free').length;
-    if (Number(court.availableCount) !== availableCount || Number(court.totalSlots) !== expectedSlotCount) {
-      throw new Error('The availability service returned inconsistent slot totals. Refresh and try again.');
-    }
-    return { id, name, availableCount, totalSlots: expectedSlotCount, slots: normalizedSlots };
-  });
-  if (expectedCourtIds.size > 0
-      && (seenCourts.size !== expectedCourtIds.size || [...expectedCourtIds].some(id => !seenCourts.has(id)))) {
-    throw new Error('The availability service did not return the selected courts. Refresh and try again.');
-  }
-
-  return {
-    version: 1,
-    date: expectedDate,
-    timezone: 'Asia/Manila',
-    asOf,
-    generatedAt: asOf,
-    openHour,
-    closeHour,
-    courts: normalizedCourts,
-  };
-}
-
-function _pbAssertPublicBookingDate(date) {
-  const value = String(date || '');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value < _pbMinimumPublicBookingDate()) {
-    throw new Error('Advance booking is available from September 19, 2026.');
-  }
-}
 
 function bookingHoldsSlotForConflict(b) {
   if (!b || b.status === 'cancelled' || b.status === 'forfeited') return false;
@@ -903,6 +1798,10 @@ function bookingToRow(b) {
     paid_at:        b.paidAt || null,
     gcash_ref:      b.gcashRef || null,
     downpayment:    b.downpayment || null,
+    booking_type:   b.bookingType || 'regular',
+    event_type:     b.eventType || null,
+    event_guest_count: b.eventGuestCount || null,
+    event_setup_notes: b.eventSetupNotes || null,
     host_booking:   !!b.hostBooking,
     host_user_id:   b.hostUserId || null,
     host_name:      b.hostName || null,
@@ -945,7 +1844,6 @@ function rowToCourt(r) {
     feats:        r.feats || [],
     photo:        r.photo || '',
     rateSchedule: r.rate_schedule || null,
-    createdAt:    r.created_at || null,
   };
 }
 
@@ -985,14 +1883,11 @@ function _remittanceProofUpload(dataUrl) {
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   const extByType = {
     'image/jpeg': 'jpg',
-    'image/jpg': 'jpg',
     'image/png': 'png',
     'image/webp': 'webp',
-    'image/heic': 'heic',
-    'image/heif': 'heif',
   };
   if (!extByType[mimeType]) {
-    throw new Error('Receipt must be a JPG, PNG, WebP, HEIC, or HEIF image.');
+    throw new Error('Receipt must be a JPG, PNG, or WebP image.');
   }
   return { bytes, mimeType, extension: extByType[mimeType] };
 }
@@ -1026,120 +1921,73 @@ function accountToRow(a) {
   };
 }
 
-function rowToOpenPlayHostApplication(r) {
-  return {
-    id: r.id,
-    fullName: r.full_name,
-    contactNumber: r.contact_number,
-    email: r.email,
-    hostUserId: r.host_user_id || null,
-    gcashNumber: r.gcash_number || '',
-    validIdFileName: r.valid_id_file_name || '',
-    validIdFileType: r.valid_id_file_type || '',
-    validIdFileSize: r.valid_id_file_size || null,
-    validIdPath: r.valid_id_path || '',
-    preferredSchedule: r.preferred_schedule || '',
-    notes: r.notes || '',
-    status: r.status || 'pending',
-    reviewedBy: r.reviewed_by || null,
-    reviewedAt: r.reviewed_at || null,
-    reviewNote: r.review_note || '',
-    emailVerifiedAt: r.email_verified_at || null,
-    telegramNotificationSentAt: r.telegram_notification_sent_at || null,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-  };
-}
-
-function hostApplicationToRow(app) {
-  return {
-    full_name: app.fullName,
-    contact_number: app.contactNumber,
-    email: app.email,
-    gcash_number: app.gcashNumber || null,
-    valid_id_file_name: app.validIdFileName || null,
-    valid_id_file_type: app.validIdFileType || null,
-    valid_id_file_size: app.validIdFileSize || null,
-    valid_id_path: app.validIdPath || null,
-    preferred_schedule: app.preferredSchedule || null,
-    notes: app.notes || null,
-    status: app.status || 'pending',
-    review_note: app.reviewNote || null,
-  };
-}
-
-function rowToOpenPlayHostSession(r) {
-  return {
-    id: r.id,
-    hostUserId: r.host_user_id || null,
-    hostName: r.host_name,
-    hostEmail: r.host_email || '',
-    title: r.title,
-    date: r.date,
-    startHour: Number(r.start_hour),
-    endHour: Number(r.end_hour),
-    courtIds: r.court_ids || [],
-    courtNames: r.court_names || [],
-    maxPlayers: Number(r.max_players || 0),
-    feePerPlayer: Number(r.fee_per_player || 0),
-    status: r.status || 'published',
-    notes: r.notes || '',
-    paymentInstructions: r.payment_instructions || '',
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-  };
-}
-
-function hostSessionToRow(session) {
-  return {
-    host_user_id: session.hostUserId || null,
-    host_name: session.hostName,
-    host_email: session.hostEmail || null,
-    title: session.title,
-    date: session.date,
-    start_hour: session.startHour,
-    end_hour: session.endHour,
-    court_ids: session.courtIds || [],
-    court_names: session.courtNames || [],
-    max_players: session.maxPlayers || 16,
-    fee_per_player: session.feePerPlayer || 0,
-    status: session.status || 'published',
-    notes: session.notes || null,
-    payment_instructions: session.paymentInstructions || null,
-  };
-}
-
-function rowToOpenPlayHostSessionRegistration(r) {
-  return {
-    id: r.id,
-    sessionId: r.session_id,
-    fullName: r.full_name,
-    contactNumber: r.contact_number || '',
-    paymentMethod: r.payment_method || 'gcash',
-    gcashRef: r.gcash_ref || null,
-    paymentStatus: r.payment_status || 'pending',
-    amount: Number(r.amount || 0),
-    receiptImageUrl: r.receipt_image_url || null,
-    receiptImageHash: r.receipt_image_hash || null,
-    receiptPhash: r.receipt_phash || null,
-    receiptStatus: r.receipt_status || 'none',
-    receiptFlags: r.receipt_flags || [],
-    receiptExtracted: r.receipt_extracted || null,
-    receiptConfidence: r.receipt_confidence != null ? Number(r.receipt_confidence) : null,
-    receiptVerifiedAt: r.receipt_verified_at || null,
-    receiptVerificationId: Number(r.receipt_verification_id) || null,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-  };
-}
-
 // =============================================
 // DB — Async Data Layer (replaces localStorage)
 // =============================================
+const PB_REFUND_RESCHEDULE_POLICY_KEY = 'refund_reschedule_policy';
+
+function _pbApprovedRefundPolicyForWrite(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('The refund and reschedule policy must be a policy object.');
+  }
+
+  const version = String(input.version || '').trim();
+  const title = String(input.title || '').trim();
+  const intro = String(input.intro || '').trim();
+  const content = String(input.content || '').replace(/\r\n?/g, '\n').trim();
+
+  if (input.ownerApproved !== true) {
+    throw new Error('The court owner must explicitly approve the exact policy terms before publication.');
+  }
+  if (!/^[a-z0-9][a-z0-9._:-]{2,119}$/i.test(version) ||
+      /setup|required|unapproved|draft/i.test(version)) {
+    throw new Error('Enter a published policy version using 3–120 letters, numbers, dots, underscores, colons, or hyphens.');
+  }
+  if (title.length < 3 || title.length > 180) {
+    throw new Error('Enter a policy title between 3 and 180 characters.');
+  }
+  if (intro.length < 10 || intro.length > 1200) {
+    throw new Error('Enter a policy introduction between 10 and 1,200 characters.');
+  }
+  if (content.length < 20 || content.length > 30000) {
+    throw new Error('Enter the exact policy terms between 20 and 30,000 characters.');
+  }
+
+  return { version, title, intro, content, ownerApproved: true };
+}
+
 window.DB = {
+
+  async getResolvedTenantId() {
+    if (!PB_PLATFORM_V1) return null;
+    const bootstrap = await _pbPlatformBootstrap();
+    const tenantId = String(bootstrap?.tenant?.id || '');
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(tenantId)) {
+      throw new Error('The booking website could not verify its tenant identity.');
+    }
+    return tenantId;
+  },
 
   // ---- COURTS ----
   async getCourts() {
+    if (PB_PLATFORM_V1) {
+      return _pbCached('courts', {}, PB_FAST_CACHE_MS.courts, async () => {
+        const session = await _pbAuthenticatedSession();
+        const dashboardSession = window.Auth?.getSession?.() || {};
+        const membershipRole = String(dashboardSession.membershipRole || '').toLowerCase();
+        const canManageTenant = dashboardSession.role === 'owner' || ['owner', 'admin'].includes(membershipRole);
+        if (session && canManageTenant && PB_PAGE_DATA_SCOPE === 'manager') {
+          const { data, error } = await _sb.rpc('get_tenant_courts_for_manager', {
+            p_tenant_slug: PB_TENANT_SLUG,
+            p_hostname: _pbTenantHostname(),
+          });
+          if (error) throw error;
+          return (data || []).map(_pbPlatformRawCourtToLegacy);
+        }
+        const bootstrap = await _pbPlatformBootstrap();
+        return bootstrap.courts.map(_pbPublicPlatformCourtToLegacy);
+      });
+    }
     return _pbCached('courts', {}, PB_FAST_CACHE_MS.courts, async () => {
       const { data, error } = await _sb.from('courts').select('*').order('id');
       if (error) { console.error('getCourts:', error); return []; }
@@ -1147,63 +1995,201 @@ window.DB = {
     });
   },
 
-  async getAvailabilityGraphic(date, courtIds = []) {
-    const requestedDate = String(date || '').trim();
-    const requestedCourtIds = [...new Set((Array.isArray(courtIds) ? courtIds : [])
-      .map(id => String(id || '').trim()).filter(Boolean))];
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(requestedDate) || requestedCourtIds.length > 50) {
-      throw new Error('Choose a valid availability date and court selection.');
-    }
-    const { data, error } = await _sb.rpc('get_admin_availability_graphic', {
-      p_date: requestedDate,
-      p_court_ids: requestedCourtIds.length ? requestedCourtIds : null,
-    });
-    if (error) {
-      console.error('getAvailabilityGraphic:', error);
-      throw error;
-    }
-    return _pbNormalizeAvailabilityGraphicSnapshot(data, requestedDate, requestedCourtIds);
-  },
-
-  async getAvailabilityGraphicSnapshot(date, courtIds = []) {
-    return this.getAvailabilityGraphic(date, courtIds);
-  },
-
   async saveCourt(court) {
+    if (PB_PLATFORM_V1) {
+      if (!await _pbAuthenticatedSession()) throw new Error('Your session is no longer available. Please sign in again.');
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(court.id || ''));
+      const existing = isUuid
+        ? (await this.getCourts()).find(candidate => String(candidate.id) === String(court.id)) || null
+        : null;
+      const bands = Array.isArray(court.rateSchedule) && court.rateSchedule.length
+        ? court.rateSchedule
+        : [];
+      if (!bands.length) throw new Error('At least one regular rate band is required.');
+      const suppliedRegular = court.pricingConfig?.regular || existing?.pricingConfig?.regular || {};
+      const minimumHours = suppliedRegular.minimumHours;
+      if (!Number.isInteger(minimumHours) || minimumHours < 1 || minimumHours > 18) {
+        throw new Error('Regular booking minimum hours must be configured from 1 to 18.');
+      }
+      const suppliedPublic = court.publicConfig || existing?.publicConfig || {};
+      const minimumLeadMinutes = suppliedPublic.minimumLeadMinutes;
+      const maximumAdvanceDays = suppliedPublic.maximumAdvanceDays;
+      if (!Number.isInteger(minimumLeadMinutes) || minimumLeadMinutes < 0 || minimumLeadMinutes > 10080) {
+        throw new Error('Minimum booking notice must be configured from 0 to 10080 minutes.');
+      }
+      if (!Number.isInteger(maximumAdvanceDays) || maximumAdvanceDays < 0 || maximumAdvanceDays > 730) {
+        throw new Error('Booking horizon must be configured from 0 to 730 days.');
+      }
+      const pricingConfig = {
+        ...(existing?.pricingConfig || court.pricingConfig || {}),
+        regular: {
+          ...(existing?.pricingConfig?.regular || court.pricingConfig?.regular || {}),
+          // The protected receipt workflow verifies the immutable full booking
+          // total. Do not advertise or persist a downpayment mode that the
+          // server cannot safely reconcile yet.
+          fullPaymentRequired: true,
+          minimumHours,
+          bands: bands.map(band => ({
+            start: `${String(Number(band.from)).padStart(2, '0')}:00`,
+            end: Number(band.to) === 24 ? '24:00' : `${String(Number(band.to)).padStart(2, '0')}:00`,
+            hourlyRate: Number(band.rate),
+          })),
+        },
+        event: {
+          ...(existing?.pricingConfig?.event || court.pricingConfig?.event || {}),
+          ...(court.pricingConfig?.event || {}),
+          fullPaymentRequired: true,
+        },
+      };
+      const status = String(court.status || existing?.status || (court.blocked ? 'maintenance' : 'inactive')).toLowerCase();
+      if (!['active', 'inactive', 'maintenance'].includes(status)) throw new Error('The court status is invalid.');
+      const sortOrder = Number(court.sortOrder ?? existing?.sortOrder ?? 0);
+      if (!Number.isInteger(sortOrder) || sortOrder < 0 || sortOrder > 10000) throw new Error('The court display order is invalid.');
+      const opensAt = String(court.opensAt || existing?.opensAt || '').slice(0, 5);
+      const closesAt = String(court.closesAt || existing?.closesAt || '').slice(0, 5);
+      if (!/^\d{2}:\d{2}$/.test(opensAt) || !/^\d{2}:\d{2}$/.test(closesAt)) {
+        throw new Error('Valid court opening and closing times are required.');
+      }
+      const surface = String(court.surface || court.publicConfig?.surface || court.feats?.[0] || '').trim();
+      const patch = {
+        slug: existing?.slug || court.slug || String(court.name || 'court')
+          .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+        name: court.name,
+        description: court.desc || null,
+        status,
+        sortOrder,
+        opensAt,
+        closesAt,
+        currency: existing?.currency || court.currency || 'PHP',
+        pricingConfig,
+        publicConfig: {
+          ...(existing?.publicConfig || court.publicConfig || {}),
+          minimumLeadMinutes,
+          maximumAdvanceDays,
+          photoUrl: court.photo || null,
+          surface: surface || null,
+          eventPackageEnabled: pricingConfig.event?.enabled === true,
+        },
+      };
+      const { error } = await _sb.rpc('manage_tenant_court', {
+        p_tenant_slug: PB_TENANT_SLUG,
+        p_hostname: _pbTenantHostname(),
+        p_action: 'save',
+        p_court_id: isUuid ? court.id : null,
+        p_patch: patch,
+      });
+      if (error) throw error;
+      _pbClearFastCache(['courts', 'settings', 'platformBootstrap']);
+      return;
+    }
     const { error } = await _sb.from('courts').upsert(courtToRow(court));
     if (error) { console.error('saveCourt:', error); throw error; }
     _pbClearFastCache(['courts']);
   },
 
-  async deleteCourt(id) {
-    const { data, error } = await _sb.from('courts').delete().eq('id', id).select('id');
-    if (error) { console.error('deleteCourt:', error); throw error; }
-    if (!data?.some(court => String(court.id) === String(id))) {
-      throw new Error('Court deletion was not confirmed. Refresh the page and check that you are signed in as an owner.');
+  async saveSharedCourtSchedule({ opensAt, closesAt, rateSchedule }) {
+    if (!PB_PLATFORM_V1) throw new Error('Shared court schedules require the protected platform backend.');
+    if (!await _pbAuthenticatedSession()) throw new Error('Your session is no longer available. Please sign in again.');
+    const open = String(opensAt || '').slice(0, 5);
+    const close = String(closesAt || '').slice(0, 5);
+    if (!/^\d{2}:00$/.test(open) || !/^\d{2}:00$/.test(close)) {
+      throw new Error('Shared court hours must use whole-hour times.');
     }
+    const bands = (Array.isArray(rateSchedule) ? rateSchedule : []).map(band => ({
+      start: `${String(Number(band.from)).padStart(2, '0')}:00`,
+      end: Number(band.to) === 24 ? '24:00' : `${String(Number(band.to)).padStart(2, '0')}:00`,
+      hourlyRate: Number(band.rate),
+    }));
+    if (!bands.length) throw new Error('At least one shared pricing tier is required.');
+    const { data, error } = await _sb.rpc('apply_shared_tenant_court_schedule', {
+      p_tenant_slug: PB_TENANT_SLUG,
+      p_hostname: _pbTenantHostname(),
+      p_opens_at: open,
+      p_closes_at: close,
+      p_bands: bands,
+    });
+    if (error) throw new Error(_extractFnError(error, 'The shared court schedule was not saved'));
+    _pbClearFastCache(['courts', 'settings', 'platformBootstrap', 'platformAvailability']);
+    return data;
+  },
+
+  async deleteCourt(id) {
+    if (PB_PLATFORM_V1) {
+      if (!await _pbAuthenticatedSession()) throw new Error('Your session is no longer available. Please sign in again.');
+      const { error } = await _sb.rpc('manage_tenant_court', {
+        p_tenant_slug: PB_TENANT_SLUG,
+        p_hostname: _pbTenantHostname(),
+        p_action: 'delete',
+        p_court_id: id,
+        p_patch: {},
+      });
+      if (error) throw error;
+      _pbClearFastCache(['courts', 'settings', 'platformBootstrap']);
+      return;
+    }
+    const { error } = await _sb.from('courts').delete().eq('id', id);
+    if (error) console.error('deleteCourt:', error);
     _pbClearFastCache(['courts']);
   },
 
   // ---- BOOKINGS ----
   async getBookings(filters = {}) {
     const opts = filters || {};
-    return _pbCached('bookings', opts, PB_FAST_CACHE_MS.bookings, async () => {
-      const accountRole = await _pbCurrentAccountRole();
-      const canReadFullRows = PB_PRIVATE_DATA_SURFACE
-        && ['owner', 'court_owner', 'staff'].includes(accountRole);
-
-      if (!canReadFullRows) {
-        const { data, error } = await _sb.rpc('get_public_booking_availability', {
-          p_date: opts.date || null,
-          p_court_id: opts.courtId ? String(opts.courtId) : null,
-        });
-        if (error) {
-          console.error('getBookings:', error);
-          return [];
+    if (PB_PLATFORM_V1) {
+      return _pbCached('bookings', opts, PB_FAST_CACHE_MS.bookings, async () => {
+        if (PB_PAGE_DATA_SCOPE !== 'manager' || opts.publicAvailability === true) {
+          if (!opts.date) return [];
+          const [availability, bootstrap] = await Promise.all([
+            _pbPlatformAvailability(opts.date),
+            _pbPlatformBootstrap(),
+          ]);
+          return _pbPlatformAvailabilityToLegacyBookings(availability, bootstrap)
+            .filter(row => !opts.courtId || String(row.courtId) === String(opts.courtId));
         }
-        return (data || []).map(rowToBooking);
-      }
 
+        const session = await _pbAuthenticatedSession();
+        if (!session) {
+          if (!opts.date) return [];
+          const [availability, bootstrap] = await Promise.all([
+            _pbPlatformAvailability(opts.date),
+            _pbPlatformBootstrap(),
+          ]);
+          return _pbPlatformAvailabilityToLegacyBookings(availability, bootstrap)
+            .filter(row => !opts.courtId || String(row.courtId) === String(opts.courtId));
+        }
+
+        const request = _invokeEdgeFunction(
+          `tenant-manager-data?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+          {
+            action: 'list-bookings',
+            tenantSlug: PB_TENANT_SLUG,
+            filters: {
+              ...(opts.date ? { date: opts.date } : {}),
+              ...(opts.courtId ? { courtId: String(opts.courtId) } : {}),
+              activeOnly: opts.activeOnly === true,
+              archiveState: 'active',
+              limit: 500,
+            },
+          },
+          { preferDirect: true }
+        );
+        const [result, courts, bootstrap] = await Promise.all([
+          request,
+          this.getCourts(),
+          _pbPlatformBootstrap(),
+        ]);
+        if (!result?.ok || !Array.isArray(result.bookings)) {
+          throw new Error('The tenant booking list could not be loaded.');
+        }
+        const courtMap = new Map(courts.map(court => [String(court.id), court]));
+        return result.bookings.map(row => _pbPlatformBookingToLegacy(
+          row,
+          courtMap,
+          bootstrap?.tenant?.timezone || 'Asia/Manila'
+        ));
+      });
+    }
+    return _pbCached('bookings', opts, PB_FAST_CACHE_MS.bookings, async () => {
       let query = _sb.from('bookings').select('*').order('created_at', { ascending: false });
       if (opts.date) query = query.eq('date', opts.date);
       if (opts.courtId) query = query.eq('court_id', String(opts.courtId));
@@ -1221,512 +2207,631 @@ window.DB = {
     });
   },
 
-  async getInsightBookings() {
-    return _pbCached('bookings', { view: 'insights' }, PB_FAST_CACHE_MS.bookings, async () => {
-      const accountRole = await _pbCurrentAccountRole();
-      if (!PB_PRIVATE_DATA_SURFACE || !['owner', 'court_owner'].includes(accountRole)) {
-        throw new Error('An active owner session is required to load Paddle Rage Insights.');
-      }
-      const pageSize = 1000;
-      const rows = [];
-      for (let from = 0; ; from += pageSize) {
-        const { data, error } = await _sb
-          .from('bookings')
-          .select('ref,booking_group_ref,court_id,date,slots,start_time,end_time,duration,status,payment_status,created_at')
-          .order('created_at', { ascending: false })
-          .range(from, from + pageSize - 1);
-        if (error) {
-          console.error('getInsightBookings:', error);
-          throw error;
-        }
-        const page = data || [];
-        rows.push(...page);
-        if (page.length < pageSize) break;
-      }
-      return rows.map(row => ({
-        ref: row.ref,
-        groupRef: row.booking_group_ref || null,
-        courtId: row.court_id,
-        date: row.date,
-        slots: row.slots || [],
-        startTime: row.start_time,
-        endTime: row.end_time,
-        duration: Number(row.duration || 0),
-        status: row.status,
-        paymentStatus: row.payment_status || 'unpaid',
-        createdAt: row.created_at,
-      }));
-    });
-  },
-
-  async getMyHostBookings() {
-    if (!(await _pbHasActiveAccount())) {
-      throw new Error('Your host session has expired. Please log in again.');
-    }
-    const { data, error } = await _sb.rpc('get_my_host_bookings');
-    if (error) {
-      console.error('getMyHostBookings:', error);
-      throw error;
-    }
-    return (data || []).map(rowToBooking);
-  },
-
-  async markHostBookingGroupFullyPaid(bookingRef) {
-    const ref = String(bookingRef || '').trim();
-    if (!ref) throw new Error('A booking reference is required.');
-    const { data, error } = await _sb.rpc('mark_host_booking_group_fully_paid', {
-      p_booking_ref: ref,
-    });
-    if (error) {
-      console.error('markHostBookingGroupFullyPaid:', error);
-      throw error;
-    }
-    _pbClearFastCache(['bookings']);
-    return data || {};
-  },
-
-  async restoreForfeitedHostBookingAsFullyPaid(bookingRef, reason) {
-    const ref = String(bookingRef || '').trim();
-    const note = String(reason || '').trim();
-    if (!ref) throw new Error('A booking reference is required.');
-    if (note.length < 10) throw new Error('Enter a correction reason of at least 10 characters.');
-    const { data, error } = await _sb.rpc('restore_forfeited_host_booking_as_fully_paid', {
-      p_booking_ref: ref,
-      p_reason: note,
-    });
-    if (error) {
-      console.error('restoreForfeitedHostBookingAsFullyPaid:', error);
-      throw error;
-    }
-    _pbClearFastCache(['bookings']);
-    return data || {};
-  },
-
-  async addBookings(bookings) {
-    const batch = Array.isArray(bookings) ? bookings.filter(Boolean) : [];
-    if (batch.length < 1 || batch.length > 8) {
-      throw new Error('Choose between one and eight booking items.');
-    }
-    batch.forEach(booking => _pbAssertPublicBookingDate(booking.date));
-    const authenticated = await _pbHasActiveAccount();
-
-    // Fast client feedback only. The database serializes and re-checks every
-    // court/date conflict, including all rows in an atomic group.
-    for (const booking of batch) {
-      const existing = await this.getBookings({
-        courtId: booking.courtId,
-        date: booking.date,
-        activeOnly: true,
-      });
-      if (hasSlotConflict(existing, booking)) {
-        throw new Error('One or more time slots are no longer available. Please refresh and choose a different time.');
-      }
-    }
-
-    if (authenticated) {
-      // One multi-row statement is atomic. A later court conflict can no longer
-      // strand earlier "Reserving..." siblings from the same selection.
-      const rows = batch.map(bookingToRow);
-      let { error } = await _sb.from('bookings').insert(rows);
-      if (error && isMissingOptionalBookingColumnError(error) && batch.every(booking => !booking.hostBooking)) {
-        ({ error } = await _sb.from('bookings').insert(rows.map(withoutOptionalBookingColumns)));
-      }
-      if (error) {
-        console.error('addBookings:', error);
-        throw error;
-      }
-      _pbClearFastCache(['bookings']);
-      return batch.map(booking => booking.ref);
-    }
-
-    const tokenKey = batch[0].groupRef || batch[0].ref;
-    const accessExpiresAt = _pbBookingAccessExpiry(batch);
-    const publicAccessToken = _pbBookingAccessToken(tokenKey, true, accessExpiresAt);
-    batch.forEach(booking => _pbRememberBookingAccessToken(booking.ref, publicAccessToken, accessExpiresAt));
-
-    try {
-      const response = await _invokeEdgeFunction('submit-public-booking', {
-        bookings: batch.map(bookingToRow),
-        accessToken: publicAccessToken,
-      }, { retryDirect: false });
-      const refs = Array.isArray(response?.refs) ? response.refs.map(String) : [];
-      if (refs.length !== batch.length) {
-        throw new Error(response?.error || 'Booking holds were not created.');
-      }
-      _pbClearFastCache(['bookings']);
-      return refs;
-    } catch (error) {
-      _pbForgetBookingAccessToken(tokenKey);
-      batch.forEach(booking => _pbForgetBookingAccessToken(booking.ref));
-      console.error('addBookings:', error);
-      throw error;
-    }
-  },
-
   async addBooking(booking) {
-    return this.addBookings([booking]);
-  },
-
-  async releaseBookingHold(ref) {
-    const accessToken = _pbBookingAccessToken(ref, false);
-    const authenticated = await _pbHasActiveAccount();
-    if (!accessToken && !authenticated) {
-      const denied = new Error(`Booking ${ref} cannot be released because its secure access token is missing.`);
-      denied.code = 'BOOKING_ACCESS_TOKEN_MISSING';
-      throw denied;
+    if (PB_PLATFORM_V1) {
+      const error = new Error('Direct booking writes are disabled. Use the protected booking service.');
+      error.code = 'PLATFORM_BOOKING_API_REQUIRED';
+      throw error;
     }
-    const { data, error } = await _sb.rpc('release_public_booking_hold', {
-      p_ref: String(ref),
-      p_access_token: accessToken || null,
-    });
-    if (error) { console.error('releaseBookingHold:', error); throw error; }
-    if (accessToken) _pbForgetBookingAccessTokenFamily(accessToken);
-    else _pbForgetBookingAccessToken(ref);
+    // Check for slot conflicts before inserting
+    const { data: existing } = await _sb
+      .from('bookings')
+      .select('ref, status, slots, created_at')
+      .eq('court_id', booking.courtId)
+      .eq('date', booking.date)
+      .neq('status', 'cancelled')
+      .neq('status', 'forfeited');
+
+    if (hasSlotConflict(existing, booking)) {
+      throw new Error('One or more time slots are no longer available. Please refresh and choose a different time.');
+    }
+
+    const row = bookingToRow(booking);
+    let { error } = await _sb.from('bookings').insert(row);
+    if (error && isMissingOptionalBookingColumnError(error) && !booking.hostBooking) {
+      ({ error } = await _sb.from('bookings').insert(withoutOptionalBookingColumns(row)));
+    }
+    if (error) { console.error('addBooking:', error); throw error; }
     _pbClearFastCache(['bookings']);
-    return data || ref;
   },
 
   async getBookingByRef(ref) {
-    const authenticated = await _pbHasActiveAccount();
-    let data;
-    let error;
-    if (authenticated) {
-      ({ data, error } = await _sb.from('bookings').select('*').eq('ref', ref).single());
-    } else {
-      const accessToken = _pbBookingAccessToken(ref, false);
-      if (!accessToken) return null;
-      ({ data, error } = await _sb.rpc('get_public_booking_by_ref', {
-        p_ref: String(ref),
-        p_access_token: accessToken,
-      }));
-      data = Array.isArray(data) ? data[0] || null : data;
+    if (PB_PLATFORM_V1 && PB_PAGE_DATA_SCOPE !== 'manager') return null;
+    if (PB_PLATFORM_V1) {
+      const session = await _pbAuthenticatedSession();
+      if (!session) return null;
+      const result = await _invokeEdgeFunction(
+        `tenant-manager-data?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+        {
+          action: 'get-booking',
+          tenantSlug: PB_TENANT_SLUG,
+          bookingReference: String(ref || '').toUpperCase(),
+        },
+        { preferDirect: true }
+      );
+      if (!result?.ok) throw new Error('The tenant booking could not be loaded.');
+      if (!result.booking) return null;
+      const [courts, bootstrap] = await Promise.all([this.getCourts(), _pbPlatformBootstrap()]);
+      return _pbPlatformBookingToLegacy(
+        result.booking,
+        new Map(courts.map(court => [String(court.id), court])),
+        bootstrap?.tenant?.timezone || 'Asia/Manila'
+      );
     }
+    const { data, error } = await _sb.from('bookings').select('*').eq('ref', ref).single();
     if (error) { console.error('getBookingByRef:', error); return null; }
-    if (!data) return null;
     return rowToBooking(data);
   },
 
-  async getBookingManagementViewerContext() {
+  async getWeatherRefund(bookingReference) {
+    const reference = String(bookingReference || '').trim().toUpperCase();
+    if (!reference) throw new Error('Booking reference is required.');
     try {
-      const role = await _pbCurrentAccountRole();
-      return {
-        isAuthenticated: Boolean(role),
-        isSystemOwner: role === 'owner',
-      };
+      const result = await _pbManageWeatherRefund('get', { bookingReference: reference });
+      return _pbNormalizeWeatherRefund(result.incident, { kind:'incident' });
     } catch (error) {
-      console.error('getBookingManagementViewerContext:', error);
-      return { isAuthenticated: false, isSystemOwner: false };
-    }
-  },
-
-  async getBookingForManagement(ref, email, options = {}) {
-    const bookingRef = String(ref || '').trim().toUpperCase();
-    const bookingEmail = String(email || '').trim().toLowerCase();
-
-    if (options?.ownerPreview === true) {
-      const accountRole = await _pbCurrentAccountRole().catch(() => '');
-      if (accountRole !== 'owner') {
-        const denied = new Error('An active System Owner account is required.');
-        denied.code = 'OWNER_PREVIEW_UNAUTHORIZED';
-        throw denied;
-      }
-
-      const { data, error } = await _sb.rpc('get_owner_booking_for_management', {
-        p_ref: bookingRef,
-        p_email: bookingEmail,
-      });
-      if (error) {
-        console.error('getBookingForManagement owner preview:', error);
-        throw error;
-      }
-      return (Array.isArray(data) ? data : data ? [data] : []).map(row => ({
-        ...rowToBooking(row),
-        managementAccess: 'owner_preview',
-      }));
-    }
-
-    const tokenCandidates = [
-      bookingRef,
-      bookingRef.endsWith('-G') ? bookingRef.slice(0, -2) : `${bookingRef}-G`,
-    ].filter(Boolean);
-    const accessToken = tokenCandidates
-      .map(candidate => _pbBookingAccessToken(candidate, false))
-      .find(Boolean) || '';
-
-    if (!accessToken) {
-      const denied = new Error('Open Manage booking on the browser used to make this reservation.');
-      denied.code = 'BOOKING_ACCESS_TOKEN_MISSING';
-      throw denied;
-    }
-
-    const { data, error } = await _sb.rpc('get_public_booking_for_management', {
-      p_ref: bookingRef,
-      p_email: bookingEmail,
-      p_access_token: accessToken,
-    });
-    if (error) {
-      console.error('getBookingForManagement:', error);
+      if (error?.code === 'WEATHER_REFUND_NOT_FOUND' || error?.httpStatus === 404) return null;
       throw error;
     }
-    return (Array.isArray(data) ? data : data ? [data] : []).map(rowToBooking);
   },
 
-  async getBookingRescheduleState(ref, email) {
-    const bookingRef = String(ref || '').trim().toUpperCase();
-    const bookingEmail = String(email || '').trim().toLowerCase();
-    const tokenCandidates = [
-      bookingRef,
-      bookingRef.endsWith('-G') ? bookingRef.slice(0, -2) : `${bookingRef}-G`,
-    ].filter(Boolean);
-    const accessToken = tokenCandidates
-      .map(candidate => _pbBookingAccessToken(candidate, false))
-      .find(Boolean) || '';
-    if (!accessToken) {
-      const denied = new Error('Open Manage booking on the browser used to make this reservation.');
-      denied.code = 'BOOKING_ACCESS_TOKEN_MISSING';
-      throw denied;
+  async listPlayerRainClaims(filters = {}) {
+    const input = filters && typeof filters === 'object' ? filters : {};
+    const status = String(input.status || '').trim().toLowerCase();
+    const bookingDate = String(input.bookingDate || '').trim();
+    const beforeReportedAt = String(input.beforeReportedAt || '').trim();
+    const beforeClaimId = String(input.beforeClaimId || '').trim();
+    const limit = Math.max(1,Math.min(250,Number(input.limit) || 250));
+    if (status && !['awaiting_proof','submitted','approved','rejected','expired'].includes(status)) {
+      throw new Error('Choose a valid player rain-report status.');
     }
-    const { data, error } = await _sb.rpc('get_public_booking_reschedule_state', {
-      p_ref: bookingRef,
-      p_email: bookingEmail,
-      p_access_token: accessToken,
-    });
-    if (error) {
-      console.error('getBookingRescheduleState:', error);
-      throw new Error(_extractFnError(error, 'Could not load the schedule request'));
+    if (bookingDate && !/^\d{4}-\d{2}-\d{2}$/.test(bookingDate)) {
+      throw new Error('Choose a valid booking date.');
     }
-    if (data?.ok === false) throw _pbRpcResultError(data, 'Could not load the schedule request.');
-    return data || { ok: true, request: null };
-  },
-
-  async getAdminRescheduleOptions(ref, date) {
-    _pbAssertPublicBookingDate(date);
-    const { data, error } = await _sb.rpc('get_admin_reschedule_options', {
-      p_ref: String(ref || '').trim(), p_date: date,
-    });
-    if (error) throw new Error(_extractFnError(error, 'Could not load available time slots.'));
-    if (!data || data.ok === false) throw _pbRpcResultError(data, 'Could not load available time slots.');
-    return data;
-  },
-
-  async rescheduleBookingTransaction(ref, schedule) {
-    _pbAssertPublicBookingDate(schedule?.date);
-    const { data, error } = await _sb.rpc('reschedule_booking_transaction', {
-      p_ref: String(ref || '').trim(), p_date: schedule.date,
-      p_start_hour: schedule.startHour, p_expected_date: schedule.expectedDate,
-      p_expected_slots: schedule.expectedSlots,
-      p_expected_court_id: schedule.expectedCourtId,
-    });
-    if (error) throw new Error(_extractFnError(error, 'Could not reschedule this booking.'));
-    if (!data || data.ok === false) throw _pbRpcResultError(data, 'Could not reschedule this booking.');
-    _pbClearFastCache(['bookings']);
-    return data;
-  },
-
-  async rescheduleBookingsTransaction(ref, changes) {
-    if (!Array.isArray(changes) || changes.length < 1 || changes.length > 8) {
-      throw new Error('Choose between 1 and 8 booking items to reschedule.');
+    if (beforeReportedAt && Number.isNaN(new Date(beforeReportedAt).getTime())) {
+      throw new Error('The player rain-report cursor timestamp is invalid.');
     }
-    changes.forEach(change => _pbAssertPublicBookingDate(change?.date));
-    const { data, error } = await _sb.rpc('reschedule_bookings_transaction', {
-      p_ref: String(ref || '').trim(), p_changes: changes,
-    });
-    if (error) throw new Error(_extractFnError(error, 'Could not reschedule the selected bookings.'));
-    if (!data || data.ok === false) throw _pbRpcResultError(data, 'Could not reschedule the selected bookings.');
-    _pbClearFastCache(['bookings']);
-    return data;
-  },
-
-  async getBookingRescheduleOptions(ref, email, itemRefs, date) {
-    const bookingRef = String(ref || '').trim().toUpperCase();
-    const bookingEmail = String(email || '').trim().toLowerCase();
-    const requestedDate = String(date || '').trim();
-    _pbAssertPublicBookingDate(requestedDate);
-    const tokenCandidates = [bookingRef, bookingRef.endsWith('-G') ? bookingRef.slice(0, -2) : `${bookingRef}-G`];
-    const accessToken = tokenCandidates.map(candidate => _pbBookingAccessToken(candidate, false)).find(Boolean) || '';
-    if (!accessToken) {
-      const denied = new Error('Secure booking access is missing from this browser.');
-      denied.code = 'BOOKING_ACCESS_TOKEN_MISSING';
-      throw denied;
+    if (beforeClaimId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(beforeClaimId)) {
+      throw new Error('The player rain-report cursor ID is invalid.');
     }
-    const selectedRefs = [...new Set((Array.isArray(itemRefs) ? itemRefs : []).map(value => String(value || '').trim()).filter(Boolean))];
-    if (!selectedRefs.length || selectedRefs.length > 8) throw new Error('Choose at least one booking item to reschedule.');
-    const { data, error } = await _sb.rpc('get_public_booking_reschedule_options', {
-      p_ref: bookingRef,
-      p_email: bookingEmail,
-      p_access_token: accessToken,
-      p_item_refs: selectedRefs,
-      p_date: requestedDate,
-    });
-    if (error) {
-      console.error('getBookingRescheduleOptions:', error);
-      throw new Error(_extractFnError(error, 'Could not load available schedule options'));
+    if (Boolean(beforeReportedAt) !== Boolean(beforeClaimId)) {
+      throw new Error('Both player rain-report cursor fields are required.');
     }
-    if (data?.ok === false) throw _pbRpcResultError(data, 'Could not load available schedule options.');
-    const allowed = new Set(selectedRefs);
+    const result = await _pbManageWeatherRefund('list-player-claims', {
+      filters: {
+        ...(status ? { status } : {}),
+        ...(bookingDate ? { bookingDate } : {}),
+        ...(beforeReportedAt ? { beforeReportedAt } : {}),
+        ...(beforeClaimId ? { beforeClaimId } : {}),
+        limit,
+      },
+    });
+    if (!Array.isArray(result.claims) || !result.page || typeof result.page !== 'object') {
+      throw new Error('Player rain reports are temporarily unavailable.');
+    }
+    const claims = result.claims.map(_pbNormalizePlayerRainClaim).filter(Boolean);
+    if (claims.length !== result.claims.length) {
+      throw new Error('A player rain report could not be verified. Please refresh and try again.');
+    }
+    const page = result.page;
+    const count = Number(page.count ?? page.returnedCount ?? claims.length);
+    const returnedCount = Number(page.returnedCount ?? count);
+    const totalCount = Number(page.totalCount);
+    if (!Number.isInteger(count) || count < 0 || !Number.isInteger(returnedCount) || returnedCount < 0 ||
+        count !== claims.length || returnedCount !== claims.length ||
+        !Number.isInteger(totalCount) || totalCount < claims.length) {
+      throw new Error('The player rain-report list totals are invalid. Please refresh and try again.');
+    }
+    const rawNext = page.nextCursor && typeof page.nextCursor === 'object' ? page.nextCursor : null;
+    const nextCursor = rawNext
+      ? {
+          beforeReportedAt:String(rawNext.beforeReportedAt || '').trim(),
+          beforeClaimId:String(rawNext.beforeClaimId || '').trim(),
+        }
+      : null;
+    if (rawNext && (!nextCursor.beforeReportedAt ||
+        Number.isNaN(new Date(nextCursor.beforeReportedAt).getTime()) ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(nextCursor.beforeClaimId))) {
+      throw new Error('The player rain-report list cursor is invalid. Please refresh and try again.');
+    }
     return {
-      ...(data || {}),
-      items: Array.isArray(data?.items) ? data.items.filter(item => allowed.has(String(item?.ref || ''))) : [],
+      claims,
+      page: {
+        limit:Number(page.limit || limit),
+        count,
+        returnedCount,
+        totalCount,
+        nextCursor,
+      },
     };
   },
 
-  async submitBookingRescheduleRequest(payload = {}) {
-    const bookingRef = String(payload.bookingRef || '').trim().toUpperCase();
-    const bookingEmail = String(payload.email || '').trim().toLowerCase();
-    const requestedDate = String(payload.requestedDate || '').trim();
-    _pbAssertPublicBookingDate(requestedDate);
-    const itemRefs = [...new Set((Array.isArray(payload.itemRefs) ? payload.itemRefs : []).map(value => String(value || '').trim()).filter(Boolean))];
-    const requestedSlots = [...new Set((Array.isArray(payload.requestedSlots) ? payload.requestedSlots : []).map(value => String(value).trim()).filter(Boolean))];
-    if (!itemRefs.length || itemRefs.length > 8) throw new Error('Choose between one and eight booking items.');
-    if (!requestedSlots.length || requestedSlots.length > 12) throw new Error('Choose an available schedule.');
-    if (payload.acknowledgedNoRefund !== true || payload.acknowledgedSlotNotHeld !== true) {
-      throw new Error('Confirm both schedule request acknowledgements before continuing.');
+  async listAllPlayerRainClaims(filters = {}) {
+    const input = filters && typeof filters === 'object' ? { ...filters } : {};
+    delete input.beforeReportedAt;
+    delete input.beforeClaimId;
+    const claims = [];
+    const claimIds = new Set();
+    const cursorKeys = new Set();
+    let cursor = null;
+    let totalCount = null;
+    for (let pageIndex = 0; pageIndex < 1000; pageIndex += 1) {
+      const pageResult = await this.listPlayerRainClaims({
+        ...input,
+        limit:250,
+        ...(cursor || {}),
+      });
+      totalCount = Number(pageResult.page.totalCount);
+      pageResult.claims.forEach(claim => {
+        if (!claimIds.has(claim.id)) {
+          claimIds.add(claim.id);
+          claims.push(claim);
+        }
+      });
+      cursor = pageResult.page.nextCursor;
+      if (!cursor) {
+        if (Number.isFinite(totalCount) && totalCount > claims.length) {
+          throw new Error('The player rain-report list ended before every record was loaded.');
+        }
+        return {
+          claims,
+          page:{ totalCount:totalCount ?? claims.length,count:claims.length,nextCursor:null },
+        };
+      }
+      const cursorKey = `${cursor.beforeReportedAt}|${cursor.beforeClaimId}`;
+      if (cursorKeys.has(cursorKey)) {
+        throw new Error('The player rain-report list returned a repeated cursor.');
+      }
+      cursorKeys.add(cursorKey);
     }
-    const tokenCandidates = [bookingRef, bookingRef.endsWith('-G') ? bookingRef.slice(0, -2) : `${bookingRef}-G`];
-    const accessToken = tokenCandidates.map(candidate => _pbBookingAccessToken(candidate, false)).find(Boolean) || '';
-    if (!accessToken) {
-      const denied = new Error('Secure booking access is missing from this browser.');
-      denied.code = 'BOOKING_ACCESS_TOKEN_MISSING';
-      throw denied;
-    }
-    const { data, error } = await _sb.rpc('submit_public_booking_reschedule_request', {
-      p_ref: bookingRef,
-      p_email: bookingEmail,
-      p_access_token: accessToken,
-      p_item_refs: itemRefs,
-      p_requested_date: requestedDate,
-      p_requested_slots: requestedSlots,
-      p_note: String(payload.note || '').trim() || null,
-      p_acknowledged_no_refund: true,
-      p_acknowledged_slot_not_held: true,
-    });
-    if (error) {
-      console.error('submitBookingRescheduleRequest:', error);
-      throw new Error(_extractFnError(error, 'Could not submit the schedule request'));
-    }
-    if (data?.ok === false) throw _pbRpcResultError(data, 'Could not submit the schedule request.');
-    const request = data?.request || data;
-    if (!request?.id) throw new Error('The schedule request service returned an invalid result.');
-    const notificationDelivery = await this.dispatchBookingRescheduleNotifications({
-      requestId: request.id,
-      bookingRef,
-      email: bookingEmail,
-      accessToken,
-      allowFailure: true,
-    }).catch(() => null);
-    return data && typeof data === 'object' ? { ...data, notificationDelivery } : data;
+    throw new Error('The player rain-report list is too large to load safely.');
   },
 
-  async withdrawBookingRescheduleRequest(payload = {}) {
-    const bookingRef = String(payload.bookingRef || '').trim().toUpperCase();
-    const bookingEmail = String(payload.email || '').trim().toLowerCase();
-    const requestId = String(payload.requestId || '').trim();
-    const tokenCandidates = [bookingRef, bookingRef.endsWith('-G') ? bookingRef.slice(0, -2) : `${bookingRef}-G`];
-    const accessToken = tokenCandidates.map(candidate => _pbBookingAccessToken(candidate, false)).find(Boolean) || '';
-    if (!accessToken) {
-      const denied = new Error('Secure booking access is missing from this browser.');
-      denied.code = 'BOOKING_ACCESS_TOKEN_MISSING';
-      throw denied;
+  async getPlayerRainClaim(claimId) {
+    const requestedId = String(claimId || '').trim().toLowerCase();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(requestedId)) {
+      throw new Error('The player rain report could not be verified.');
     }
-    const { data, error } = await _sb.rpc('withdraw_public_booking_reschedule_request', {
-      p_ref: bookingRef,
-      p_email: bookingEmail,
-      p_access_token: accessToken,
-      p_request_id: requestId,
+    const result = await _pbManageWeatherRefund('get-player-claim', {
+      claimId: requestedId,
     });
-    if (error) {
-      console.error('withdrawBookingRescheduleRequest:', error);
-      throw new Error(_extractFnError(error, 'Could not withdraw the schedule request'));
+    const claim = _pbNormalizePlayerRainClaim(result.claim);
+    if (!claim || claim.id.toLowerCase() !== requestedId) {
+      throw new Error('The player rain report could not be verified.');
     }
-    if (data?.ok === false) throw _pbRpcResultError(data, 'Could not withdraw the schedule request.');
-    const request = data?.request || data;
-    const notificationDelivery = request?.id ? await this.dispatchBookingRescheduleNotifications({
-      requestId: request.id,
-      bookingRef,
-      email: bookingEmail,
-      accessToken,
-      allowFailure: true,
-    }).catch(() => null) : null;
-    return data && typeof data === 'object' ? { ...data, notificationDelivery } : data;
+    return claim;
   },
 
-  async listBookingRescheduleRequests(status = null, limit = 100) {
-    const normalizedStatus = String(status || '').trim().toLowerCase() || null;
-    const normalizedLimit = Math.max(1, Math.min(Number(limit) || 100, 200));
-    const { data, error } = await _sb.rpc('list_booking_reschedule_requests', {
-      p_status: normalizedStatus,
-      p_limit: normalizedLimit,
+  async getPlayerRainProof(claimId) {
+    const result = await _pbManageWeatherRefund('get-player-proof', {
+      claimId: String(claimId || '').trim(),
     });
-    if (error) {
-      console.error('listBookingRescheduleRequests:', error);
-      throw new Error(_extractFnError(error, 'Could not load schedule requests'));
+    const signedUrl = String(result.signedUrl || '').trim();
+    let url = null;
+    try { url = new URL(signedUrl); } catch (_) {}
+    if (!url || url.protocol !== 'https:' || url.username || url.password ||
+        String(result.claimId || '').trim().toLowerCase() !== String(claimId || '').trim().toLowerCase()) {
+      throw new Error('The private court photo is temporarily unavailable.');
     }
-    if (data?.ok === false) throw _pbRpcResultError(data, 'Could not load schedule requests.');
-    const result = data || { ok:true, counts:{}, requests:[] };
-    const requests = Array.isArray(result.requests) ? result.requests : [];
+    return {
+      claimId: String(result.claimId),
+      signedUrl,
+      expiresIn: Number(result.expiresIn || 300),
+    };
+  },
+
+  async approvePlayerRainClaim(claimId, {
+    decisionNote = '',
+    actualPlayStartedAtOverride = '',
+    playStartOverrideReason = '',
+    idempotencyKey = '',
+  } = {}) {
+    const override = String(actualPlayStartedAtOverride || '').trim();
+    const overrideReason = String(playStartOverrideReason || '').trim();
+    if (override && !overrideReason) {
+      throw new Error('Enter the verified play-start correction reason.');
+    }
+    const result = await _pbManageWeatherRefund('approve-player-claim', {
+      claimId: String(claimId || '').trim(),
+      ...(String(decisionNote || '').trim() ? { decisionNote: String(decisionNote).trim() } : {}),
+      ...(override ? {
+        actualPlayStartedAtOverride: override,
+        playStartOverrideReason: overrideReason,
+      } : {}),
+      idempotencyKey: String(idempotencyKey || '') || _pbWeatherRefundIdempotencyKey(),
+    });
+    const claim = _pbNormalizePlayerRainClaim(result.claim);
+    const incident = _pbNormalizeWeatherRefund(result.incident, { kind:'incident' });
+    if (!claim || !incident) throw new Error('The approved rain report returned an invalid response.');
+    _pbClearFastCache(['bookings']);
+    return { claim, incident, idempotent: result.idempotent === true };
+  },
+
+  async rejectPlayerRainClaim(claimId, {
+    decisionNote = '',
+    idempotencyKey = '',
+  } = {}) {
+    const note = String(decisionNote || '').trim();
+    if (!note) throw new Error('Enter a reason before rejecting this player report.');
+    const result = await _pbManageWeatherRefund('reject-player-claim', {
+      claimId: String(claimId || '').trim(),
+      decisionNote: note,
+      idempotencyKey: String(idempotencyKey || '') || _pbWeatherRefundIdempotencyKey(),
+    });
+    const claim = _pbNormalizePlayerRainClaim(result.claim);
+    if (!claim) throw new Error('The rejected rain report returned an invalid response.');
+    _pbClearFastCache(['bookings']);
+    return { claim, idempotent: result.idempotent === true };
+  },
+
+  async listWeatherRefunds(filters = {}) {
+    const input = filters && typeof filters === 'object' ? filters : {};
+    const status = String(input.status || '').trim().toLowerCase();
+    const payoutStatus = String(input.payoutStatus || '').trim().toLowerCase();
+    const bookingDate = String(input.bookingDate || '').trim();
+    const beforeReportedAt = String(input.beforeReportedAt || '').trim();
+    const beforeIncidentId = String(input.beforeIncidentId || '').trim();
+    const limit = Math.max(1, Math.min(250, Number(input.limit) || 250));
+    if (status && !['reported', 'approved', 'rejected'].includes(status)) {
+      throw new Error('Choose a valid rain refund status.');
+    }
+    if (payoutStatus && !['pending', 'sent', 'not_required'].includes(payoutStatus)) {
+      throw new Error('Choose a valid rain refund payout status.');
+    }
+    if (bookingDate && !/^\d{4}-\d{2}-\d{2}$/.test(bookingDate)) {
+      throw new Error('Choose a valid booking date.');
+    }
+    if (beforeReportedAt && Number.isNaN(new Date(beforeReportedAt).getTime())) {
+      throw new Error('The rain refund cursor timestamp is invalid.');
+    }
+    if (beforeIncidentId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(beforeIncidentId)) {
+      throw new Error('The rain refund cursor ID is invalid.');
+    }
+    if (Boolean(beforeReportedAt) !== Boolean(beforeIncidentId)) {
+      throw new Error('Both rain refund cursor fields are required.');
+    }
+    const result = await _pbManageWeatherRefund('list', {
+      filters: {
+        ...(status ? { status } : {}),
+        ...(payoutStatus ? { payoutStatus } : {}),
+        ...(bookingDate ? { bookingDate } : {}),
+        ...(beforeReportedAt ? { beforeReportedAt } : {}),
+        ...(beforeIncidentId ? { beforeIncidentId } : {}),
+        limit,
+      },
+    });
+    if (!Array.isArray(result.incidents) || !result.page || typeof result.page !== 'object') {
+      throw new Error('The rain refund list response is incomplete. Please refresh and try again.');
+    }
+    const rawPage = result.page;
+    const totalCountValue = Number(rawPage.totalCount ?? rawPage.total_count);
+    const countValue = Number(rawPage.count ?? result.incidents.length);
+    if (!Number.isInteger(totalCountValue) || totalCountValue < 0 ||
+        !Number.isInteger(countValue) || countValue < 0 ||
+        countValue !== result.incidents.length || totalCountValue < countValue) {
+      throw new Error('The rain refund list totals are invalid. Please refresh and try again.');
+    }
+    const rawNext = rawPage.nextCursor && typeof rawPage.nextCursor === 'object'
+      ? rawPage.nextCursor
+      : null;
+    const nextCursor = rawNext
+      ? {
+          beforeReportedAt: String(rawNext.beforeReportedAt || rawNext.reportedAt || '').trim(),
+          beforeIncidentId: String(rawNext.beforeIncidentId || rawNext.incidentId || '').trim(),
+        }
+      : null;
+    if (rawPage.nextCursor && (!nextCursor?.beforeReportedAt || !nextCursor?.beforeIncidentId ||
+        Number.isNaN(new Date(nextCursor.beforeReportedAt).getTime()) ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(nextCursor.beforeIncidentId))) {
+      throw new Error('The rain refund list cursor is invalid. Please refresh and try again.');
+    }
+    const incidents = result.incidents
+      .map(incident => _pbNormalizeWeatherRefund(incident, { kind:'incident' }))
+      .filter(Boolean);
+    if (incidents.length !== result.incidents.length || incidents.some(incident =>
+      !incident.id || !incident.bookingReference ||
+      !['reported', 'approved', 'rejected'].includes(incident.status) ||
+      !['pending', 'sent', 'not_required'].includes(incident.payoutStatus))) {
+      throw new Error('A rain refund record could not be verified. Please refresh and try again.');
+    }
+    return {
+      incidents,
+      page: {
+        limit: Number(rawPage.limit || limit),
+        count: countValue,
+        totalCount: totalCountValue,
+        nextCursor: nextCursor?.beforeReportedAt && nextCursor?.beforeIncidentId ? nextCursor : null,
+      },
+    };
+  },
+
+  async listAllWeatherRefunds(filters = {}) {
+    const input = filters && typeof filters === 'object' ? { ...filters } : {};
+    delete input.beforeReportedAt;
+    delete input.beforeIncidentId;
+    const incidents = [];
+    const incidentKeys = new Set();
+    const cursorKeys = new Set();
+    let cursor = null;
+    let totalCount = null;
+    for (let pageIndex = 0; pageIndex < 1000; pageIndex += 1) {
+      const pageResult = await this.listWeatherRefunds({
+        ...input,
+        limit:250,
+        ...(cursor || {}),
+      });
+      if (Number.isFinite(Number(pageResult.page?.totalCount))) {
+        totalCount = Number(pageResult.page.totalCount);
+      }
+      pageResult.incidents.forEach(incident => {
+        const key = String(incident.id || `${incident.bookingReference}:${incident.reportedAt}`);
+        if (!key || incidentKeys.has(key)) return;
+        incidentKeys.add(key);
+        incidents.push(incident);
+      });
+      cursor = pageResult.page?.nextCursor || null;
+      if (!cursor) {
+        if (totalCount !== null && totalCount > incidents.length) {
+          throw new Error('The rain refund list ended before every record was loaded. Please refresh and try again.');
+        }
+        return {
+          incidents,
+          page: { totalCount:totalCount ?? incidents.length, count:incidents.length, nextCursor:null },
+        };
+      }
+      const cursorKey = `${cursor.beforeReportedAt}|${cursor.beforeIncidentId}`;
+      if (cursorKeys.has(cursorKey)) {
+        throw new Error('The rain refund list returned a repeated cursor. Please refresh and try again.');
+      }
+      cursorKeys.add(cursorKey);
+    }
+    throw new Error('The rain refund list is too large to load safely in one report.');
+  },
+
+  async previewWeatherRefund({
+    bookingReference,
+    actualPlayStartedAt,
+    rainStoppedPlayAt,
+  } = {}) {
+    const result = await _pbManageWeatherRefund('preview', {
+      bookingReference: String(bookingReference || '').trim().toUpperCase(),
+      actualPlayStartedAt: String(actualPlayStartedAt || ''),
+      rainStoppedPlayAt: String(rainStoppedPlayAt || ''),
+    });
+    const preview = _pbNormalizeWeatherRefund(result.preview, { kind:'preview' });
+    if (!preview) throw new Error('The rain refund preview returned an invalid response.');
+    return preview;
+  },
+
+  async reportWeatherRefund({
+    bookingReference,
+    actualPlayStartedAt,
+    rainStoppedPlayAt,
+    reportNote = '',
+    idempotencyKey = '',
+  } = {}) {
+    const result = await _pbManageWeatherRefund('report', {
+      bookingReference: String(bookingReference || '').trim().toUpperCase(),
+      actualPlayStartedAt: String(actualPlayStartedAt || ''),
+      rainStoppedPlayAt: String(rainStoppedPlayAt || ''),
+      ...(String(reportNote || '').trim() ? { reportNote: String(reportNote).trim() } : {}),
+      idempotencyKey: String(idempotencyKey || '') || _pbWeatherRefundIdempotencyKey(),
+    });
+    const incident = _pbNormalizeWeatherRefund(result.incident, { kind:'incident' });
+    if (!incident) throw new Error('The rain interruption report returned an invalid response.');
+    _pbClearFastCache(['bookings']);
+    return incident;
+  },
+
+  async approveWeatherRefund(incidentId, { decisionNote = '', idempotencyKey = '' } = {}) {
+    const result = await _pbManageWeatherRefund('approve', {
+      incidentId: String(incidentId || ''),
+      ...(String(decisionNote || '').trim() ? { decisionNote: String(decisionNote).trim() } : {}),
+      idempotencyKey: String(idempotencyKey || '') || _pbWeatherRefundIdempotencyKey(),
+    });
+    const incident = _pbNormalizeWeatherRefund(result.incident, { kind:'incident' });
+    if (!incident) throw new Error('The approved rain refund returned an invalid response.');
+    _pbClearFastCache(['bookings']);
+    return incident;
+  },
+
+  async rejectWeatherRefund(incidentId, { decisionNote = '', idempotencyKey = '' } = {}) {
+    const note = String(decisionNote || '').trim();
+    if (!note) throw new Error('Enter a reason before rejecting this rain interruption report.');
+    const result = await _pbManageWeatherRefund('reject', {
+      incidentId: String(incidentId || ''),
+      decisionNote: note,
+      idempotencyKey: String(idempotencyKey || '') || _pbWeatherRefundIdempotencyKey(),
+    });
+    const incident = _pbNormalizeWeatherRefund(result.incident, { kind:'incident' });
+    if (!incident) throw new Error('The rejected rain refund returned an invalid response.');
+    _pbClearFastCache(['bookings']);
+    return incident;
+  },
+
+  async markWeatherRefundPayoutSent(incidentId, {
+    payoutReference,
+    payoutMethod = '',
+    payoutNote = '',
+    idempotencyKey = '',
+  } = {}) {
+    const reference = String(payoutReference || '').trim();
+    if (!reference) throw new Error('Enter the settlement reference before confirming.');
+    const result = await _pbManageWeatherRefund('mark-payout-sent', {
+      incidentId: String(incidentId || ''),
+      payoutReference: reference,
+      ...(String(payoutMethod || '').trim() ? { payoutMethod: String(payoutMethod).trim() } : {}),
+      ...(String(payoutNote || '').trim() ? { payoutNote: String(payoutNote).trim() } : {}),
+      idempotencyKey: String(idempotencyKey || '') || _pbWeatherRefundIdempotencyKey(),
+    });
+    const incident = _pbNormalizeWeatherRefund(result.incident, { kind:'incident' });
+    if (!incident) throw new Error('The payout confirmation returned an invalid response.');
+    _pbClearFastCache(['bookings']);
+    return incident;
+  },
+
+  async previewBookingReschedule(ref, bookingDate) {
+    if (!PB_PLATFORM_V1) {
+      const error = new Error('Protected reschedule preview is unavailable in legacy mode.');
+      error.code = 'PLATFORM_RESCHEDULE_REQUIRED';
+      throw error;
+    }
+    const result = await _invokeEdgeFunction(
+      `reschedule-booking?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      {
+        action: 'preview',
+        tenantSlug: PB_TENANT_SLUG,
+        bookingReference: String(ref || '').toUpperCase(),
+        bookingDate: String(bookingDate || ''),
+      },
+      { preferDirect: true },
+    );
+    if (!result?.ok || !result.booking) {
+      throw new Error(result?.message || result?.error || 'Available reschedule times could not be loaded.');
+    }
     return {
       ...result,
-      requests,
-      pendingRequests:Array.isArray(result.pendingRequests)
-        ? result.pendingRequests
-        : requests.filter(item => String(item?.status || '').toLowerCase() === 'pending'),
-      historyRequests:Array.isArray(result.historyRequests)
-        ? result.historyRequests
-        : requests.filter(item => String(item?.status || '').toLowerCase() !== 'pending'),
+      booking: await _pbPlatformBookingResponseToLegacy(result.booking),
+      options: Array.isArray(result.options)
+        ? result.options.map(_pbPlatformRescheduleOptionToLegacy)
+        : [],
+      policies: result.policies && typeof result.policies === 'object'
+        ? result.policies
+        : {},
     };
   },
 
-  async getBookingRescheduleRequest(requestId) {
-    const { data, error } = await _sb.rpc('get_booking_reschedule_request', {
-      p_request_id: String(requestId || '').trim(),
-    });
-    if (error) {
-      console.error('getBookingRescheduleRequest:', error);
-      throw new Error(_extractFnError(error, 'Could not load the schedule request'));
+  async rescheduleBooking(ref, change = {}) {
+    if (!PB_PLATFORM_V1) {
+      const error = new Error('Protected rescheduling is unavailable in legacy mode.');
+      error.code = 'PLATFORM_RESCHEDULE_REQUIRED';
+      throw error;
     }
-    if (data?.ok === false) throw _pbRpcResultError(data, 'Could not load the schedule request.');
-    return data;
+    const result = await _invokeEdgeFunction(
+      `reschedule-booking?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      {
+        action: 'reschedule',
+        tenantSlug: PB_TENANT_SLUG,
+        bookingReference: String(ref || '').toUpperCase(),
+        newDate: String(change.newDate || ''),
+        newStartTime: String(change.newStartTime || ''),
+        reasonCode: String(change.reasonCode || ''),
+        publicReason: String(change.publicReason || ''),
+        internalNote: String(change.internalNote || ''),
+        notifyCustomer: change.notifyCustomer === true,
+        idempotencyKey: String(change.idempotencyKey || ''),
+        deadlineAt: change.deadlineAt || null,
+      },
+      { preferDirect: true },
+    );
+    if (!result?.ok || !result.booking) {
+      throw new Error(result?.message || result?.error || 'The booking could not be rescheduled.');
+    }
+    _pbClearFastCache(['bookings', 'platformAvailability']);
+    if (result.paymentRequired === true) {
+      const balance = result.balanceRequest;
+      if (!/^[0-9a-f-]{36}$/i.test(balance?.id || '') ||
+          !['awaiting_payment','payment_review','settled','expired','cancelled'].includes(balance?.status) ||
+          !Number.isFinite(balance?.remainingAmount) || balance.remainingAmount <= 0 ||
+          !Number.isFinite(new Date(balance.deadlineAt || '').getTime()) ||
+          !Number.isFinite(result.price?.additionalAmount) || result.price.additionalAmount <= 0 ||
+          !Number.isFinite(result.price?.newTotalAmount) || result.price.newTotalAmount <= 0) {
+        throw new Error('The payment response could not be verified. Refresh this booking before trying again.');
+      }
+      return {...result, booking:await _pbPlatformBookingResponseToLegacy(result.booking), event:null, email:null};
+    }
+    if (!result.event) throw new Error('The schedule response could not be verified. Refresh this booking before trying again.');
+    const email = _pbPlatformRescheduleEmailToLegacy(result.email);
+    return {
+      ...result,
+      booking: await _pbPlatformBookingResponseToLegacy(result.booking),
+      event: {
+        ..._pbPlatformRescheduleEventToLegacy(result.event),
+        emailStatus: email.status,
+        emailSentAt: email.sentAt,
+        emailDeliveryId: email.deliveryId,
+        emailErrorCode: email.errorCode,
+        emailAttemptCount: email.attemptCount,
+      },
+      email,
+    };
   },
 
-  async reviewBookingRescheduleRequest(requestId, decision, reason = '') {
-    const normalizedDecision = String(decision || '').trim().toLowerCase();
-    if (!['approved','rejected'].includes(normalizedDecision)) throw new Error('Choose approve or decline.');
-    const note = String(reason || '').trim();
-    if (normalizedDecision === 'rejected' && note.length < 5) throw new Error('Enter a clear reason before declining.');
-    const { data, error } = await _sb.rpc('review_booking_reschedule_request', {
-      p_request_id: String(requestId || '').trim(),
-      p_decision: normalizedDecision === 'approved' ? 'approve' : 'reject',
-      p_reason: note || null,
-    });
-    if (error) {
-      console.error('reviewBookingRescheduleRequest:', error);
-      throw new Error(_extractFnError(error, 'Could not save the schedule decision'));
+  async resendBookingRescheduleEmail(ref, eventId) {
+    if (!PB_PLATFORM_V1) {
+      const error = new Error('Protected reschedule email delivery is unavailable in legacy mode.');
+      error.code = 'PLATFORM_RESCHEDULE_REQUIRED';
+      throw error;
     }
-    if (data?.ok === false && String(data?.request?.status || '').toLowerCase() !== 'conflicted') {
-      throw _pbRpcResultError(data, 'Could not save the schedule decision.');
+    const result = await _invokeEdgeFunction(
+      `reschedule-booking?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      {
+        action: 'resend',
+        tenantSlug: PB_TENANT_SLUG,
+        bookingReference: String(ref || '').toUpperCase(),
+        eventId: String(eventId || ''),
+      },
+      { preferDirect: true },
+    );
+    if (!result?.ok || !result.event) {
+      throw new Error(result?.message || result?.error || 'The reschedule email could not be resent.');
     }
     _pbClearFastCache(['bookings']);
-    return data;
-  },
-
-  async dispatchBookingRescheduleNotifications(payload = {}) {
-    const allowFailure = payload.allowFailure === true;
-    const body = {
-      action: payload.action === 'retry' ? 'retry' : 'dispatch',
-      ...(payload.requestId ? { requestId: String(payload.requestId) } : {}),
-      ...(payload.bookingRef ? { bookingRef: String(payload.bookingRef).trim().toUpperCase() } : {}),
-      ...(payload.email ? { email: String(payload.email).trim().toLowerCase() } : {}),
-      ...(payload.accessToken ? { accessToken: String(payload.accessToken) } : {}),
-      ...(payload.limit ? { limit: Number(payload.limit) } : {}),
+    const email = _pbPlatformRescheduleEmailToLegacy(result.email);
+    return {
+      ...result,
+      event: {
+        ..._pbPlatformRescheduleEventToLegacy(result.event),
+        emailStatus: email.status,
+        emailSentAt: email.sentAt,
+        emailDeliveryId: email.deliveryId,
+        emailErrorCode: email.errorCode,
+        emailAttemptCount: email.attemptCount,
+      },
+      email,
     };
-    return _invokeEdgeFunction('booking-reschedule-notifications', body, {
-      allowFailure,
-      retryDirect: false,
-    });
   },
 
   async updateBooking(ref, updates) {
-    if (updates.date !== undefined) _pbAssertPublicBookingDate(updates.date);
+    if (PB_PLATFORM_V1) {
+      const booking = await this.getBookingByRef(ref);
+      if (!booking?.id) throw new Error('Booking not found or no longer accessible.');
+      const nextStatus = String(updates?.status || '').toLowerCase();
+      const nextPayment = String(updates?.paymentStatus || '').toLowerCase();
+      const decision = ['confirmed', 'paid'].includes(nextStatus) || ['paid', 'downpayment_paid'].includes(nextPayment)
+        ? 'approve'
+        : ['rejected'].includes(nextStatus) || nextPayment === 'rejected'
+          ? 'reject'
+          : null;
+      if (decision && booking.receiptVerificationId) {
+        const reviewNote = String(updates?.reviewNote || updates?.forfeitureReason || '').trim();
+        const data = await _invokeEdgeFunction(
+          `review-payment-receipt?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+          {
+            tenantSlug: PB_TENANT_SLUG,
+            verificationId: booking.receiptVerificationId,
+            decision,
+            note: reviewNote || null,
+          },
+          { preferDirect: true }
+        );
+        if (!data?.ok) throw new Error(data?.message || data?.error || 'Receipt review failed.');
+        _pbClearFastCache(['bookings', 'platformAvailability']);
+        return data;
+      }
+      if (['cancelled', 'forfeited', 'expired'].includes(nextStatus)) {
+        const { data, error } = await _sb.rpc('cancel_tenant_booking', {
+          p_booking_id: booking.id,
+          p_reason: String(updates?.forfeitureReason || updates?.reason || 'Cancelled by dashboard operator'),
+        });
+        if (error) throw error;
+        _pbClearFastCache(['bookings', 'platformAvailability']);
+        return data;
+      }
+      const error = new Error('This booking change is not supported by the protected platform workflow.');
+      error.code = 'PLATFORM_BOOKING_CHANGE_NOT_SUPPORTED';
+      throw error;
+    }
     // Map only the fields provided (camelCase → snake_case)
     const row = {};
     if (updates.status    !== undefined) row.status = updates.status;
@@ -1746,6 +2851,10 @@ window.DB = {
     if (updates.paidAt !== undefined) row.paid_at = updates.paidAt;
     if (updates.gcashRef !== undefined) row.gcash_ref = updates.gcashRef;
     if (updates.downpayment !== undefined) row.downpayment = updates.downpayment;
+    if (updates.bookingType !== undefined) row.booking_type = updates.bookingType;
+    if (updates.eventType !== undefined) row.event_type = updates.eventType;
+    if (updates.eventGuestCount !== undefined) row.event_guest_count = updates.eventGuestCount;
+    if (updates.eventSetupNotes !== undefined) row.event_setup_notes = updates.eventSetupNotes;
     if (updates.balanceDueAt !== undefined) row.balance_due_at = updates.balanceDueAt;
     if (updates.forfeitedAt !== undefined) row.forfeited_at = updates.forfeitedAt;
     if (updates.forfeitureReason !== undefined) row.forfeiture_reason = updates.forfeitureReason;
@@ -1768,42 +2877,9 @@ window.DB = {
     if (updates.confirmationEmailId !== undefined) row.confirmation_email_id = updates.confirmationEmailId;
     if (updates.confirmationEmailSentAt !== undefined) row.confirmation_email_sent_at = updates.confirmationEmailSentAt;
     if (updates.confirmationEmailLastEvent !== undefined) row.confirmation_email_last_event = updates.confirmationEmailLastEvent;
-    const authenticated = await _pbHasActiveAccount();
-    let data;
-    let error;
-    if (!authenticated) {
-      const accessToken = _pbBookingAccessToken(ref, false);
-      if (!accessToken) {
-        const denied = new Error(`Booking ${ref} cannot be updated from this browser because its secure access token is missing.`);
-        denied.code = 'BOOKING_ACCESS_TOKEN_MISSING';
-        throw denied;
-      }
-      const allowedPublicFields = new Set([
-        'full_name',
-        'contact_number',
-        'email',
-        'payment_method',
-        'payment_flow',
-        'gcash_ref',
-        'downpayment',
-        'payment_status',
-        'status',
-      ]);
-      const publicUpdates = Object.fromEntries(
-        Object.entries(row).filter(([key]) => allowedPublicFields.has(key))
-      );
-      const rpcResult = await _sb.rpc('update_public_booking_hold', {
-        p_ref: String(ref),
-        p_access_token: accessToken,
-        p_updates: publicUpdates,
-      });
-      data = rpcResult.data ? [{ ref: rpcResult.data }] : [];
-      error = rpcResult.error;
-    } else {
-      ({ data, error } = await _sb.from('bookings').update(row).eq('ref', ref).select('ref'));
-      if (error && isMissingOptionalBookingColumnError(error) && !updates.hostBooking && updates.createdVia !== 'host') {
-        ({ data, error } = await _sb.from('bookings').update(withoutOptionalBookingColumns(row)).eq('ref', ref).select('ref'));
-      }
+    let { data, error } = await _sb.from('bookings').update(row).eq('ref', ref).select('ref');
+    if (error && isMissingOptionalBookingColumnError(error) && !updates.hostBooking && updates.createdVia !== 'host') {
+      ({ data, error } = await _sb.from('bookings').update(withoutOptionalBookingColumns(row)).eq('ref', ref).select('ref'));
     }
     if (error) { console.error('updateBooking:', error); throw error; }
     if (!Array.isArray(data) || data.length === 0) {
@@ -1812,134 +2888,89 @@ window.DB = {
       console.error('updateBooking:', denied);
       throw denied;
     }
-    if (!authenticated && updates.status === 'cancelled') _pbForgetBookingAccessToken(ref);
     _pbClearFastCache(['bookings']);
   },
 
-  async confirmBookingTransaction(ref) {
-    const bookingRef = String(ref || '').trim();
-    if (!bookingRef) throw new Error('A booking reference is required.');
-
-    const { data, error } = await _sb.rpc('confirm_booking_transaction', {
-      p_booking_ref: bookingRef,
+  async restoreCancelledBooking(ref, reason) {
+    const booking = await this.getBookingByRef(ref);
+    if (!booking?.id) throw new Error('Booking not found or no longer accessible.');
+    const restorationReason = String(reason || '').trim();
+    if (restorationReason.length < 3 || restorationReason.length > 500) {
+      throw new Error('Enter a restoration reason between 3 and 500 characters.');
+    }
+    if (PB_PLATFORM_V1) {
+      const { data, error } = await _sb.rpc('reinstate_tenant_booking', {
+        p_booking_id: booking.id,
+        p_reason: restorationReason,
+      });
+      if (error) {
+        const message = String(error.message || '');
+        if (/no longer available|blocked|conflict|overlap/i.test(message)) {
+          throw new Error('The original court time is no longer available. Resolve the conflict or reschedule the booking.');
+        }
+        throw error;
+      }
+      _pbClearFastCache(['bookings', 'platformAvailability']);
+      return data || null;
+    }
+    await this.updateBooking(ref, {
+      status: 'confirmed',
+      paymentStatus: 'paid',
     });
-    if (error) {
-      console.error('confirmBookingTransaction:', error);
-      throw new Error(_extractFnError(error, 'Could not confirm this booking payment'));
-    }
-
-    const result = Array.isArray(data) ? data[0] || null : data;
-    if (!result || typeof result.transitioned !== 'boolean') {
-      throw new Error('The booking confirmation service returned an invalid result.');
-    }
-
-    const canonicalRef = String(result.booking_ref || bookingRef);
-    const refs = Array.isArray(result.booking_refs) && result.booking_refs.length
-      ? result.booking_refs.map(value => String(value))
-      : [canonicalRef];
-
-    // The transaction is already committed at this point.  A post-commit read
-    // failure must not turn that success into a retryable confirmation error.
-    _pbClearFastCache(['bookings']);
-    let booking = null;
-    try {
-      booking = await this.getBookingByRef(canonicalRef);
-    } catch (readError) {
-      console.warn('confirmBookingTransaction refresh:', readError);
-    }
-
-    const status = String(result.booking_status || booking?.status || '').trim();
-    const paymentStatus = String(
-      result.booking_payment_status || booking?.paymentStatus || '',
-    ).trim();
     return {
-      transitioned: result.transitioned,
-      booking: booking || undefined,
-      paymentStatus: paymentStatus || undefined,
-      status: status || undefined,
-      refs,
+      bookingReference: String(ref || ''),
+      bookingStatus: 'confirmed',
+      paymentStatus: 'paid',
     };
   },
 
-  async transferCancelledBookingPayment(sourceRef, targetRef, reason, noRefundConfirmed, idempotencyKey) {
-    const sourceBookingRef = String(sourceRef || '').trim();
-    const targetBookingRef = String(targetRef || '').trim();
-    const transferReason = String(reason || '').trim();
-    const requestKey = String(idempotencyKey || '').trim();
-    if (!sourceBookingRef || !targetBookingRef || sourceBookingRef === targetBookingRef) {
-      throw new Error('Choose two different source and destination bookings.');
+  async issueBookingBalanceRequest({
+    bookingReference,
+    verificationId,
+    acceptedAmount,
+    deadlineAt,
+    note = '',
+  }) {
+    if (!PB_PLATFORM_V1) {
+      throw new Error('Protected remaining-balance requests require the tenant platform.');
     }
-    if (transferReason.length < 10 || transferReason.length > 1000) {
-      throw new Error('Enter a transfer reason between 10 and 1000 characters.');
+    const result = await _invokeEdgeFunction(
+      `review-payment-receipt?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      {
+        tenantSlug: PB_TENANT_SLUG,
+        bookingReference: String(bookingReference || '').toUpperCase(),
+        verificationId: String(verificationId || ''),
+        decision: 'short_payment',
+        acceptedAmount: Number(acceptedAmount),
+        deadlineAt: String(deadlineAt || ''),
+        note: String(note || '').trim() || null,
+      },
+      { preferDirect: true }
+    );
+    if (!result?.ok || !result?.review?.balanceRequestId) {
+      throw new Error(result?.message || result?.error || 'The remaining-balance request could not be created.');
     }
-    if (noRefundConfirmed !== true) {
-      throw new Error('Confirm that no refund or chargeback was issued for the cancelled booking.');
-    }
-    if (!requestKey) throw new Error('A payment-transfer idempotency key is required.');
-
-    const { data, error } = await _sb.rpc('transfer_cancelled_booking_payment', {
-      p_source_booking_ref: sourceBookingRef,
-      p_target_booking_ref: targetBookingRef,
-      p_reason: transferReason,
-      p_no_refund_confirmed: true,
-      p_idempotency_key: requestKey,
-    });
-    if (error) {
-      console.error('transferCancelledBookingPayment:', error);
-      throw new Error(_extractFnError(error, 'Could not move this payment to the new booking'));
-    }
-
-    const result = Array.isArray(data) ? data[0] || null : data;
-    if (!result || typeof result.transitioned !== 'boolean' || !result.transfer_id) {
-      throw new Error('The payment transfer service returned an invalid result.');
-    }
-    _pbClearFastCache(['bookings']);
-    return {
-      transitioned: result.transitioned,
-      transferId: String(result.transfer_id),
-      sourceBookingRef: String(result.source_booking_ref || sourceBookingRef),
-      targetBookingRef: String(result.target_booking_ref || targetBookingRef),
-      targetBookingStatus: String(result.target_booking_status || ''),
-      targetPaymentStatus: String(result.target_payment_status || ''),
-      sourceBookingRefs: Array.isArray(result.source_booking_refs)
-        ? result.source_booking_refs.map(value => String(value))
-        : [sourceBookingRef],
-      targetBookingRefs: Array.isArray(result.target_booking_refs)
-        ? result.target_booking_refs.map(value => String(value))
-        : [targetBookingRef],
-    };
+    _pbClearFastCache(['bookings', 'platformAvailability']);
+    return result;
   },
 
-  async rejectBookingPaymentTransaction(ref, reason) {
-    const bookingRef = String(ref || '').trim();
-    const reviewReason = String(reason || '').trim();
-    if (!bookingRef) throw new Error('A booking reference is required.');
-    if (reviewReason.length < 3) throw new Error('A Not Received reason of at least 3 characters is required.');
-
-    const { data, error } = await _sb.rpc('reject_booking_payment_transaction', {
-      p_booking_ref: bookingRef,
-      p_reason: reviewReason,
-    });
-    if (error) {
-      console.error('rejectBookingPaymentTransaction:', error);
-      throw new Error(_extractFnError(error, 'Could not mark this booking payment as not received'));
+  async resendBookingBalanceNotice(balanceRequestId) {
+    if (!PB_PLATFORM_V1) {
+      throw new Error('Protected remaining-balance notices require the tenant platform.');
     }
-
-    const result = Array.isArray(data) ? data[0] || null : data;
-    if (!result || typeof result.transitioned !== 'boolean') {
-      throw new Error('The booking payment review service returned an invalid result.');
+    const result = await _invokeEdgeFunction(
+      `send-balance-payment-email?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      {
+        tenantSlug: PB_TENANT_SLUG,
+        balanceRequestId: String(balanceRequestId || ''),
+        resend: true,
+      },
+      { preferDirect: true }
+    );
+    if (!result?.ok) {
+      throw new Error(result?.message || result?.error || 'The remaining-balance email could not be resent.');
     }
-    const canonicalRef = String(result.booking_ref || bookingRef);
-    const refs = Array.isArray(result.booking_refs) && result.booking_refs.length
-      ? result.booking_refs.map(value => String(value))
-      : [canonicalRef];
-    _pbClearFastCache(['bookings']);
-    return {
-      transitioned: result.transitioned,
-      status: String(result.booking_status || 'cancelled'),
-      paymentStatus: String(result.booking_payment_status || 'rejected'),
-      refs,
-    };
+    return result;
   },
 
   // Stamp a set of bookings as billed on a given weekly statement (idempotent
@@ -1954,9 +2985,11 @@ window.DB = {
   },
 
   async deleteBooking(ref) {
-    if (!(await _pbHasActiveAccount())) {
-      await this.updateBooking(ref, { status: 'cancelled', paymentStatus: 'rejected' });
-      return;
+    if (PB_PLATFORM_V1) {
+      return this.updateBooking(ref, {
+        status: 'cancelled',
+        reason: 'Cancelled from dashboard',
+      });
     }
     const { error } = await _sb.from('bookings').delete().eq('ref', ref);
     if (error) { console.error('deleteBooking:', error); throw error; }
@@ -1964,6 +2997,10 @@ window.DB = {
   },
 
   async voidDeleteBookingGroup(ref, reason) {
+    if (PB_PLATFORM_V1) {
+      const result = await this.updateBooking(ref, { status: 'cancelled', reason });
+      return { cancelled: true, voided_fee_amount: 0, result };
+    }
     const { data, error } = await _sb.rpc('void_delete_booking_group', {
       p_booking_ref: ref,
       p_reason: reason,
@@ -1971,6 +3008,82 @@ window.DB = {
     if (error) { console.error('voidDeleteBookingGroup:', error); throw error; }
     _pbClearFastCache(['bookings']);
     return data || null;
+  },
+
+  async archiveBooking(ref) {
+    if (!PB_PLATFORM_V1) return this.deleteBooking(ref);
+    const result = await _invokeEdgeFunction(
+      `manage-booking-archive?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      { action: 'archive', tenantSlug: PB_TENANT_SLUG, bookingReference: String(ref || '') },
+      { preferDirect: true }
+    );
+    if (!result?.ok) throw new Error(result?.message || result?.error || 'Could not archive the booking.');
+    _pbClearFastCache(['bookings', 'platformAvailability']);
+    return result.booking || null;
+  },
+
+  async getArchivedBookings() {
+    if (!PB_PLATFORM_V1) {
+      const rows = await this.getDeletedBookingArchive({ limit: 250 });
+      return rows
+        .filter(row => row.recoveryStatus !== 'restored')
+        .map(row => ({ ...(row.originalBooking || row.originalBookingRow || {}), archivedAt: row.archivedAt || row.deletedAt, archiveId: row.id }));
+    }
+    const session = await _pbAuthenticatedSession();
+    if (!session || window.Auth?.getSession?.()?.role !== 'owner') {
+      throw new Error('Only the System Owner can view archived bookings.');
+    }
+    const [result, courts, bootstrap] = await Promise.all([
+      _invokeEdgeFunction(
+        `tenant-manager-data?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+        {
+          action: 'list-archived-bookings',
+          tenantSlug: PB_TENANT_SLUG,
+          filters: { limit: 250 },
+        },
+        { preferDirect: true }
+      ),
+      this.getCourts(),
+      _pbPlatformBootstrap(),
+    ]);
+    if (!result?.ok || !Array.isArray(result.bookings)) {
+      throw new Error('The tenant booking archive could not be loaded.');
+    }
+    const courtMap = new Map(courts.map(court => [String(court.id), court]));
+    return result.bookings.map(row => _pbPlatformBookingToLegacy(
+      row,
+      courtMap,
+      bootstrap?.tenant?.timezone || 'Asia/Manila'
+    ));
+  },
+
+  async restoreArchivedBooking(ref) {
+    if (!PB_PLATFORM_V1) {
+      const rows = await this.getDeletedBookingArchive({ bookingRef: ref, limit: 10 });
+      const entry = rows.find(row => row.recoveryStatus !== 'restored');
+      if (!entry) throw new Error('Archived booking not found.');
+      return this.restoreDeletedBookingArchive(entry.id);
+    }
+    const result = await _invokeEdgeFunction(
+      `manage-booking-archive?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      { action: 'restore', tenantSlug: PB_TENANT_SLUG, bookingReference: String(ref || '') },
+      { preferDirect: true }
+    );
+    if (!result?.ok) throw new Error(result?.message || result?.error || 'Could not restore the booking.');
+    _pbClearFastCache(['bookings', 'platformAvailability']);
+    return result.booking || null;
+  },
+
+  async permanentlyDeleteArchivedBooking(ref) {
+    if (!PB_PLATFORM_V1) throw new Error('Permanent deletion is available only on the protected platform archive.');
+    const result = await _invokeEdgeFunction(
+      `manage-booking-archive?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      { action: 'delete', tenantSlug: PB_TENANT_SLUG, bookingReference: String(ref || '') },
+      { preferDirect: true }
+    );
+    if (!result?.ok) throw new Error(result?.message || result?.error || 'Could not permanently delete the booking.');
+    _pbClearFastCache(['bookings', 'platformAvailability']);
+    return result;
   },
 
   async getDeletedBookingArchive(filters = {}) {
@@ -1994,554 +3107,115 @@ window.DB = {
     return data ? rowToBooking(data) : null;
   },
 
-  // ---- OPEN PLAY REGISTRATIONS ----
-  async getOpenPlayRegistrations() {
-    return _pbCached('openPlayRegistrations', {}, PB_FAST_CACHE_MS.openPlay, async () => {
-      if (!(await _pbHasActiveAccount())) return [];
-      const { data, error } = await _sb.from('open_play_registrations').select('*').order('created_at', { ascending: false });
-      if (error) { console.error('getOpenPlayRegistrations:', error); return []; }
-      return data;
-    });
-  },
-
-  async addOpenPlayRegistration(reg) {
-    _pbAssertPublicBookingDate(reg.date);
-    const paymentMethod = String(reg.paymentMethod || 'cash').toLowerCase();
-    try {
-      const response = await _invokeEdgeFunction('submit-public-registration', {
-        action: 'open_play',
-        fullName: reg.fullName,
-        courtId: String(reg.courtId),
-        date: reg.date,
-        hour: reg.hour,
-        paymentType: reg.paymentType,
-        paymentMethod,
-        gcashRef: reg.gcashRef || null,
-        receiptImageUrl: reg.receiptImageUrl || null,
-        receiptStatus: reg.receiptStatus || 'none',
-        receiptVerificationId: Number(reg.receiptVerificationId) || null,
-      }, { retryDirect: false });
-      const saved = response?.registration;
-      if (!saved?.id) throw new Error(response?.error || 'Open Play registration was not saved.');
-      _pbClearFastCache(['openPlayRegistrations', 'openPlayCount', 'openPlayCounts']);
-      return {
-        id: saved.id,
-        courtId: saved.court_id,
-        courtName: saved.court_name,
-        date: saved.date,
-        hour: Number(saved.hour),
-        timeLabel: saved.time_label,
-        paymentType: saved.payment_type,
-        paymentMethod: saved.payment_method,
-        paymentStatus: saved.payment_status || 'pending',
-        amount: Number(saved.amount || 0),
-        receiptStatus: saved.receipt_status || 'none',
-        receiptVerificationId: Number(saved.receipt_verification_id) || null,
-        createdAt: saved.created_at,
-      };
-    } catch (error) {
-      console.error('addOpenPlayRegistration:', error);
-      throw error;
-    }
-  },
-
-  async updateOpenPlayRegistration(id, updates) {
-    const row = {};
-    if (updates.paymentStatus !== undefined) row.payment_status = updates.paymentStatus;
-    if (updates.gcashRef      !== undefined) row.gcash_ref      = updates.gcashRef;
-    if (updates.receiptImageUrl !== undefined) row.receipt_image_url = updates.receiptImageUrl;
-    if (updates.receiptImageHash !== undefined) row.receipt_image_hash = updates.receiptImageHash;
-    if (updates.receiptPhash !== undefined) row.receipt_phash = updates.receiptPhash;
-    if (updates.receiptStatus !== undefined) row.receipt_status = updates.receiptStatus;
-    if (updates.receiptFlags !== undefined) row.receipt_flags = updates.receiptFlags;
-    if (updates.receiptExtracted !== undefined) row.receipt_extracted = updates.receiptExtracted;
-    if (updates.receiptConfidence !== undefined) row.receipt_confidence = updates.receiptConfidence;
-    if (updates.receiptVerifiedAt !== undefined) row.receipt_verified_at = updates.receiptVerifiedAt;
-    const { error } = await _sb.from('open_play_registrations').update(row).eq('id', id);
-    if (error) { console.error('updateOpenPlayRegistration:', error); throw error; }
-    _pbClearFastCache(['openPlayRegistrations', 'openPlayCount', 'openPlayCounts']);
-  },
-
-  async getOpenPlayCountForDate(date, courtId = null) {
-    return _pbCached('openPlayCount', { date, courtId: courtId || '' }, PB_FAST_CACHE_MS.openPlay, async () => {
-      const { data, error } = await _sb.rpc('get_public_open_play_counts', {
-        p_date: date,
-        p_court_id: courtId ? String(courtId) : null,
-      });
-      if (error) { console.error('getOpenPlayCountForDate:', error); return 0; }
-      return (data || []).reduce((sum, row) => sum + Number(row.registration_count || 0), 0);
-    });
-  },
-
-  async getOpenPlayCountsForDate(date) {
-    return _pbCached('openPlayCounts', { date }, PB_FAST_CACHE_MS.openPlay, async () => {
-      const { data, error } = await _sb.rpc('get_public_open_play_counts', {
-        p_date: date,
-        p_court_id: null,
-      });
-      if (error) { console.error('getOpenPlayCountsForDate:', error); return {}; }
-      return (data || []).reduce((counts, row) => {
-        const key = String(row.court_id || '');
-        counts[key] = Number(row.registration_count || 0);
-        return counts;
-      }, {});
-    });
-  },
-
-  async deleteOpenPlayRegistration(id) {
-    const { error } = await _sb.from('open_play_registrations').delete().eq('id', id);
-    if (error) console.error('deleteOpenPlayRegistration:', error);
-    _pbClearFastCache(['openPlayRegistrations', 'openPlayCount', 'openPlayCounts']);
-  },
-
-  // ---- OPEN PLAY HOSTS ----
-  async getOpenPlayHostApplications() {
-    const { data, error } = await _sb.from('open_play_host_applications').select('*').order('created_at', { ascending: false });
-    if (error) { console.error('getOpenPlayHostApplications:', error); return []; }
-    return (data || []).map(rowToOpenPlayHostApplication);
-  },
-
-  async addOpenPlayHostApplication(app) {
-    return this.submitOpenPlayHostSignup(app);
-  },
-
-  async submitOpenPlayHostSignup(app) {
-    const data = await _invokeEdgeFunction('host-application', {
-      action: 'signup',
-      fullName: app.fullName,
-      contactNumber: app.contactNumber,
-      email: app.email,
-      password: app.password,
-      gcashNumber: app.gcashNumber,
-      validIdBase64: app.validIdBase64,
-      validIdFileName: app.validIdFileName,
-      validIdFileType: app.validIdFileType,
-      validIdFileSize: app.validIdFileSize,
-      preferredSchedule: app.preferredSchedule || '',
-      notes: app.notes || '',
-    }, { preferDirect: true });
-    if (data?.error) throw new Error(data.error);
-    return data;
-  },
-
-  async resendOpenPlayHostVerification(email) {
-    const data = await _invokeEdgeFunction('host-application', {
-      action: 'resend-verification',
-      email,
-    }, { preferDirect: true });
-    if (data?.error) throw new Error(data.error);
-    return data;
-  },
-
-  async confirmOpenPlayHostVerification() {
-    const data = await _invokeEdgeFunction('host-application', {
-      action: 'confirm-verification',
-    }, { preferDirect: true });
-    if (data?.error) throw new Error(data.error);
-    if (!data?.ok || !data?.reviewable) throw new Error('Host verification was not recorded.');
-    return data;
-  },
-
-  async dispatchOpenPlayHostReviewNotifications() {
-    const data = await _invokeEdgeFunction('host-application', {
-      action: 'dispatch-review-notifications',
-    }, { preferDirect: true });
-    if (data?.error) throw new Error(data.error);
-    return data;
-  },
-
-  async sendOpenPlayHostTelegramTest() {
-    const data = await _invokeEdgeFunction('host-application', {
-      action: 'test-review-notification',
-    }, { preferDirect: true });
-    if (data?.error) throw new Error(data.error);
-    return data;
-  },
-
-  async getOpenPlayHostIdSignedUrl(applicationId) {
-    const data = await _invokeEdgeFunction('host-application', { action: 'sign-valid-id', applicationId }, { preferDirect: true });
-    if (!data?.url) throw new Error(data?.error || 'No valid ID available.');
-    return data.url;
-  },
-
-  async updateOpenPlayHostApplication(id, updates) {
-    const row = {};
-    if (updates.status !== undefined) row.status = updates.status;
-    if (updates.reviewNote !== undefined) row.review_note = updates.reviewNote;
-    if (updates.reviewedBy !== undefined) row.reviewed_by = updates.reviewedBy;
-    if (updates.reviewedAt !== undefined) row.reviewed_at = updates.reviewedAt;
-    const { data, error } = await _sb.from('open_play_host_applications').update(row).eq('id', id).select('*').single();
-    if (error) { console.error('updateOpenPlayHostApplication:', error); throw error; }
-    return data ? rowToOpenPlayHostApplication(data) : null;
-  },
-
-  async reviewOpenPlayHostApplication(id, status, reviewNote = '') {
-    const data = await _invokeEdgeFunction('host-application', { action: 'review', applicationId: id, status, reviewNote }, { preferDirect: true });
-    if (data?.error) throw new Error(data.error);
-    if (!data?.ok) throw new Error('Host review did not return a successful activation result.');
-    return data;
-  },
-
-  async repairOpenPlayHostActivation(id) {
-    const data = await _invokeEdgeFunction('host-application', {
-      action: 'repair-activation',
-      applicationId: id,
-    }, { preferDirect: true });
-    if (data?.error) throw new Error(data.error);
-    if (!data?.ok) throw new Error('Host login repair did not complete successfully.');
-    return data;
-  },
-
-  async getOpenPlayHostSessions(options = {}) {
-    const opts = options || {};
-    const accountRole = opts.publicOnly ? '' : await _pbCurrentAccountRole();
-    const canReadPrivateRows = !opts.publicOnly && ['owner', 'court_owner', 'host'].includes(accountRole);
-    if (opts.publicOnly || !canReadPrivateRows) {
-      const { data, error } = await _sb.rpc('get_public_open_play_host_sessions', {
-        p_session_id: opts.id || null,
-      });
-      if (error) { console.error('getOpenPlayHostSessions:', error); return []; }
-      return (data || []).map(rowToOpenPlayHostSession);
-    }
-
-    const { data, error } = await _sb.from('open_play_host_sessions').select('*').order('date', { ascending: true }).order('start_hour', { ascending: true });
-    if (error) { console.error('getOpenPlayHostSessions:', error); return []; }
-    return (data || []).map(rowToOpenPlayHostSession);
-  },
-
-  async createOpenPlayHostSession(session) {
-    _pbAssertPublicBookingDate(session.date);
-    const { data, error } = await _sb.from('open_play_host_sessions').insert(hostSessionToRow(session)).select('*').single();
-    if (error) { console.error('createOpenPlayHostSession:', error); throw error; }
-    return rowToOpenPlayHostSession(data);
-  },
-
-  async updateOpenPlayHostSession(id, updates) {
-    if (updates.date !== undefined) _pbAssertPublicBookingDate(updates.date);
-    const row = {};
-    if (updates.status !== undefined) row.status = updates.status;
-    if (updates.title !== undefined) row.title = updates.title;
-    if (updates.date !== undefined) row.date = updates.date;
-    if (updates.startHour !== undefined) row.start_hour = updates.startHour;
-    if (updates.endHour !== undefined) row.end_hour = updates.endHour;
-    if (updates.courtIds !== undefined) row.court_ids = updates.courtIds;
-    if (updates.courtNames !== undefined) row.court_names = updates.courtNames;
-    if (updates.maxPlayers !== undefined) row.max_players = updates.maxPlayers;
-    if (updates.feePerPlayer !== undefined) row.fee_per_player = updates.feePerPlayer;
-    if (updates.notes !== undefined) row.notes = updates.notes;
-    if (updates.paymentInstructions !== undefined) row.payment_instructions = updates.paymentInstructions;
-    const { data, error } = await _sb.from('open_play_host_sessions').update(row).eq('id', id).select('*').single();
-    if (error) { console.error('updateOpenPlayHostSession:', error); throw error; }
-    return data ? rowToOpenPlayHostSession(data) : null;
-  },
-
-  async getOpenPlayHostSessionRegistrations(sessionId = null) {
-    let query = _sb.from('open_play_host_session_registrations').select('*').order('created_at', { ascending: false });
-    if (sessionId) query = query.eq('session_id', sessionId);
-    const { data, error } = await query;
-    if (error) { console.error('getOpenPlayHostSessionRegistrations:', error); return []; }
-    return (data || []).map(rowToOpenPlayHostSessionRegistration);
-  },
-
-  async getOpenPlayHostSessionRegistrationCount(sessionId) {
-    const { data, error } = await _sb.rpc('count_open_play_host_session_registrations', { p_session_id: sessionId });
-    if (error) { console.error('getOpenPlayHostSessionRegistrationCount:', error); return 0; }
-    return Number(data || 0);
-  },
-
-  async addOpenPlayHostSessionRegistration(reg) {
-    const paymentMethod = String(reg.paymentMethod || 'cash').toLowerCase();
-    try {
-      const response = await _invokeEdgeFunction('submit-public-registration', {
-        action: 'host_session',
-        sessionId: reg.sessionId,
-        fullName: reg.fullName,
-        contactNumber: reg.contactNumber || null,
-        paymentMethod,
-        gcashRef: reg.gcashRef || null,
-        receiptImageUrl: reg.receiptImageUrl || null,
-        receiptStatus: reg.receiptStatus || 'none',
-        receiptVerificationId: Number(reg.receiptVerificationId) || null,
-      }, { retryDirect: false });
-      const saved = response?.registration;
-      if (!saved?.id) throw new Error(response?.error || 'Host-session registration was not saved.');
-      return rowToOpenPlayHostSessionRegistration({
-        ...saved,
-        updated_at: saved.created_at,
-      });
-    } catch (error) {
-      console.error('addOpenPlayHostSessionRegistration:', error);
-      throw error;
-    }
-  },
-
-  async updateOpenPlayHostSessionRegistration(id, updates) {
-    const row = {};
-    if (updates.paymentStatus !== undefined) row.payment_status = updates.paymentStatus;
-    if (updates.gcashRef !== undefined) row.gcash_ref = updates.gcashRef;
-    if (updates.receiptStatus !== undefined) row.receipt_status = updates.receiptStatus;
-    if (updates.receiptFlags !== undefined) row.receipt_flags = updates.receiptFlags;
-    if (updates.receiptExtracted !== undefined) row.receipt_extracted = updates.receiptExtracted;
-    if (updates.receiptConfidence !== undefined) row.receipt_confidence = updates.receiptConfidence;
-    if (updates.receiptVerifiedAt !== undefined) row.receipt_verified_at = updates.receiptVerifiedAt;
-    const { data, error } = await _sb.from('open_play_host_session_registrations')
-      .update(row)
-      .eq('id', id)
-      .select('*')
-      .single();
-    if (error) {
-      console.error('updateOpenPlayHostSessionRegistration:', error);
-      throw error;
-    }
-    return rowToOpenPlayHostSessionRegistration(data);
-  },
-
-  // ---- OPEN PLAY GAME MANAGER ----
-  async getOpenPlayGameSessions() {
-    const { data, error } = await _sb.from('open_play_game_sessions').select('*').order('date', { ascending: false }).order('created_at', { ascending: false });
-    if (error) { console.error('getOpenPlayGameSessions:', error); return []; }
-    return data || [];
-  },
-
-  async setOpenPlayGamePublicShare(sessionId, enabled) {
-    const { data, error } = await _sb.rpc('set_open_play_game_public_share', {
-      p_session_id: sessionId,
-      p_enabled: Boolean(enabled),
-    });
-    if (error) {
-      console.error('setOpenPlayGamePublicShare:', error);
-      throw error;
-    }
-    return data || null;
-  },
-
-  async rotateOpenPlayGamePublicShare(sessionId) {
-    const { data, error } = await _sb.rpc('rotate_open_play_game_public_share', {
-      p_session_id: sessionId,
-    });
-    if (error) {
-      console.error('rotateOpenPlayGamePublicShare:', error);
-      throw error;
-    }
-    return data || null;
-  },
-
-  async getPublicOpenPlayGameLiveBoard(shareToken) {
-    const token = String(shareToken || '').trim();
-    if (!/^[0-9a-f]{64}$/.test(token)) return null;
-    const { data, error } = await _sb.rpc('get_public_open_play_game_live_board', {
-      p_share_token: token,
-    });
-    if (error) {
-      console.error('getPublicOpenPlayGameLiveBoard:', error);
-      throw error;
-    }
-    return data || null;
-  },
-
-  async createOpenPlayGameSession(session) {
-    const row = {
-      date: session.date,
-      time_label: session.timeLabel || null,
-      court_ids: session.courtIds || [],
-      court_names: session.courtNames || [],
-      mode: session.mode || 'smart_random_mixer',
-      ranking_mode: normalizeOpenPlayRankingMode(
-        session.rankingMode ?? session.ranking_mode ?? 'competitive'
-      ),
-      status: session.status || 'draft',
-      current_round: session.currentRound || 0,
-      performance_rating_version: 'pr-performance-v1',
-      performance_rating_k: 24,
-      performance_rating_scale: 400,
-      performance_rating_min_games: 3,
-    };
-    const { data, error } = await _sb.from('open_play_game_sessions').insert(row).select('*').single();
-    if (error) { console.error('createOpenPlayGameSession:', error); throw error; }
-    return data;
-  },
-
-  async updateOpenPlayGameSession(id, updates) {
-    const row = {};
-    if (updates.date !== undefined) row.date = updates.date;
-    if (updates.timeLabel !== undefined) row.time_label = updates.timeLabel;
-    if (updates.courtIds !== undefined) row.court_ids = updates.courtIds;
-    if (updates.courtNames !== undefined) row.court_names = updates.courtNames;
-    if (updates.mode !== undefined) row.mode = updates.mode;
-    if (updates.rankingMode !== undefined || updates.ranking_mode !== undefined) {
-      row.ranking_mode = normalizeOpenPlayRankingMode(
-        updates.rankingMode ?? updates.ranking_mode
-      );
-    }
-    if (updates.status !== undefined) row.status = updates.status;
-    if (updates.currentRound !== undefined) row.current_round = updates.currentRound;
-    const { data, error } = await _sb.from('open_play_game_sessions').update(row).eq('id', id).select('*').single();
-    if (error) { console.error('updateOpenPlayGameSession:', error); throw error; }
-    return data;
-  },
-
-  async getOpenPlayGamePlayers(sessionId) {
-    const { data, error } = await _sb.from('open_play_game_players').select('*').eq('session_id', sessionId).order('seed_order');
-    if (error) { console.error('getOpenPlayGamePlayers:', error); return []; }
-    return data || [];
-  },
-
-  async addOpenPlayGamePlayer(sessionId, player) {
-    const skillLevel = normalizeOpenPlaySkillLevel(player.skillLevel ?? player.skill_level);
-    const row = {
-      session_id: sessionId,
-      full_name: player.fullName || player.full_name,
-      source_registration_id: player.sourceRegistrationId || player.source_registration_id || null,
-      status: player.status || 'active',
-      seed_order: Number(player.seedOrder ?? player.seed_order ?? 0),
-      skill_level: skillLevel,
-      performance_seed_rating: openPlayPerformanceSeed(skillLevel),
-    };
-    const { data, error } = await _sb.from('open_play_game_players').insert(row).select('*').single();
-    if (error) { console.error('addOpenPlayGamePlayer:', error); throw error; }
-    return data;
-  },
-
-  async updateOpenPlayGamePlayer(id, updates) {
-    const row = {};
-    if (updates.fullName !== undefined || updates.full_name !== undefined) {
-      row.full_name = String(updates.fullName ?? updates.full_name).trim();
-    }
-    if (updates.skillLevel !== undefined || updates.skill_level !== undefined) {
-      row.skill_level = normalizeOpenPlaySkillLevel(updates.skillLevel ?? updates.skill_level);
-    }
-    const { data, error } = await _sb
-      .from('open_play_game_players')
-      .update(row)
-      .eq('id', id)
-      .select('*')
-      .single();
-    if (error) { console.error('updateOpenPlayGamePlayer:', error); throw error; }
-    return data;
-  },
-
-  async replaceOpenPlayGamePlayers(sessionId, players) {
-    const { error: delError } = await _sb.from('open_play_game_players').delete().eq('session_id', sessionId);
-    if (delError) { console.error('replaceOpenPlayGamePlayers delete:', delError); throw delError; }
-    if (!players.length) return [];
-    const rows = players.map((p, i) => {
-      const skillLevel = normalizeOpenPlaySkillLevel(p.skillLevel ?? p.skill_level);
-      return {
-        session_id: sessionId,
-        full_name: p.fullName || p.full_name,
-        source_registration_id: p.sourceRegistrationId || p.source_registration_id || null,
-        status: p.status || 'active',
-        seed_order: i,
-        skill_level: skillLevel,
-        performance_seed_rating: openPlayPerformanceSeed(skillLevel),
-      };
-    });
-    const { data, error } = await _sb.from('open_play_game_players').insert(rows).select('*').order('seed_order');
-    if (error) { console.error('replaceOpenPlayGamePlayers insert:', error); throw error; }
-    return data || [];
-  },
-
-  async syncOpenPlayGameQueueWaitTimes(sessionId, queuePlayerIds) {
-    const { data, error } = await _sb.rpc('sync_open_play_game_queue_wait_times', {
-      p_session_id: sessionId,
-      p_queue_player_ids: (queuePlayerIds || []).map(String),
-    });
-    if (error) { console.error('syncOpenPlayGameQueueWaitTimes:', error); throw error; }
-    return data || [];
-  },
-
-  async getOpenPlayGameRounds(sessionId) {
-    const { data, error } = await _sb.from('open_play_game_rounds').select('*').eq('session_id', sessionId).order('round_no');
-    if (error) { console.error('getOpenPlayGameRounds:', error); return []; }
-    return data || [];
-  },
-
-  async addOpenPlayGameRound(round) {
-    const row = {
-      session_id: round.sessionId,
-      round_no: round.roundNo,
-      assignments: round.assignments || [],
-      queue_snapshot: round.queueSnapshot || [],
-      partner_history: round.partnerHistory || {},
-      opponent_history: round.opponentHistory || {},
-      completed_at: round.completedAt || null,
-    };
-    const { data, error } = await _sb.from('open_play_game_rounds').insert(row).select('*').single();
-    if (error) { console.error('addOpenPlayGameRound:', error); throw error; }
-    return data;
-  },
-
-  async updateOpenPlayGameRound(id, updates) {
-    const row = {};
-    if (updates.assignments !== undefined) row.assignments = updates.assignments;
-    if (updates.queueSnapshot !== undefined) row.queue_snapshot = updates.queueSnapshot;
-    if (updates.partnerHistory !== undefined) row.partner_history = updates.partnerHistory;
-    if (updates.opponentHistory !== undefined) row.opponent_history = updates.opponentHistory;
-    if (updates.completedAt !== undefined) row.completed_at = updates.completedAt;
-    const { data, error } = await _sb.from('open_play_game_rounds').update(row).eq('id', id).select('*').single();
-    if (error) { console.error('updateOpenPlayGameRound:', error); throw error; }
-    return data;
-  },
-
-  async updateOpenPlayGameRoundIfCurrent(id, expected, updates) {
-    const { data, error } = await _sb.rpc('update_open_play_game_round_if_current', {
-      p_round_id: id,
-      p_expected_assignments: expected.assignments || [],
-      p_expected_queue_snapshot: expected.queueSnapshot ?? expected.queue_snapshot ?? [],
-      p_assignments: updates.assignments || [],
-      p_queue_snapshot: updates.queueSnapshot ?? updates.queue_snapshot ?? [],
-    });
-    if (error) { console.error('updateOpenPlayGameRoundIfCurrent:', error); throw error; }
-    return data;
-  },
-
-  async replaceOpenPlayGameCourtPlayer(id, expected, replacement) {
-    const { data, error } = await _sb.rpc('replace_open_play_game_court_player', {
-      p_round_id: id,
-      p_expected_assignments: expected.assignments || [],
-      p_expected_queue_snapshot: expected.queueSnapshot ?? expected.queue_snapshot ?? [],
-      p_court_index: Number(replacement.courtIndex),
-      p_team: replacement.team,
-      p_slot_index: Number(replacement.slotIndex),
-      p_outgoing_player_id: replacement.outgoingPlayerId,
-      p_incoming_player_id: replacement.incomingPlayerId || null,
-      p_incoming_player_name: replacement.incomingPlayerName || null,
-      p_mark_outgoing_removed: replacement.markOutgoingRemoved === true,
-    });
-    if (error) { console.error('replaceOpenPlayGameCourtPlayer:', error); throw error; }
-    return data;
-  },
-
-  async correctOpenPlayGameMatchWinner(id, expected, correction) {
-    const { data, error } = await _sb.rpc('correct_open_play_game_match_winner', {
-      p_round_id: id,
-      p_expected_assignments: expected.assignments || [],
-      p_court_index: Number(correction.courtIndex),
-      p_completed_game_index: correction.completedGameIndex ?? null,
-      p_expected_winner: correction.expectedWinner,
-      p_new_winner: correction.newWinner,
-    });
-    if (error) { console.error('correctOpenPlayGameMatchWinner:', error); throw error; }
-    return data;
-  },
-
-  async deleteLatestOpenPlayGameRound(sessionId) {
-    const { data, error } = await _sb.rpc('delete_latest_open_play_game_round_guarded', {
-      p_session_id: sessionId,
-    });
-    if (error) { console.error('deleteLatestOpenPlayGameRound:', error); throw error; }
-    return data || null;
-  },
-
-  async clearOpenPlayGameRounds(sessionId) {
-    const { error } = await _sb.rpc('clear_open_play_game_rounds_guarded', {
-      p_session_id: sessionId,
-    });
-    if (error) { console.error('clearOpenPlayGameRounds:', error); throw error; }
-  },
-
   // ---- BLOCKED DATES ----
+  async getBlockedDateAccess() {
+    if (!PB_PLATFORM_V1) {
+      return {
+        canManage: window.Auth?.getSession?.()?.role === 'owner',
+        status: 'unavailable',
+        durationDays: null,
+        grantedAt: null,
+        expiresAt: null,
+        revokedAt: null,
+        serverNow: new Date().toISOString(),
+      };
+    }
+    if (!await _pbAuthenticatedSession()) {
+      throw new Error('Your session is no longer available. Please sign in again.');
+    }
+    const { data, error } = await _sb.rpc('get_blocked_date_access', {
+      p_tenant_slug: PB_TENANT_SLUG,
+    });
+    if (error) throw new Error(_extractFnError(error, 'Could not verify blocked-date access'));
+    return {
+      canManage: data?.canManage === true,
+      status: String(data?.status || 'none'),
+      durationDays: data?.durationDays == null ? null : Number(data.durationDays),
+      grantedAt: data?.grantedAt || null,
+      expiresAt: data?.expiresAt || null,
+      revokedAt: data?.revokedAt || null,
+      serverNow: data?.serverNow || null,
+    };
+  },
+
+  async setBlockedDateAccess({ action, durationDays = null } = {}) {
+    if (!PB_PLATFORM_V1) throw new Error('Temporary blocked-date access requires the protected platform backend.');
+    if (!await _pbAuthenticatedSession()) {
+      throw new Error('Your session is no longer available. Please sign in again.');
+    }
+    const normalizedAction = String(action || '').toLowerCase();
+    const normalizedDuration = durationDays == null ? null : Number(durationDays);
+    if (!['grant', 'revoke'].includes(normalizedAction)) throw new Error('Choose a valid access action.');
+    if (normalizedAction === 'grant' && ![1, 2, 3].includes(normalizedDuration)) {
+      throw new Error('Choose an access duration of 1, 2, or 3 days.');
+    }
+    const { data, error } = await _sb.rpc('set_blocked_date_access', {
+      p_tenant_slug: PB_TENANT_SLUG,
+      p_action: normalizedAction,
+      p_duration_days: normalizedAction === 'grant' ? normalizedDuration : null,
+    });
+    if (error) throw new Error(_extractFnError(error, 'Could not update blocked-date access'));
+    return {
+      canManage: data?.canManage === true,
+      status: String(data?.status || 'none'),
+      durationDays: data?.durationDays == null ? null : Number(data.durationDays),
+      grantedAt: data?.grantedAt || null,
+      expiresAt: data?.expiresAt || null,
+      revokedAt: data?.revokedAt || null,
+      serverNow: data?.serverNow || null,
+    };
+  },
+
+  async getBlockedDateRecords() {
+    if (PB_PLATFORM_V1 && PB_PAGE_DATA_SCOPE !== 'manager') return [];
+    if (PB_PLATFORM_V1) {
+      return _pbCached('blockedDateRecords', {}, PB_FAST_CACHE_MS.blockedDates, async () => {
+        const session = await _pbAuthenticatedSession();
+        if (!session) return [];
+        const result = await _invokeEdgeFunction(
+          `tenant-manager-data?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+          {
+            action: 'list-blocked-dates',
+            tenantSlug: PB_TENANT_SLUG,
+            filters: { limit: 500 },
+          },
+          { preferDirect: true }
+        );
+        if (!result?.ok || !Array.isArray(result.blockedDates)) {
+          throw new Error('The reserved-date list could not be loaded.');
+        }
+        return result.blockedDates.map(row => ({
+          id: row.id,
+          courtId: row.court_id,
+          blockedOn: row.blocked_on,
+          startsAt: row.starts_at,
+          endsAt: row.ends_at,
+          publicLabel: row.public_label || 'Closed',
+          internalReason: row.internal_reason || '',
+          createdAt: row.created_at,
+        }));
+      });
+    }
+    const dates = await this.getBlockedDates();
+    return dates.map(date => ({
+      id: date,
+      blockedOn: date,
+      startsAt: null,
+      endsAt: null,
+      publicLabel: 'Closed',
+      internalReason: '',
+    }));
+  },
+
   async getBlockedDates() {
+    if (PB_PLATFORM_V1) {
+      return _pbCached('blockedDates', {}, PB_FAST_CACHE_MS.blockedDates, async () => {
+        const records = await this.getBlockedDateRecords();
+        return [...new Set(records
+          .filter(row => !row.startsAt && !row.endsAt)
+          .map(row => row.blockedOn))];
+      });
+    }
     return _pbCached('blockedDates', {}, PB_FAST_CACHE_MS.blockedDates, async () => {
       const { data, error } = await _sb.from('blocked_dates').select('date').order('date');
       if (error) { console.error('getBlockedDates:', error); return []; }
@@ -2549,13 +3223,63 @@ window.DB = {
     });
   },
 
-  async addBlockedDate(date) {
+  async addBlockedDate(input) {
+    if (PB_PLATFORM_V1) {
+      const session = await _pbAuthenticatedSession();
+      if (!session) throw new Error('Your staff session has expired. Please sign in again.');
+      const value = typeof input === 'string' ? { startDate: input } : (input || {});
+      const { data, error } = await _sb.rpc('manage_blocked_dates', {
+        p_tenant_slug: PB_TENANT_SLUG,
+        p_action: 'create',
+        p_block_id: null,
+        p_start_date: value.startDate || value.date || null,
+        p_end_date: value.endDate || value.startDate || value.date || null,
+        p_court_id: value.courtId || null,
+        p_starts_at: value.startsAt || null,
+        p_ends_at: value.endsAt || null,
+        p_public_label: value.publicLabel || 'Reserved',
+        p_internal_reason: value.internalReason || null,
+      });
+      if (error) throw new Error(error.message || 'The dates could not be reserved.');
+      _pbClearFastCache(['blockedDates', 'blockedDateRecords', 'bookings', 'platformAvailability']);
+      return data;
+    }
+    const date = typeof input === 'string' ? input : (input?.startDate || input?.date);
     const { error } = await _sb.from('blocked_dates').insert({ date, created_at: new Date().toISOString() });
     if (error) console.error('addBlockedDate:', error);
     _pbClearFastCache(['blockedDates']);
   },
 
-  async removeBlockedDate(date) {
+  async removeBlockedDate(identifier) {
+    if (PB_PLATFORM_V1) {
+      const session = await _pbAuthenticatedSession();
+      if (!session) throw new Error('Your staff session has expired. Please sign in again.');
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(identifier || ''))) {
+        const { data, error } = await _sb.rpc('manage_blocked_dates', {
+          p_tenant_slug: PB_TENANT_SLUG,
+          p_action: 'delete',
+          p_block_id: identifier,
+        });
+        if (error) throw new Error(error.message || 'The reserved date could not be removed.');
+        _pbClearFastCache(['blockedDates', 'blockedDateRecords', 'bookings', 'platformAvailability']);
+        return data;
+      }
+      const records = (await this.getBlockedDateRecords()).filter(record =>
+        record.blockedOn === String(identifier || '') && !record.startsAt && !record.endsAt
+      );
+      if (!records.length) throw new Error('The reserved date was not found. Refresh and try again.');
+      for (const record of records) {
+        const { error } = await _sb.rpc('manage_blocked_dates', {
+          p_tenant_slug: PB_TENANT_SLUG,
+          p_action: 'delete',
+          p_block_id: record.id,
+        });
+        if (error) throw new Error(error.message || 'The reserved date could not be removed.');
+      }
+      _pbClearFastCache(['blockedDates', 'blockedDateRecords', 'bookings', 'platformAvailability']);
+      return;
+    }
+    const date = identifier;
     const { error } = await _sb.from('blocked_dates').delete().eq('date', date);
     if (error) console.error('removeBlockedDate:', error);
     _pbClearFastCache(['blockedDates']);
@@ -2563,6 +3287,16 @@ window.DB = {
 
   // ---- ACCOUNTS ----
   async getAccounts() {
+    if (PB_PLATFORM_V1) {
+      const result = await _invokeEdgeFunction(`manage-account?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`, {
+        action: 'list',
+        tenantSlug: PB_TENANT_SLUG,
+      }, { preferDirect: true });
+      if (!result?.ok || !Array.isArray(result.accounts)) {
+        throw new Error('The account service returned an invalid response.');
+      }
+      return result.accounts;
+    }
     const { data, error } = await _sb.from('accounts').select('*').order('created_at');
     if (error) { console.error('getAccounts:', error); return []; }
     return data.map(rowToAccount);
@@ -2600,6 +3334,25 @@ window.DB = {
 
   // ---- SETTINGS ----
   async getSettings() {
+    if (PB_PLATFORM_V1) {
+      return _pbCached('settings', {}, PB_FAST_CACHE_MS.settings, async () => {
+        const bootstrap = await _pbPlatformBootstrap();
+        const session = await _pbAuthenticatedSession();
+        const dashboardSession = window.Auth?.getSession?.() || {};
+        const membershipRole = String(dashboardSession.membershipRole || '').toLowerCase();
+        const canManageTenant = dashboardSession.role === 'owner' || ['owner', 'admin'].includes(membershipRole);
+        if (PB_PAGE_DATA_SCOPE !== 'manager' || !session || !canManageTenant) return _pbPlatformSettingsToLegacy(bootstrap);
+
+        const { data, error } = await _sb.rpc('get_tenant_settings_for_manager', {
+          p_tenant_slug: PB_TENANT_SLUG,
+          p_hostname: _pbTenantHostname(),
+        });
+        if (error) throw error;
+        const allSettings = { ...(bootstrap.settings || {}) };
+        for (const row of (data || [])) allSettings[row.setting_key] = row.setting_value;
+        return _pbPlatformSettingsToLegacy({ ...bootstrap, settings: allSettings });
+      });
+    }
     return _pbCached('settings', {}, PB_FAST_CACHE_MS.settings, async () => {
       const { data, error } = await _sb.from('settings').select('*');
       if (error) { console.error('getSettings:', error); return {}; }
@@ -2610,32 +3363,660 @@ window.DB = {
   },
 
   async saveSetting(key, value) {
+    if (PB_PLATFORM_V1) {
+      throw new Error('Generic platform settings writes are disabled. Use the protected per-feature controls.');
+    }
     const { error } = await _sb.from('settings').upsert({ key, value });
     if (error) { console.error('saveSetting:', error); throw error; }
     _pbClearFastCache(['settings']);
+  },
+
+  async getRefundReschedulePolicyState() {
+    const {data,error}=await _sb.rpc('get_tenant_refund_reschedule_policy', {
+      p_tenant_slug:PB_TENANT_SLUG, p_hostname:_pbTenantHostname(),
+    });
+    if(error) throw error;
+    _pbPolicyRevision=data?.revision || null;
+    return data;
+  },
+
+  async saveRefundReschedulePolicy(policy) {
+    if (!PB_PLATFORM_V1) {
+      throw new Error('Policy publication requires the protected platform backend.');
+    }
+    if (!PB_REFUND_RESCHEDULE_POLICY_ENABLED) {
+      throw new Error('Refund and reschedule policy publication is disabled for this tenant.');
+    }
+    if (!await _pbAuthenticatedSession()) {
+      throw new Error('Your session is no longer available. Please sign in again.');
+    }
+
+    if (policy?.ownerApproved !== true) throw new Error('Review and approve the policy before publishing.');
+    const { data, error } = await _sb.rpc('update_tenant_refund_reschedule_policy', {
+      p_tenant_slug: PB_TENANT_SLUG,
+      p_hostname: _pbTenantHostname(),
+      p_expected_revision: _pbPolicyRevision,
+      p_policy: {title:policy.title, intro:policy.intro, content:policy.content},
+      p_publish: true,
+    });
+    if (error) throw new Error(_extractFnError(error, 'The policy could not be published'));
+    _pbPolicyRevision = data?.revision || null;
+    _pbClearFastCache(['settings', 'platformBootstrap']);
+    return data;
+  },
+
+  // ---- TENANT ACTIVATION SETTINGS ----
+  // These are authoritative production settings. They intentionally live in
+  // tenant-scoped database tables instead of build-time JavaScript constants.
+  async getTenantBusinessSettings() {
+    if (!PB_PLATFORM_V1) throw new Error('Tenant business settings require the protected platform backend.');
+    const { data, error } = await _sb.rpc('get_tenant_activation_settings', {
+      p_tenant_slug: PB_TENANT_SLUG,
+      p_hostname: _pbTenantHostname(),
+    });
+    if (error) throw new Error(_extractFnError(error, 'Could not load business settings'));
+    _pbCaptureBusinessRevision(data);
+    const business = data?.business && typeof data.business === 'object'
+      ? data.business
+      : data?.tenant && typeof data.tenant === 'object'
+        ? data.tenant
+        : {};
+    return {
+      ...business,
+      branding: business.branding && typeof business.branding === 'object'
+        ? business.branding
+        : data?.tenant?.branding || {},
+      updatedAt: data?.updatedAt || null,
+    };
+  },
+
+  async saveTenantBusinessSettings(patch = {}) {
+    if (!PB_PLATFORM_V1) throw new Error('Tenant business settings require the protected platform backend.');
+    if (!_pbBusinessRevision) throw new Error('Reload the settings before saving.');
+    const { data, error } = await _sb.rpc('update_tenant_business_settings_if_current', {
+      p_expected_revision: _pbBusinessRevision,
+      p_tenant_slug: PB_TENANT_SLUG,
+      p_hostname: _pbTenantHostname(),
+      p_patch: patch,
+    });
+    if (error) throw new Error(_extractFnError(error, 'Could not save business settings'));
+    _pbClearFastCache(['platformBootstrap', 'settings']);
+    _pbCaptureBusinessRevision(data);
+    return data?.business || data?.tenant || data || {};
+  },
+
+  async getTenantActivationSettings() {
+    if (!PB_PLATFORM_V1) {
+      const settings = await this.getSettings();
+      return {
+        tenant: {
+          replyToEmail: settings.email_reply_to || '',
+          emailEnabled: settings.email_enabled === '1',
+          publicBookingRequested: settings.public_booking_requested === '1',
+        },
+        billing: {
+          feeMode: String(settings.fee_type || '').toLowerCase() === 'flat'
+            ? 'fixed_per_booking'
+            : 'fixed_per_hour',
+          feeAmount: Number(settings.maintenance_fee || 0),
+        },
+        openPlayServiceFee: {
+          feeMode: 'fixed_per_player',
+          feeAmount: Number(settings.open_play_service_fee_per_person || settings.open_play_service_fee || 0),
+          isConfigured: Object.prototype.hasOwnProperty.call(settings, 'open_play_service_fee_per_person') ||
+            Object.prototype.hasOwnProperty.call(settings, 'open_play_service_fee'),
+        },
+        paymentMethods: [],
+        readiness: { publicBookingEnabled: false },
+      };
+    }
+
+    const result = await _invokeEdgeFunction(
+      `tenant-activation-settings?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      { action: 'get', tenantSlug: PB_TENANT_SLUG },
+      { preferDirect: true }
+    );
+    if (!result?.ok || !result.settings) {
+      throw new Error('Activation settings returned an invalid response.');
+    }
+    _pbCaptureBusinessRevision(result.settings);
+    return _pbNormalizeTenantActivationSettings(result.settings);
+  },
+
+  async uploadTenantPaymentQr({ methodCode, file }) {
+    if (!PB_PLATFORM_V1) throw new Error('Payment QR uploads require the platform backend.');
+    const code = String(methodCode || '').trim().toLowerCase();
+    if (!/^[a-z][a-z0-9_-]{1,39}$/.test(code)) throw new Error('The payment method is invalid.');
+    if (!file) throw new Error('Choose a QR image to upload.');
+    const form = new FormData();
+    form.append('qrFile', file, file.name || `${code}-qr.jpg`);
+    const response = await _pbFetchWithTimeout(
+      `${SUPABASE_URL.replace(/\/+$/, '')}/functions/v1/tenant-payment-asset?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      {
+        method: 'POST',
+        headers: await _authRestHeaders({
+          'X-Payment-Method': code,
+          'X-Asset-Action': 'upload',
+        }),
+        body: form,
+      },
+      PB_RECEIPT_TIMEOUT_MS
+    );
+    const text = await response.text();
+    const result = _safeJsonParse(text) || {};
+    if (!response.ok) {
+      const failure = new Error(_pbApiErrorMessage(result, text, `Upload failed (HTTP ${response.status}).`));
+      failure.code = result?.error?.code || null;
+      throw failure;
+    }
+    if (!result?.ok || !result?.asset?.url) throw new Error('The QR upload returned an invalid response.');
+    _pbCaptureBusinessRevision(result);
+    return result.asset;
+  },
+
+  async saveTenantPlatformBilling({ feeMode, feeAmount }) {
+    const mode = String(feeMode || '');
+    const amount = Number(feeAmount);
+    if (!['fixed_per_booking', 'fixed_per_hour'].includes(mode)) {
+      throw new Error('Choose a valid booking-fee charging method.');
+    }
+    if (!Number.isFinite(amount) || amount < 0 || amount > 1000000) {
+      throw new Error('Enter a valid non-negative booking fee.');
+    }
+    if (!PB_PLATFORM_V1) {
+      await this.saveSetting('maintenance_fee', String(amount));
+      await this.saveSetting('fee_type', mode === 'fixed_per_booking' ? 'flat' : 'per_hour');
+      return;
+    }
+    const result = await _invokeEdgeFunction(
+      `tenant-activation-settings?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      {
+        action: 'update',
+        tenantSlug: PB_TENANT_SLUG,
+        patch: { platformBilling: { feeMode: mode, feeAmount: amount } },
+      },
+      { preferDirect: true }
+    );
+    if (!result?.ok || !result.settings) throw new Error('The booking fee was not saved.');
+    _pbClearFastCache(['settings', 'platformBootstrap']);
+    await _pbPlatformBootstrap();
+    return _pbNormalizeTenantActivationSettings(result.settings);
+  },
+
+  async saveTenantOpenPlayServiceFee({ feeAmount }) {
+    const amount = Number(feeAmount);
+    if (!Number.isFinite(amount) || amount < 0 || amount > 100000) {
+      throw new Error('Enter a valid non-negative Open Play service fee.');
+    }
+    if (!PB_PLATFORM_V1) {
+      await this.saveSetting('open_play_service_fee_per_person', String(amount));
+      return {
+        openPlayServiceFee: {
+          feeMode: 'fixed_per_player',
+          feeAmount: amount,
+          isConfigured: true,
+        },
+      };
+    }
+    const feePatch = {
+      feeMode: 'fixed_per_player',
+      feeAmount: amount,
+    };
+    const patchCandidates = [
+      { openPlayServiceFee: feePatch },
+      { openPlayBilling: feePatch },
+      { openPlay: feePatch },
+    ];
+    let unsupportedPatchError = null;
+    for (const patch of patchCandidates) {
+      try {
+        const result = await _invokeEdgeFunction(
+          `tenant-activation-settings?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+          {
+            action: 'update',
+            tenantSlug: PB_TENANT_SLUG,
+            patch,
+          },
+          { preferDirect: true }
+        );
+        if (!result?.ok || !result.settings) throw new Error('The Open Play service fee was not saved.');
+        _pbClearFastCache(['settings', 'platformBootstrap']);
+        await _pbPlatformBootstrap();
+        return _pbNormalizeTenantActivationSettings(result.settings);
+      } catch (error) {
+        if (_pbIsUnsupportedSettingsPatchError(error)) {
+          unsupportedPatchError = error;
+          continue;
+        }
+        throw error;
+      }
+    }
+    const failure = new Error('The protected backend does not support saving the Open Play service fee yet. Deploy the tenant-activation-settings backend update for the Open Play fee settings patch, then try again.');
+    failure.code = 'OPEN_PLAY_SERVICE_FEE_PATCH_UNSUPPORTED';
+    failure.originalError = unsupportedPatchError;
+    throw failure;
+  },
+
+  async saveTenantActivationSettings({
+    emailEnabled,
+    replyToEmail,
+    paymentMethods,
+  }) {
+    const email = String(replyToEmail || '').trim().toLowerCase();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new Error('Enter a valid Reply-To email address.');
+    }
+    const methods = Array.isArray(paymentMethods) ? paymentMethods : [];
+    const normalized = methods.map((method, index) => {
+      const code = String(method.code || '').trim().toLowerCase();
+      const displayName = String(method.displayName || '').trim();
+      const accountName = String(method.accountName || '').trim();
+      const accountReference = String(method.accountReference || '').trim();
+      const instructions = String(method.instructions || '').trim();
+      const qrImageUrl = String(method.qrImageUrl || '').trim();
+      if (!/^[a-z][a-z0-9_-]{1,39}$/.test(code)) throw new Error('A payment-method code is invalid.');
+      if (displayName.length < 2 || displayName.length > 80) throw new Error(`Enter a valid name for ${code}.`);
+      if (accountName && (accountName.length < 2 || accountName.length > 120)) throw new Error(`${displayName} account name is invalid.`);
+      if (accountReference && (accountReference.length < 3 || accountReference.length > 120)) throw new Error(`${displayName} account number is invalid.`);
+      if (instructions.length > 1000) throw new Error(`${displayName} instructions are too long.`);
+      if (qrImageUrl) {
+        let parsed;
+        try { parsed = new URL(qrImageUrl); } catch (_) { parsed = null; }
+        if (!parsed || parsed.protocol !== 'https:' || parsed.username || parsed.password || !parsed.hostname || qrImageUrl.length > 500) {
+          throw new Error(`${displayName} QR must be a public HTTPS URL.`);
+        }
+      }
+      const configured = !!(accountName || accountReference || instructions || qrImageUrl);
+      if (configured && (!accountName || !accountReference)) {
+        throw new Error(`${displayName} needs both the receiving account name and account number.`);
+      }
+      if (method.isActive && !configured) {
+        throw new Error(`${displayName} needs receiving account details before it can be enabled.`);
+      }
+      return {
+        methodCode: code,
+        displayName,
+        accountName,
+        accountNumber: accountReference,
+        qrUrl: qrImageUrl || null,
+        instructions: instructions || null,
+        isActive: method.isActive === true,
+        sortOrder: Number.isInteger(method.sortOrder) ? method.sortOrder : index,
+        configured,
+      };
+    }).filter(method => method.configured).map(({ configured, ...method }) => method);
+
+    if (!PB_PLATFORM_V1) {
+      await this.saveSetting('email_reply_to', email);
+      await this.saveSetting('email_enabled', emailEnabled ? '1' : '0');
+      return;
+    }
+    const { data, error } = await _sb.rpc('update_tenant_business_settings_if_current', {
+      p_expected_revision: _pbBusinessRevision,
+      p_tenant_slug: PB_TENANT_SLUG,
+      p_hostname: _pbTenantHostname(),
+      p_patch: {
+        venue: {
+          replyToEmail: email || null,
+          emailEnabled: emailEnabled === true,
+        },
+        paymentMethods: normalized,
+      },
+    });
+    if (error) throw new Error(_extractFnError(error, 'Activation settings were not saved'));
+    _pbClearFastCache(['settings', 'platformBootstrap']);
+    // Refresh the safe server view so the public gate changes only when the
+    // backend has independently confirmed every required setting.
+    await _pbPlatformBootstrap();
+    _pbCaptureBusinessRevision(data);
+    return _pbNormalizeTenantActivationSettings(data);
+  },
+
+  async activateTenantInitially() {
+    if (!String(PB_RUNTIME_CONFIG.turnstileSiteKey || '').trim()) throw new Error('The website booking security check must be configured before activation.');
+    if (!PB_PLATFORM_V1) throw new Error('Initial tenant activation requires the protected platform backend.');
+    const { data, error } = await _sb.rpc('activate_tenant_initially', {
+      p_tenant_slug: PB_TENANT_SLUG,
+      p_hostname: _pbTenantHostname(),
+    });
+    if (error) throw new Error(_extractFnError(error, 'The tenant could not be activated'));
+    _pbClearFastCache(['settings', 'platformBootstrap', 'platformAvailability']);
+    await _pbPlatformBootstrap();
+    _pbCaptureBusinessRevision(data);
+    return _pbNormalizeTenantActivationSettings(data);
   },
 
   clearCache(scopes = []) {
     _pbClearFastCache(scopes);
   },
 
+  async createPublicBooking(booking, { turnstileToken } = {}) {
+    if (!PB_PLATFORM_V1) throw new Error('The tenant booking service is not enabled.');
+    const bootstrap = await _pbPlatformBootstrap();
+    if (bootstrap?.readiness?.publicBookingEnabled !== true) {
+      throw new Error('Online booking is not ready yet. Complete the required settings in the dashboard.');
+    }
+    let publishedPolicy = null;
+    if (PB_REFUND_RESCHEDULE_POLICY_ENABLED) {
+      try {
+        publishedPolicy = _pbApprovedRefundPolicyForWrite(
+          bootstrap?.settings?.[PB_REFUND_RESCHEDULE_POLICY_KEY]
+        );
+      } catch (_) {
+        throw new Error('Online booking is waiting for an owner-approved Refund & Reschedule Policy.');
+      }
+      const policyVersion = String(booking?.policyVersion || '').trim();
+      if (booking?.policyAccepted !== true || policyVersion !== publishedPolicy.version) {
+        throw new Error('The Refund & Reschedule Policy changed or was not accepted. Review the current policy and try again.');
+      }
+    }
+    const slots = [...new Set((booking?.slots || []).map(Number))]
+      .filter(Number.isInteger)
+      .sort((a, b) => a - b);
+    if (!slots.length || slots.some((hour, index) => index > 0 && hour !== slots[index - 1] + 1)) {
+      throw new Error('Booking hours must be consecutive.');
+    }
+    const token = String(turnstileToken || '').trim();
+    if (!token) throw new Error('Please complete the security check before confirming.');
+    const clientRequestId = String(booking?.clientRequestId || '').trim().toLowerCase();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(clientRequestId)) {
+      throw new Error('A secure booking request ID could not be created. Please refresh and try again.');
+    }
+    const notes = [booking.eventType, booking.eventSetupNotes]
+      .map(value => String(value || '').trim())
+      .filter(Boolean)
+      .join(' - ') || null;
+    const payload = {
+      tenantSlug: PB_TENANT_SLUG,
+      courtId: String(booking.courtId),
+      bookingDate: String(booking.date),
+      startTime: `${String(slots[0]).padStart(2, '0')}:00`,
+      durationHours: slots.length,
+      bookingType: booking.bookingType === 'event' ? 'event' : 'regular',
+      customer: {
+        name: String(booking.fullName || '').trim(),
+        email: String(booking.email || '').trim(),
+        phone: String(booking.contactNumber || '').trim(),
+      },
+      guestCount: booking.bookingType === 'event'
+        ? Number(booking.eventGuestCount || 1)
+        : 1,
+      notes,
+      clientRequestId,
+      turnstileToken: token,
+    };
+    if (PB_REFUND_RESCHEDULE_POLICY_ENABLED) {
+      payload.policyAccepted = true;
+      payload.policyVersion = publishedPolicy.version;
+    }
+    const result = await _invokeEdgeFunction(
+      `create-booking?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      payload,
+      { preferDirect: true }
+    );
+    if (!result?.ok || !result?.booking?.reference) {
+      throw new Error(_pbApiErrorMessage(result, '', 'The booking service returned an invalid response.'));
+    }
+    _pbClearFastCache(['bookings', 'platformAvailability']);
+    return result.booking;
+  },
+
+  async submitPublicPaymentReceipt({
+    bookingReference,
+    bookingToken,
+    balanceRequestId = '',
+    paymentMethod,
+    paymentReference = '',
+    receiptFile,
+  }) {
+    if (!PB_PLATFORM_V1) throw new Error('The tenant receipt service is not enabled.');
+    if (!receiptFile) throw new Error('Receipt screenshot is required.');
+    const imageFile = await _pbPrepareReceiptImage(receiptFile);
+    const imageType = String(imageFile?.type || '').toLowerCase();
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(imageType)) {
+      throw new Error('Use a JPEG, PNG, or WebP receipt image.');
+    }
+    const backendPaymentMethod = window.PB_PAYMENT_METHOD_CODES?.[paymentMethod] || paymentMethod;
+    const form = new FormData();
+    form.append('receiptFile', imageFile, imageFile.name || 'receipt.jpg');
+    const response = await _pbFetchWithTimeout(
+      `${SUPABASE_URL.replace(/\/+$/, '')}/functions/v1/submit-payment-receipt?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      {
+        method: 'POST',
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          'X-Booking-Reference': String(bookingReference || ''),
+          'X-Booking-Token': String(bookingToken || ''),
+          ...(balanceRequestId ? { 'X-Balance-Request': String(balanceRequestId) } : {}),
+          'X-Payment-Method': String(backendPaymentMethod || ''),
+          ...(paymentReference ? { 'X-Payment-Reference': String(paymentReference) } : {}),
+        },
+        body: form,
+      },
+      PB_RECEIPT_TIMEOUT_MS
+    );
+    const text = await response.text();
+    const result = _safeJsonParse(text) || {};
+    if (!response.ok || result.ok !== true) {
+      const failure = new Error(_pbApiErrorMessage(result, text, `Receipt upload failed (HTTP ${response.status}).`));
+      failure.code = result?.error?.code || null;
+      failure.httpStatus = response.status;
+      throw failure;
+    }
+    _pbClearFastCache(['bookings', 'platformAvailability']);
+    return result;
+  },
+
+  async getPublicBalancePaymentStatus({ balanceRequestId, balanceToken }) {
+    if (!PB_PLATFORM_V1) throw new Error('The tenant balance-payment service is not enabled.');
+    const result = await _invokeEdgeFunction(
+      `balance-payment-status?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      {
+        tenantSlug: PB_TENANT_SLUG,
+        balanceRequestId: String(balanceRequestId || ''),
+        balanceToken: String(balanceToken || ''),
+      },
+      { preferDirect: true }
+    );
+    if (!result?.ok || !result?.balance) {
+      throw new Error(result?.message || result?.error || 'The remaining-balance request is unavailable.');
+    }
+    return result.balance;
+  },
+
+  async submitPublicBalanceReceipt({
+    bookingReference,
+    balanceRequestId,
+    balanceToken,
+    paymentMethod,
+    paymentReference = '',
+    receiptFile,
+  }) {
+    return this.submitPublicPaymentReceipt({
+      bookingReference,
+      bookingToken: balanceToken,
+      balanceRequestId,
+      paymentMethod,
+      paymentReference,
+      receiptFile,
+    });
+  },
+
+  async startPlayerRainReport({
+    bookingReference,
+    clientRequestId,
+    bookingToken = '',
+    bookingContact = '',
+    turnstileToken = '',
+  } = {}) {
+    if (!PB_PLATFORM_V1) throw new Error('Player rain reporting is not available.');
+    const reference = String(bookingReference || '').trim().toUpperCase();
+    const requestId = String(clientRequestId || '').trim().toLowerCase();
+    const token = String(bookingToken || '').trim();
+    const contact = String(bookingContact || '').trim();
+    const turnstile = String(turnstileToken || '').trim();
+    if (!reference) throw new Error('Enter your booking reference.');
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(requestId)) {
+      throw new Error('Please refresh and try again.');
+    }
+    if (Boolean(token) === Boolean(contact)) {
+      throw new Error('Use your saved booking access or enter the exact booking contact.');
+    }
+    if (!token && !turnstile) throw new Error('Please complete the security check.');
+    const result = await _invokeEdgeFunction(
+      `player-rain-report?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      {
+        action: 'start',
+        tenantSlug: PB_TENANT_SLUG,
+        bookingReference: reference,
+        clientRequestId: requestId,
+        ...(token
+          ? { bookingToken: token }
+          : { bookingContact: contact, turnstileToken: turnstile }),
+      },
+      { preferDirect: true }
+    );
+    const claim = _pbNormalizePlayerRainClaim(result.claim);
+    const claimToken = String(result.claimToken || '').trim();
+    if (!result?.ok || !claim || !claimToken ||
+        !_pbPlayerRainStartPolicyAccepted(claim, result.idempotent === true)) {
+      throw new Error('The rain report could not be started. Please try again.');
+    }
+    return { claim, claimToken, idempotent: result.idempotent === true };
+  },
+
+  async getPlayerRainReportStatus({ claimId, claimToken } = {}) {
+    if (!PB_PLATFORM_V1) throw new Error('Player rain reporting is not available.');
+    const result = await _invokeEdgeFunction(
+      `player-rain-report?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      {
+        action: 'status',
+        tenantSlug: PB_TENANT_SLUG,
+        claimId: String(claimId || '').trim(),
+        claimToken: String(claimToken || '').trim(),
+      },
+      { preferDirect: true }
+    );
+    const claim = _pbNormalizePlayerRainClaim(result.claim);
+    if (!result?.ok || !claim) throw new Error('The rain report status is unavailable.');
+    return claim;
+  },
+
+  async submitPlayerRainProof({
+    claimId,
+    claimToken,
+    proofFile,
+    reportNote = '',
+    payoutDestination = null,
+  } = {}) {
+    if (!PB_PLATFORM_V1) throw new Error('Player rain reporting is not available.');
+    if (!proofFile) throw new Error('Add a clear photo of the rainy or wet court.');
+    const destination = payoutDestination && typeof payoutDestination === 'object'
+      ? {
+          method: String(payoutDestination.method || '').trim().toLowerCase(),
+          accountName: String(payoutDestination.accountName || '').trim(),
+          mobileNumber: String(payoutDestination.mobileNumber || '').trim(),
+        }
+      : null;
+    if (!destination || destination.method !== 'gcash' ||
+        destination.accountName.length < 2 || destination.accountName.length > 100 ||
+        !/^\+639\d{9}$/.test(destination.mobileNumber)) {
+      throw new Error('Enter the GCash account name and a valid Philippine GCash mobile number.');
+    }
+    const imageFile = await _pbPrepareReceiptImage(proofFile);
+    const imageType = String(imageFile?.type || '').toLowerCase();
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(imageType)) {
+      throw new Error('Use a JPEG, PNG, or WebP court photo.');
+    }
+    const form = new FormData();
+    form.append('proofFile', imageFile, imageFile.name || 'rain-court-proof.jpg');
+    form.append('payoutDestination', JSON.stringify(destination));
+    const note = String(reportNote || '').trim();
+    if (note) form.append('reportNote', note);
+    const response = await _pbFetchWithTimeout(
+      `${SUPABASE_URL.replace(/\/+$/, '')}/functions/v1/player-rain-report?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      {
+        method: 'POST',
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          'X-Rain-Action': 'submit',
+          'X-Claim-ID': String(claimId || '').trim(),
+          'X-Claim-Token': String(claimToken || '').trim(),
+        },
+        body: form,
+      },
+      PB_RECEIPT_TIMEOUT_MS
+    );
+    const text = await response.text();
+    const result = _safeJsonParse(text) || {};
+    const claim = _pbNormalizePlayerRainClaim(result.claim);
+    if (!response.ok || result.ok !== true || !claim) {
+      const failure = new Error(_pbApiErrorMessage(
+        result,
+        '',
+        'The court photo could not be submitted. Please try again.'
+      ));
+      failure.code = result?.error?.code || null;
+      failure.httpStatus = response.status;
+      throw failure;
+    }
+    return claim;
+  },
+
+  async getPublicBookingStatus({ bookingReference, bookingToken }) {
+    if (!PB_PLATFORM_V1) throw new Error('The tenant booking-status service is not enabled.');
+    const result = await _invokeEdgeFunction(
+      `booking-status?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      {
+        tenantSlug: PB_TENANT_SLUG,
+        bookingReference: String(bookingReference || ''),
+        bookingToken: String(bookingToken || ''),
+      },
+      { preferDirect: true }
+    );
+    const booking = _pbNormalizePublicBookingStatus(result?.booking);
+    if (!result?.ok || !booking) {
+      throw new Error(result?.message || result?.error || 'Booking status is unavailable.');
+    }
+    return booking;
+  },
+
+  async cancelPublicBookingHold({ bookingReference, bookingToken }) {
+    if (!PB_PLATFORM_V1) throw new Error('The tenant booking-cancellation service is not enabled.');
+    const result = await _invokeEdgeFunction(
+      `cancel-booking?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      {
+        tenantSlug: PB_TENANT_SLUG,
+        bookingReference: String(bookingReference || ''),
+        bookingToken: String(bookingToken || ''),
+      },
+      { preferDirect: true }
+    );
+    if (!result?.ok || !result?.cancellation) {
+      throw new Error(result?.message || result?.error || 'The slot could not be released.');
+    }
+    _pbClearFastCache(['bookings', 'platformAvailability']);
+    return result.cancellation;
+  },
+
   async createPaymentSession(payload) {
+    if (PB_PLATFORM_V1) {
+      const error = new Error('Online payment checkout is not configured for the tenant platform.');
+      error.code = 'PLATFORM_PAYMENT_API_REQUIRED';
+      throw error;
+    }
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
       throw new Error('Supabase configuration missing (SUPABASE_URL / SUPABASE_ANON_KEY).');
     }
-    const bookingRef = String(payload?.bookingRef || '');
-    const bookingAccessToken = _pbBookingAccessToken(bookingRef, false);
-    const securedPayload = {
-      ...(payload || {}),
-      ...(bookingAccessToken ? { bookingAccessToken } : {}),
-    };
-    const { data, error } = await _sb.functions.invoke('create-payment-session', { body: securedPayload });
+    const { data, error } = await _sb.functions.invoke('create-payment-session', { body: payload });
     if (!error && data) return data;
 
     // Fallback path: direct HTTP call to the function endpoint. This helps diagnose
     // invoke-wrapper issues and still allows checkout if endpoint is reachable.
     try {
-      return await _invokePaymentSessionFallback(securedPayload);
+      return await _invokePaymentSessionFallback(payload);
     } catch (fallbackErr) {
       const baseReason = _extractFnError(error, 'Failed to send a request to the Edge Function');
       const fbReason = _extractFnError(fallbackErr, 'Fallback call failed');
@@ -2647,219 +4028,135 @@ window.DB = {
 
   async sendConfirmationEmail(booking, options = {}) {
     if (!booking?.email) return { ok: false, skipped: true, reason: 'No customer email' };
+    if (PB_PLATFORM_V1) {
+      return _invokeEdgeFunction(
+        `send-booking-email?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+        {
+          tenantSlug: PB_TENANT_SLUG,
+          bookingReference: booking.primaryRef || booking.ref,
+          emailKind: 'booking_confirmed',
+          resend: true,
+        },
+        { allowFailure: !!options.allowFailure },
+      );
+    }
     return _invokeEdgeFunction('send-confirmation-email', _bookingEmailPayload(booking), {
       allowFailure: !!options.allowFailure,
-      retryDirect: false,
     });
   },
 
   async sendRescheduleEmail(payload, options = {}) {
     if (!payload?.email) return { ok: false, skipped: true, reason: 'No customer email' };
+    if (PB_PLATFORM_V1) {
+      const result = { ok: false, skipped: true, reason: 'Platform rescheduling is not enabled.' };
+      if (options.allowFailure) return result;
+      throw new Error(result.reason);
+    }
     return _invokeEdgeFunction('send-reschedule-email', payload, {
       allowFailure: !!options.allowFailure,
-      retryDirect: false,
-    });
-  },
-
-  async sendGroupedRescheduleEmail(payload, options = {}) {
-    return _invokeEdgeFunction('send-reschedule-email', payload, {
-      allowFailure: !!options.allowFailure,
-      retryDirect: false,
     });
   },
 
   async sendTelegramNotification(payload, options = {}) {
+    if (PB_PLATFORM_V1) return { ok: false, skipped: true, reason: 'Telegram is not configured for the tenant platform.' };
     return _invokeEdgeFunction('send-telegram-notification', payload, {
       allowFailure: options.allowFailure !== false,
-      retryDirect: false,
     });
   },
 
   async notifyBookingSubmitted(booking) {
     if (window.PB_USE_LOCAL_DATA) return { ok: true, skipped: true, reason: 'Local data mode' };
-    if (!(await _pbHasActiveAccount())) {
-      return { ok: true, skipped: true, reason: 'Protected booking service sends the canonical alert' };
-    }
-    return this.sendTelegramNotification({
-      bookingRef: booking?.ref,
-      event: 'new_booking',
-    }, { allowFailure: true });
-  },
-
-  async sendBookingStatusEmail(bookingRef, event, reason = '', options = {}) {
-    if (!bookingRef) return { ok: false, skipped: true, reason: 'No booking reference' };
-    return _invokeEdgeFunction('send-booking-status-email', {
-      bookingRef,
-      event,
-      reason,
-    }, {
-      allowFailure: !!options.allowFailure,
-      retryDirect: false,
-    });
+    return this.sendTelegramNotification(_telegramBookingPayload(booking, { event: 'new_booking' }), { allowFailure: true });
   },
 
   async notifyBookingUpdate(booking, event, note = '') {
     if (window.PB_USE_LOCAL_DATA) return { ok: true, skipped: true, reason: 'Local data mode' };
-    if (!(await _pbHasActiveAccount())) {
-      return { ok: true, skipped: true, reason: 'Receipt and booking services send canonical alerts' };
-    }
-    return this.sendTelegramNotification({
-      bookingRef: booking?.ref,
-      event,
-    }, { allowFailure: true });
+    return this.sendTelegramNotification(_telegramBookingPayload(booking, { type: 'booking_update', event, note }), { allowFailure: true });
   },
 
   async getIntegrationStatus() {
+    if (PB_PLATFORM_V1) {
+      const activation = await this.getTenantActivationSettings();
+      const activeMethods = (activation.paymentMethods || []).filter(method => method.isActive);
+      const hasPaymentDestination = activeMethods.some(method =>
+        method.accountReference || method.qrImageUrl || method.instructions
+      );
+      const serverReady = activation.readiness?.publicBookingEnabled === true;
+      return {
+        ok: true,
+        platform: true,
+        legacyIntegrationsDisabled: true,
+        services: [
+          {
+            id: 'booking-gate',
+            label: 'Public booking gate',
+            configured: serverReady,
+            missing: serverReady ? [] : ['server readiness approval'],
+            note: serverReady
+              ? 'The server confirms this tenant can accept bookings.'
+              : 'Public checkout stays closed until all required settings pass the server check.',
+          },
+          {
+            id: 'billing',
+            label: 'Platform booking fee',
+            configured: !!activation.billing,
+            missing: activation.billing ? [] : ['fee mode and amount'],
+          },
+          {
+            id: 'payments',
+            label: 'Customer payment destination',
+            configured: hasPaymentDestination,
+            missing: hasPaymentDestination ? [] : ['an enabled payment method with destination details'],
+          },
+          {
+            id: 'email',
+            label: 'Tenant booking email',
+            configured: !activation.tenant.emailEnabled || !!activation.tenant.replyToEmail,
+            missing: activation.tenant.emailEnabled && !activation.tenant.replyToEmail
+              ? ['court Reply-To email']
+              : [],
+            note: activation.tenant.emailEnabled
+              ? 'Booking email is enabled for this tenant.'
+              : 'Booking email is currently disabled by the tenant setting.',
+          },
+        ],
+      };
+    }
     return _invokeEdgeFunction('integration-status', { action: 'status' }, { allowFailure: true });
   },
 
-  // Upload a court-booking receipt to its private, token-authorized checkpoint.
-  // OCR and booking settlement happen only after the customer continues.
-  async stageBookingReceipt(payload) {
-    const bookingRef = String(payload?.bookingRef || '').trim();
-    if (!bookingRef) throw new Error('Booking reference is required before receipt upload.');
-    if (!payload?.imageFile) throw new Error('Receipt screenshot is required.');
-
-    const storedBookingToken = _pbBookingAccessToken(bookingRef, false);
-    const requestPayload = {
-      ...(payload || {}),
-      action: 'stage',
-      ...(storedBookingToken ? { bookingAccessToken: storedBookingToken } : {}),
-    };
-    const sessionResult = await _sb.auth.getSession();
-    const userAccessToken = sessionResult?.data?.session?.access_token || '';
-    const authHeader = `Bearer ${userAccessToken || SUPABASE_ANON_KEY}`;
-    const fnUrl = `${SUPABASE_URL.replace(/\/+$/, '')}/functions/v1/verify-gcash-receipt`;
-    const imageFile = await _pbPrepareReceiptImage(requestPayload.imageFile);
-    const finishStage = result => {
-      if (!result?.stagedReceiptPath) {
-        throw new Error('Receipt upload returned without a secure storage checkpoint.');
-      }
-      _pbClearFastCache(['bookings']);
-      return result;
-    };
-    let form;
-    try {
-      form = new FormData();
-      form.append('action', 'stage');
-      form.append('bookingRef', bookingRef);
-      form.append('provider', String(requestPayload.provider || 'gcash'));
-      form.append('contentType', imageFile.type || requestPayload.contentType || 'image/jpeg');
-      if (requestPayload.bookingAccessToken) form.append('bookingAccessToken', requestPayload.bookingAccessToken);
-      form.append('receipt', imageFile, imageFile.name || 'receipt.jpg');
-    } catch (_) {
-      return finishStage(await _pbVerifyReceiptBase64Fallback(fnUrl, requestPayload, imageFile, authHeader));
-    }
-
-    const transportStartedAt = Date.now();
-    let res;
-    try {
-      res = await _pbFetchWithTimeout(fnUrl, {
-        method: 'POST',
-        headers: {
-          'apikey': SUPABASE_ANON_KEY,
-          'Authorization': authHeader,
-        },
-        body: form,
-      }, PB_RECEIPT_TIMEOUT_MS);
-    } catch (transportError) {
-      if (_pbCanFallbackReceiptTransport(transportError, transportStartedAt)) {
-        return finishStage(await _pbVerifyReceiptBase64Fallback(fnUrl, requestPayload, imageFile, authHeader));
-      }
-      throw transportError;
-    }
-    const txt = await res.text();
-    const json = _safeJsonParse(txt);
-    if (!res.ok) {
-      const reason = String(json?.error || txt || `HTTP ${res.status}`);
-      const missingMultipartImage = [400, 415, 422].includes(res.status) &&
-        /receipt file|multipart body|empty image/i.test(reason);
-      if (missingMultipartImage) {
-        return finishStage(await _pbVerifyReceiptBase64Fallback(fnUrl, requestPayload, imageFile, authHeader));
-      }
-      throw _pbApiError(reason, String(json?.code || `HTTP_${res.status}`));
-    }
-    return finishStage(json);
-  },
-
-  async recoverBookingReceipt(bookingRef) {
-    const normalizedRef = String(bookingRef || '').trim();
-    const result = await _pbReceiptCheckpointRequest('recover-stage', {
-      bookingRef: normalizedRef,
-    });
-    const stagedReceiptPath = String(
-      result?.stagedReceiptPath || result?.receiptImageUrl || '',
-    ).trim();
-    if (!stagedReceiptPath) return null;
-    return {
-      ...result,
-      ok: result.ok !== false,
-      bookingRef: String(result.bookingRef || normalizedRef),
-      stagedReceiptPath,
-      receiptImageUrl: String(result.receiptImageUrl || stagedReceiptPath),
-      receiptImageHash: result.receiptImageHash || null,
-      contentType: String(result.contentType || ''),
-      size: Number(result.size || 0),
-      stagedAt: result.stagedAt || null,
-    };
-  },
-
-  async discardBookingReceipt(payload = {}) {
-    const bookingRef = String(payload?.bookingRef || '').trim();
-    const stagedReceiptPath = String(payload?.stagedReceiptPath || '').trim();
-    if (!bookingRef || !stagedReceiptPath) {
-      throw new Error('Booking reference and staged receipt path are required.');
-    }
-    const result = await _pbReceiptCheckpointRequest('discard-stage', {
-      bookingRef,
-      stagedReceiptPath,
-    });
-    _pbClearFastCache(['bookings']);
-    return result;
-  },
-
-  // Verify a provider-specific digital receipt image via the Edge Function.
+  // Verify an uploaded GCash/GoTyme/PNB receipt image via the Edge Function.
   // payload: { bookingRef, provider, imageFile, contentType }.
-  // For a saved public booking, its browser-only bearer token is attached here
-  // and verified by the Edge Function before any service-role write.
   // imageBase64 remains supported for older deployed clients.
   // Returns: { ok, status, flags, extracted, confidence, message }
   async verifyGcashReceipt(payload) {
-    const bookingRef = String(payload?.bookingRef || '');
-    const storedBookingToken = _pbBookingAccessToken(bookingRef, false);
-    const requestPayload = {
-      ...(payload || {}),
-      ...(storedBookingToken ? { bookingAccessToken: storedBookingToken } : {}),
-    };
-    const sessionResult = await _sb.auth.getSession();
-    const userAccessToken = sessionResult?.data?.session?.access_token || '';
-    const authHeader = `Bearer ${userAccessToken || SUPABASE_ANON_KEY}`;
-
+    if (PB_PLATFORM_V1) {
+      throw new Error('Use the secure customer receipt-submission workflow for platform bookings.');
+    }
     // Do not use `instanceof Blob` here. Facebook/Messenger WebViews can hand
     // us a File from a different JavaScript realm, where that check is false.
-    if (requestPayload.imageFile) {
+    if (payload?.imageFile) {
       const fnUrl = `${SUPABASE_URL.replace(/\/+$/, '')}/functions/v1/verify-gcash-receipt`;
-      const imageFile = await _pbPrepareReceiptImage(requestPayload.imageFile);
+      const imageFile = await _pbPrepareReceiptImage(payload.imageFile);
       const form = new FormData();
       form.append('action', 'verify');
-      form.append('bookingRef', bookingRef);
-      form.append('provider', String(requestPayload.provider || 'gcash'));
-      form.append('contentType', imageFile.type || requestPayload.contentType || 'image/jpeg');
-      if (requestPayload.bookingData) form.append('bookingData', JSON.stringify(requestPayload.bookingData));
-      if (requestPayload.bookingAccessToken) form.append('bookingAccessToken', requestPayload.bookingAccessToken);
+      form.append('bookingRef', String(payload.bookingRef || ''));
+      form.append('provider', String(payload.provider || 'gcash'));
+      form.append('contentType', imageFile.type || payload.contentType || 'image/jpeg');
+      if (payload.bookingData) form.append('bookingData', JSON.stringify(payload.bookingData));
       try {
         form.append('receipt', imageFile, imageFile.name || 'receipt.jpg');
       } catch (_) {
         // Older embedded WebViews may expose a file-like object that FormData
         // refuses. Base64 is a compatibility fallback, not the normal path.
-        return _pbNormalizeReceiptOutcome(await _pbVerifyReceiptBase64Fallback(fnUrl, requestPayload, imageFile, authHeader));
+        return _pbVerifyReceiptBase64Fallback(fnUrl, payload, imageFile);
       }
 
       const res = await _pbFetchWithTimeout(fnUrl, {
         method: 'POST',
         headers: {
           'apikey': SUPABASE_ANON_KEY,
-          'Authorization': authHeader,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
         },
         body: form,
       }, PB_RECEIPT_TIMEOUT_MS);
@@ -2867,34 +4164,62 @@ window.DB = {
       const json = _safeJsonParse(txt);
       if (!res.ok) {
         const reason = String(json?.error || txt || `HTTP ${res.status}`);
+        // A small set of WebViews sends multipart headers but drops the File
+        // part. Retry only when the server explicitly says it got no image;
+        // never retry an uncertain timeout/network request.
         const missingMultipartImage = [400, 415, 422].includes(res.status) &&
           /receipt file|multipart body|empty image/i.test(reason);
-        if (missingMultipartImage) {
-          return _pbNormalizeReceiptOutcome(await _pbVerifyReceiptBase64Fallback(fnUrl, requestPayload, imageFile, authHeader));
-        }
-        throw _pbApiError(reason, String(json?.code || `HTTP_${res.status}`));
+        if (missingMultipartImage) return _pbVerifyReceiptBase64Fallback(fnUrl, payload, imageFile);
+        throw new Error(reason);
       }
       if (!json) throw new Error('Receipt verification returned an invalid response.');
-      return _pbNormalizeReceiptOutcome(json);
+      return json;
     }
 
+    const { data, error } = await _sb.functions.invoke('verify-gcash-receipt', { body: payload });
+    if (!error && data) return data;
+
+    // Fallback: direct HTTP call (mirrors createPaymentSession fallback).
     const fnUrl = `${SUPABASE_URL.replace(/\/+$/, '')}/functions/v1/verify-gcash-receipt`;
+    const sess = await _sb.auth.getSession();
+    const accessToken = sess?.data?.session?.access_token || '';
+    const authHeader = accessToken ? `Bearer ${accessToken}` : `Bearer ${SUPABASE_ANON_KEY}`;
     const res = await _pbFetchWithTimeout(fnUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': authHeader },
-      body: JSON.stringify(requestPayload),
+      body: JSON.stringify(payload),
     }, PB_RECEIPT_TIMEOUT_MS);
     const txt = await res.text();
     const json = _safeJsonParse(txt);
-    if (!res.ok) throw _pbApiError(
-      String(json?.error || txt || `HTTP ${res.status}`),
-      String(json?.code || `HTTP_${res.status}`),
-    );
-    return _pbNormalizeReceiptOutcome(json);
+    if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`);
+    return json;
   },
 
   // Request a short-lived signed URL to view a stored receipt (admin only).
   async getReceiptSignedUrl(bookingRef) {
+    if (PB_PLATFORM_V1) {
+      const booking = await this.getBookingByRef(bookingRef);
+      if (!booking?.receiptVerificationId || !booking?.receiptImageUrl) {
+        throw new Error('No receipt image is attached to this booking.');
+      }
+      const result = await _invokeEdgeFunction(
+        `get-receipt-view-url?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+        {
+          tenantSlug: PB_TENANT_SLUG,
+          verificationId: booking.receiptVerificationId,
+        },
+        { preferDirect: true }
+      );
+      if (!result?.ok || !result?.signedUrl) {
+        throw new Error(result?.message || result?.error || 'Could not load the protected receipt image.');
+      }
+      const signedUrl = new URL(String(result.signedUrl));
+      const expectedHost = new URL(SUPABASE_URL).hostname;
+      if (signedUrl.protocol !== 'https:' || signedUrl.hostname !== expectedHost || signedUrl.username || signedUrl.password) {
+        throw new Error('The protected receipt URL was not issued by the booking platform.');
+      }
+      return signedUrl.href;
+    }
     const { data, error } = await _sb.functions.invoke('verify-gcash-receipt', {
       body: { action: 'sign', bookingRef },
     });
@@ -2903,38 +4228,78 @@ window.DB = {
     return data.url;
   },
 
-  async getOpenPlayReceiptSignedUrl(registrationId) {
-    const { data, error } = await _sb.functions.invoke('verify-gcash-receipt', {
-      body: { action: 'sign', openPlayRegistrationId: registrationId },
-    });
-    if (error) throw new Error(_extractFnError(error, 'Could not load receipt'));
-    if (!data?.url) throw new Error(data?.error || 'No receipt available');
-    return data.url;
-  },
-
-  async getHostSessionReceiptSignedUrl(registrationId) {
-    const { data, error } = await _sb.functions.invoke('verify-gcash-receipt', {
-      body: { action: 'sign', hostSessionRegistrationId: registrationId },
-    });
-    if (error) throw new Error(_extractFnError(error, 'Could not load receipt'));
-    if (!data?.url) throw new Error(data?.error || 'No receipt available');
-    return data.url;
-  },
-
-  // Compatibility for older pages: production courts are created only by an
-  // explicit admin action. Empty results (including failed reads) must not seed.
+  // ---- SAFE FIRST-LOAD INITIALIZATION ----
   async seedDefaultData() {
+    // Tenant onboarding is server-owned. Never invent courts, rates, hours, or
+    // other operating data from the browser, including in preview mode.
     return;
   },
 
-  // Check if user has accepted the current agreement version
-  async getAgreement(userId, version = 1) {
-    const { data } = await _sb.from('agreements').select('id, full_name, agreed_at').eq('user_id', userId).eq('version', version).maybeSingle();
+  // Check whether this user accepted the exact content-addressed agreement
+  // that was just loaded from the protected server document.
+  async getAgreement(userId, acceptanceVersion) {
+    if (PB_PLATFORM_V1) {
+      const session = Auth.getSession();
+      if (!session?.id || session.id !== userId) {
+        throw new Error('Agreement evidence can only be checked for the signed-in account.');
+      }
+      if (!/^2:[0-9a-f]{64}$/.test(String(acceptanceVersion || ''))) {
+        throw new Error('A verified agreement acceptance version is required.');
+      }
+      const terms = await this.getAgreementTerms();
+      if (terms.acceptanceVersion !== acceptanceVersion) return null;
+      return terms.currentAgreement || null;
+    }
+    const { data, error } = await _sb.from('agreements').select('id, full_name, agreed_at').eq('user_id', userId).eq('version', acceptanceVersion).maybeSingle();
+    if (error) throw error;
     return data || null;
   },
 
+  // Load the exact protected billing/remittance terms that the agreement Edge
+  // Function will snapshot again when the owner signs. Court owners cannot
+  // read platform billing tables directly, so this authenticated projection is
+  // the only browser-safe source of agreement terms.
+  async getAgreementTerms() {
+    if (!PB_PLATFORM_V1) throw new Error('Protected agreement terms require the tenant platform.');
+    const result = await _invokeEdgeFunction(
+      `accept-tenant-agreement-v2?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      { action: 'terms', tenantSlug: PB_TENANT_SLUG },
+      { preferDirect: true }
+    );
+    if (!result?.ok || !result.terms ||
+        !/^[0-9a-f]{64}$/.test(String(result.documentSha256 || '')) ||
+        String(result.acceptanceVersion || '') !== `2:${String(result.documentSha256 || '')}`) {
+      throw new Error('The protected agreement terms could not be verified.');
+    }
+    return {
+      ...result.terms,
+      documentSha256: String(result.documentSha256),
+      acceptanceVersion: String(result.acceptanceVersion),
+      currentAgreement: result.currentAgreement || null,
+    };
+  },
+
   // Save signed agreement
-  async saveAgreement({ userId, email, fullName, role, signatureData, ipAddress, userAgent, version = 1 }) {
+  async saveAgreement({ userId, email, fullName, role, signatureData, ipAddress, userAgent, version = 1, expectedDocumentSha256 }) {
+    if (PB_PLATFORM_V1) {
+      if (!/^[0-9a-f]{64}$/.test(String(expectedDocumentSha256 || ''))) {
+        throw new Error('The verified agreement document is missing. Reload and review it again.');
+      }
+      const result = await _invokeEdgeFunction(
+        `accept-tenant-agreement-v2?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+        {
+          tenantSlug: PB_TENANT_SLUG,
+          fullName,
+          signatureData,
+          expectedDocumentSha256,
+        },
+        { preferDirect: true }
+      );
+      if (!result?.ok || !result.agreement) {
+        throw new Error('The signed agreement was not recorded.');
+      }
+      return result.agreement;
+    }
     const { error } = await _sb.from('agreements').upsert({
       user_id:        userId,
       email,
@@ -2953,81 +4318,60 @@ window.DB = {
   // Financial mutations are RPC-only so the cutoff, immutable booking items,
   // proof attempts, and audit events are committed in one database transaction.
   async getBookingFeeRemittanceDashboard() {
-    const [dashboardResult, historyResult, legacyResult] = await Promise.all([
-      _sb.rpc('get_booking_fee_remittance_dashboard'),
-      _sb.rpc('get_booking_fee_remittance_history', { p_limit: 100, p_before: null }),
-      _sb.from('weekly_fees')
-        .select('id,court_owner_email,week_start,week_end,bookings_count,fee_per_booking,amount_due,status,billed_refs,generated_at,sent_at,due_at,paid_at,paid_ref,paid_note,paid_by_user_id')
-        .eq('status', 'paid')
-        .order('paid_at', { ascending: false }),
+    const tenantArgs = {
+      p_tenant_slug: PB_TENANT_SLUG,
+      p_hostname: _pbTenantHostname(),
+    };
+    const [dashboardResult, historyResult, destinationResult] = await Promise.all([
+      _sb.rpc('get_booking_fee_remittance_dashboard', tenantArgs),
+      _sb.rpc('get_booking_fee_remittance_history', {
+        ...tenantArgs, p_limit: 100, p_before: null,
+      }),
+      _invokeEdgeFunction(
+        `tenant-remittance-asset?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+        { action: 'get-destination', tenantSlug: PB_TENANT_SLUG },
+        { preferDirect: true }
+      ).catch(() => null),
     ]);
     if (dashboardResult.error) throw new Error(_extractFnError(dashboardResult.error, 'Could not load remittance dashboard'));
     if (historyResult.error) throw new Error(_extractFnError(historyResult.error, 'Could not load remittance history'));
     const dashboard = dashboardResult.data || {};
     const allHistory = Array.isArray(historyResult.data) ? historyResult.data : [];
     const active = Array.isArray(dashboard.open_remittances) ? dashboard.open_remittances : [];
-    const legacyPaid = legacyResult.error ? [] : (legacyResult.data || []).map(row => {
-      const refs = Array.isArray(row.billed_refs) ? row.billed_refs : [];
-      const amount = Number(row.amount_due) || 0;
-      return {
-        id: `legacy-${row.id}`,
-        legacy_weekly_fee_id: row.id,
-        is_legacy: true,
-        remittance_ref: `LEGACY-${String(row.week_start || '').replace(/-/g, '')}-${String(row.id || '').slice(0, 6).toUpperCase()}`,
-        status: 'settled',
-        coverage_start_at: row.week_start ? `${row.week_start}T00:00:00+08:00` : null,
-        cutoff_at: row.week_end ? `${row.week_end}T23:59:59+08:00` : null,
-        cycle_due_on: String(row.due_at || row.week_end || '').slice(0, 10) || null,
-        bookings_count: Number(row.bookings_count) || refs.length,
-        amount_due: amount,
-        amount_settled: amount,
-        remaining_balance: 0,
-        prepared_at: row.generated_at || row.sent_at || null,
-        prepared_by_email: row.court_owner_email || null,
-        settled_at: row.paid_at || null,
-        billed_refs: refs,
-        latest_payment: {
-          amount_submitted: amount,
-          amount_accepted: amount,
-          payment_method: 'legacy',
-          payment_reference: row.paid_ref || '',
-          note: row.paid_note || 'Imported from the previous statement ledger.',
-          status: 'accepted',
-          reviewed_at: row.paid_at || null,
-          reviewed_by_user_id: row.paid_by_user_id || null,
-        },
-      };
-    });
-    const history = [
-      ...allHistory.filter(row => ['settled', 'cancelled'].includes(String(row?.status || '').toLowerCase())),
-      ...legacyPaid,
-    ].sort((a, b) => new Date(b.settled_at || b.prepared_at || 0) - new Date(a.settled_at || a.prepared_at || 0));
-    const historySettledTotal = history
-      .filter(row => String(row?.status || '').toLowerCase() === 'settled')
-      .reduce((sum, row) => sum + (Number(row?.amount_settled ?? row?.amount_due) || 0), 0);
-    const legacySettledTotal = legacyPaid.reduce((sum, row) => sum + (Number(row.amount_settled) || 0), 0);
-    const newSettledTotal = dashboard.settled_total == null
-      ? historySettledTotal - legacySettledTotal
-      : (Number(dashboard.settled_total) || 0);
+    const history = allHistory.sort((a, b) =>
+      new Date(b.settled_at || b.cancelled_at || b.prepared_at || 0)
+      - new Date(a.settled_at || a.cancelled_at || a.prepared_at || 0));
+    const destination = destinationResult?.ok && destinationResult.destination
+      ? { ...destinationResult.destination }
+      : { ...(dashboard.payment_destination || {}) };
+    // Private object paths are never exposed as browser signing authority. If
+    // the asset service is unavailable, account text may remain visible but
+    // the QR image fails closed.
+    delete destination.qr_storage_path;
+    delete destination.qrStoragePath;
+    if (!destinationResult?.ok) {
+      delete destination.qr_url;
+      delete destination.qrUrl;
+    }
     return {
       ...dashboard,
       live: dashboard.accumulated || {},
       active,
       history,
-      settled_total: newSettledTotal + legacySettledTotal,
+      payment_destination: destination,
     };
   },
 
   async sendHostBalanceNotice(bookingRef, eventType = 'reminder_1d', options = {}) {
     return _invokeEdgeFunction('process-host-balance-deadlines', {
       action: 'manual', bookingRef, eventType,
-    }, { allowFailure: !!options.allowFailure, retryDirect: false });
+    }, { allowFailure: !!options.allowFailure });
   },
 
   async processHostBalanceDeadlines(options = {}) {
     return _invokeEdgeFunction('process-host-balance-deadlines', {
       action: 'process', source: 'admin',
-    }, { allowFailure: options.allowFailure !== false, retryDirect: false });
+    }, { allowFailure: options.allowFailure !== false });
   },
 
   async getBookingBalanceNotifications(bookingKey) {
@@ -3040,6 +4384,8 @@ window.DB = {
 
   async getBookingFeeRemittanceHistory({ limit = 30, before = null } = {}) {
     const { data, error } = await _sb.rpc('get_booking_fee_remittance_history', {
+      p_tenant_slug: PB_TENANT_SLUG,
+      p_hostname: _pbTenantHostname(),
       p_limit: Math.max(1, Math.min(100, Number(limit) || 30)),
       p_before: before || null,
     });
@@ -3049,6 +4395,8 @@ window.DB = {
 
   async getBookingFeeRemittanceDetail(remittanceId) {
     const { data, error } = await _sb.rpc('get_booking_fee_remittance_detail', {
+      p_tenant_slug: PB_TENANT_SLUG,
+      p_hostname: _pbTenantHostname(),
       p_remittance_id: remittanceId,
     });
     if (error) throw new Error(_extractFnError(error, 'Could not load remittance details'));
@@ -3057,6 +4405,8 @@ window.DB = {
 
   async prepareBookingFeeRemittance({ ownerOverride = false, overrideDueOn = null, overrideReason = null } = {}) {
     const { data, error } = await _sb.rpc('prepare_booking_fee_remittance', {
+      p_tenant_slug: PB_TENANT_SLUG,
+      p_hostname: _pbTenantHostname(),
       p_idempotency_key: _remittanceIdempotencyKey('prepare'),
       p_owner_override: ownerOverride === true,
       p_override_due_on: overrideDueOn || null,
@@ -3074,42 +4424,44 @@ window.DB = {
     proofData = '',
     note = '',
   } = {}) {
-    const image = _remittanceProofUpload(proofData || proofUrl);
-    const { data: authData, error: authError } = await _sb.auth.getUser();
-    if (authError || !authData?.user?.id) throw new Error('Your session expired. Please sign in again.');
-
+    const proofDataUrl = String(proofData || proofUrl || '');
+    _remittanceProofUpload(proofDataUrl);
     const safeRemittanceId = String(remittanceId || '').replace(/[^a-z0-9-]/gi, '');
     if (!safeRemittanceId) throw new Error('Remittance record is missing.');
-    const objectName = `${Date.now()}-${_remittanceIdempotencyKey('proof').replace(/[^a-z0-9-]/gi, '')}.${image.extension}`;
-    const proofPath = `${safeRemittanceId}/${authData.user.id}/${objectName}`;
-    const { error: uploadError } = await _sb.storage
-      .from('remittance-proofs')
-      .upload(proofPath, image.bytes, { contentType: image.mimeType, upsert: false });
-    if (uploadError) throw new Error(_extractFnError(uploadError, 'Could not upload remittance receipt'));
-
-    const { data, error } = await _sb.rpc('submit_booking_fee_remittance', {
-      p_remittance_id: remittanceId,
-      p_amount: amount == null ? null : Number(amount),
-      p_payment_method: String(paymentMethod || 'gcash').toLowerCase(),
-      p_payment_reference: String(paymentRef || '').trim(),
-      p_proof_path: proofPath,
-      p_note: String(note || '').trim() || null,
-      p_idempotency_key: _remittanceIdempotencyKey('submit'),
-    });
-    if (error) {
-      throw new Error(_extractFnError(error, 'Could not submit remittance proof'));
-    }
-    return data || null;
+    const result = await _invokeEdgeFunction(
+      `tenant-remittance-asset?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      {
+        action: 'submit-proof',
+        tenantSlug: PB_TENANT_SLUG,
+        remittanceId: safeRemittanceId,
+        amount: Number(amount),
+        paymentMethod: String(paymentMethod || 'gcash').toLowerCase(),
+        paymentRef: String(paymentRef || '').trim(),
+        proofDataUrl,
+        note: String(note || '').trim() || null,
+        idempotencyKey: _remittanceIdempotencyKey('submit'),
+      },
+      { preferDirect: true }
+    );
+    if (!result?.ok || !result.remittance) throw new Error('The remittance proof was not recorded.');
+    return result.remittance;
   },
 
   async getBookingFeeRemittanceProofUrl(proofPath, expiresIn = 300) {
     const path = String(proofPath || '').trim();
     if (!path) throw new Error('No remittance receipt is attached.');
-    const { data, error } = await _sb.storage
-      .from('remittance-proofs')
-      .createSignedUrl(path, Math.max(60, Math.min(900, Number(expiresIn) || 300)));
-    if (error || !data?.signedUrl) throw new Error(_extractFnError(error, 'Could not open remittance receipt'));
-    return data.signedUrl;
+    const result = await _invokeEdgeFunction(
+      `tenant-remittance-asset?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      {
+        action: 'get-proof-url',
+        tenantSlug: PB_TENANT_SLUG,
+        proofPath: path,
+        expiresIn: Math.max(60, Math.min(600, Number(expiresIn) || 300)),
+      },
+      { preferDirect: true }
+    );
+    if (!result?.ok || !result.proof?.signedUrl) throw new Error('Could not open the remittance receipt.');
+    return result.proof;
   },
 
   async getBookingFeeRemittanceProofSignedUrl(proofPath, expiresIn = 300) {
@@ -3125,6 +4477,8 @@ window.DB = {
     const requestedDecision = String(decision || (approve ? 'accept' : 'reject')).toLowerCase();
     const normalizedDecision = requestedDecision === 'approve' ? 'accept' : requestedDecision;
     const { data, error } = await _sb.rpc('review_booking_fee_remittance_payment', {
+      p_tenant_slug: PB_TENANT_SLUG,
+      p_hostname: _pbTenantHostname(),
       p_payment_id: paymentId,
       p_decision: normalizedDecision,
       p_amount_accepted: amountAccepted == null ? null : Number(amountAccepted),
@@ -3137,12 +4491,48 @@ window.DB = {
 
   async cancelBookingFeeRemittance(remittanceId, reason = '') {
     const { data, error } = await _sb.rpc('cancel_booking_fee_remittance', {
+      p_tenant_slug: PB_TENANT_SLUG,
+      p_hostname: _pbTenantHostname(),
       p_remittance_id: remittanceId,
       p_reason: String(reason || '').trim(),
       p_idempotency_key: _remittanceIdempotencyKey('cancel'),
     });
     if (error) throw new Error(_extractFnError(error, 'Could not cancel remittance'));
     return data || null;
+  },
+
+  async getPlatformRemittanceDestination() {
+    const result = await _invokeEdgeFunction(
+      `tenant-remittance-asset?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      { action: 'get-destination', tenantSlug: PB_TENANT_SLUG },
+      { preferDirect: true }
+    );
+    if (!result?.ok || !result.destination) throw new Error('Could not load the remittance account.');
+    return result.destination;
+  },
+
+  async savePlatformRemittanceDestination({
+    accountName = '', accountReference = '', qrData = '', removeQr = false,
+    instructions = '', method = '', dueDay = null,
+  } = {}) {
+    if (qrData) _remittanceProofUpload(qrData);
+    const result = await _invokeEdgeFunction(
+      `tenant-remittance-asset?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      {
+        action: 'save-destination',
+        tenantSlug: PB_TENANT_SLUG,
+        method: String(method || '').trim().toLowerCase(),
+        accountName: String(accountName || '').trim(),
+        accountReference: String(accountReference || '').trim(),
+        dueDay: Number(dueDay),
+        qrDataUrl: qrData || undefined,
+        removeQr: removeQr === true,
+        instructions: String(instructions || '').trim() || null,
+      },
+      { preferDirect: true }
+    );
+    if (!result?.ok || !result.destination) throw new Error('Could not save the remittance account.');
+    return result.destination;
   },
 
   // ---- LEGACY MONTHLY BILLING (read-only compatibility) ----
@@ -3271,4092 +4661,49 @@ window.DB = {
     }
   },
 };
+// Copied interfaces that are outside this tenant's protected platform remain
+// unavailable even when called directly from DevTools.
+if (PB_PLATFORM_V1) {
+  const disabledPlatformReads = {
+    // Copied legacy tables and host-finance interfaces are not tenant-safe in
+    // the shared schema. Keep them inert even when called directly in DevTools.
+    getDeletedBookingArchive: [],
+    getHostFinanceAccounts: [],
+    getHostFinanceBookings: [],
+    getWeeklyFees: [],
+    getBookingBalanceNotifications: [],
+  };
+  Object.entries(disabledPlatformReads).forEach(([method, value]) => {
+    window.DB[method] = async () => _pbClone(value);
+  });
+  [
+    'restoreDeletedBookingArchive', 'saveAccount', 'deleteAccount', 'markBookingsBilled',
+    'saveWeeklyFee', 'updateWeeklyFee', 'submitWeeklyFeePayment',
+    'sendHostBalanceNotice', 'processHostBalanceDeadlines',
+  ].forEach(method => {
+    window.DB[method] = async () => {
+      throw new Error('This copied legacy operation is not enabled for this tenant.');
+    };
+  });
+}
 
 // =============================================
 // AUTH — Supabase Auth (email + password)
 // Admin accounts are managed in Supabase Dashboard → Authentication → Users
 // The accounts table stores role/display info linked by email.
 // =============================================
-// =============================================
-// LOCAL DATA MODE
-// Enable only on localhost with localStorage.setItem('pb_data_mode', 'local')
-// or by opening a local page with ?localData=1. Disable with ?remoteData=1.
-// =============================================
-(function installLocalDataMode() {
-  if (!window.PB_USE_LOCAL_DATA) return;
-
-  // Brand-specific key prevents copied/demo browser data from another venue
-  // appearing inside a Paddle Rage local preview.
-  const STORE_KEY = 'paddle_rage_local_db_v1';
-  const nowIso = () => new Date().toISOString();
-  const localRef = prefix => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`.toUpperCase();
-  const localShareToken = () => {
-    const bytes = new Uint8Array(32);
-    if (window.crypto?.getRandomValues) {
-      window.crypto.getRandomValues(bytes);
-    } else {
-      for (let index = 0; index < bytes.length; index += 1) {
-        bytes[index] = Math.floor(Math.random() * 256);
-      }
-    }
-    return [...bytes].map(value => value.toString(16).padStart(2, '0')).join('');
-  };
-  const withLocalPlayManagerLock = task =>
-    window.navigator?.locks?.request
-      ? window.navigator.locks.request(`${STORE_KEY}:play-manager`, task)
-      : task();
-
-  const defaultCourts = () => Array.from({ length: 10 }, (_, i) => {
-    const n = i + 1;
-    return {
-      id: `c${n}`,
-      name: `Paddle Rage Court ${n}`,
-      desc: 'Outdoor',
-      rate: n <= 5 ? 60 : 90,
-      blocked: false,
-      feats: ['Outdoor'],
-      photo: '',
-      rateSchedule: [
-        { from: 6, to: 18, rate: 60 },
-        { from: 18, to: 23, rate: 90 },
-      ],
-    };
-  });
-
-  const defaultSettings = () => ({
-    open_hour: '6',
-    close_hour: '24',
-    maintenance_config: JSON.stringify({ rules: [] }),
-    open_play_config: JSON.stringify({
-      enabled: true,
-      start: 6,
-      end: 23,
-      days: [0, 6],
-      specificDates: ['2026-06-20'],
-      courtIds: [],
-      fee: 25,
-      maxPlayers: 16,
-    }),
-    payment_acceptance_mode: 'full_payment_only',
-    payment_method_cash: '0',
-    payment_method_gcash: '1',
-    payment_method_bdopay: '1',
-    payment_method_maya: '1',
-    payment_method_bpi: '1',
-    payment_method_gotyme: '1',
-    payment_method_maribank: '1',
-    payment_method_pnb: '0',
-    reschedule_cutoff_hours: '24',
-    reschedule_submission_cooldown_seconds: '15',
-    gcash_merchant_number: '09XXXXXXXXX',
-    gcash_merchant_name: 'Court Owner Name',
-    service_fee_rate: '10',
-    maintenance_fee: '10',
-    fee_type: 'per_hour',
-  });
-
-  const localBookingFeeSnapshot = (booking, settings = {}) => {
-    const total = Math.max(0, Number(booking?.total || 0));
-    const slots = Array.isArray(booking?.slots) ? booking.slots : [];
-    const configuredRate = Number(
-      settings.maintenance_fee ?? settings.service_fee_rate ?? settings.booking_fee ?? 0,
-    );
-    const feeRate = Number.isFinite(configuredRate) ? Math.max(0, configuredRate) : 0;
-    const feeType = ['flat', 'booking', 'per_booking', 'per_transaction'].includes(
-      String(settings.fee_type || '').toLowerCase(),
-    ) ? 'flat' : 'per_hour';
-    const feeUnits = feeType === 'flat' ? 1 : slots.length;
-    const explicitAmount = booking?.bookingFeeAmountSnapshot ?? booking?.booking_fee_amount_snapshot;
-    const parsedExplicitAmount = Number(explicitAmount);
-    const calculatedAmount = explicitAmount !== null && explicitAmount !== undefined && Number.isFinite(parsedExplicitAmount)
-      ? parsedExplicitAmount
-      : feeRate * feeUnits;
-    const amount = Math.round(Math.min(total, Math.max(0, calculatedAmount)) * 100) / 100;
-    return {
-      bookingFeeAmountSnapshot: amount,
-      bookingFeeRateSnapshot: feeRate,
-      bookingFeeTypeSnapshot: feeType,
-      bookingFeeUnitsSnapshot: feeUnits,
-      bookingFeeSnapshotSource: booking?.bookingFeeSnapshotSource || 'local_insert',
-      bookingFeeLedgerEligibleSnapshot: booking?.bookingFeeLedgerEligibleSnapshot !== undefined
-        ? !!booking.bookingFeeLedgerEligibleSnapshot
-        : String(booking?.paymentMethod || '').toLowerCase() !== 'manual'
-          && !String(booking?.ref || '').toUpperCase().startsWith('MANUAL-'),
-    };
-  };
-
-  const defaultAccounts = () => ([
-    {
-      id: 'owner_001',
-      username: 'owner',
-      password: 'dev123',
-      role: 'owner',
-      status: 'active',
-      fullName: 'System Owner',
-      email: 'owner@paddlerage.local',
-      createdAt: nowIso(),
-    },
-    {
-      id: 'host_test_001',
-      username: 'host.test',
-      password: 'HostTest123!',
-      role: 'host',
-      status: 'active',
-      fullName: 'Open Play Test Host',
-      email: 'host.test@paddlerage.local',
-      createdAt: nowIso(),
-    },
-  ]);
-
-  const defaultHostDemoBookings = () => {
-    const makeHostBooking = ({ ref, groupRef = null, courtId, courtName, date, slots, rate, method = 'gcash', gcashRef = '', paymentStatus = 'downpayment_paid', status = 'confirmed', createdDaysAgo = 0 }) => {
-      const duration = slots.length;
-      const total = duration * rate;
-      const serviceFee = Math.min(total, duration * 10);
-      const courtFee = Math.max(0, total - serviceFee);
-      const downpayment = Math.round(((courtFee * 0.25) + serviceFee) * 100) / 100;
-      const start = Math.min(...slots);
-      const end = Math.max(...slots) + 1;
-      return {
-        ref,
-        groupRef,
-        fullName: 'Open Play Test Host',
-        contactNumber: '09171234567',
-        email: 'host.test@paddlerage.local',
-        courtId,
-        courtName,
-        date,
-        slots,
-        startTime: _fmtBookingHour(start),
-        endTime: _fmtBookingHour(end),
-        timeLabel: `${_fmtBookingHour(start)} - ${_fmtBookingHour(end)}`,
-        duration,
-        rate,
-        total,
-        bookingFeeAmountSnapshot: serviceFee,
-        bookingFeeRateSnapshot: 10,
-        bookingFeeTypeSnapshot: 'per_hour',
-        bookingFeeUnitsSnapshot: duration,
-        bookingFeeSnapshotSource: 'local_seed',
-        bookingFeeLedgerEligibleSnapshot: true,
-        paymentMethod: method,
-        paymentFlow: method,
-        gcashRef,
-        downpayment: paymentStatus === 'paid' ? total : downpayment,
-        hostBooking: true,
-        hostUserId: 'host_test_001',
-        hostName: 'Open Play Test Host',
-        hostEmail: 'host.test@paddlerage.local',
-        paymentStatus,
-        status,
-        bookingFeeEarnedAt: ['confirmed', 'completed'].includes(status)
-          && ['paid', 'downpayment_paid'].includes(paymentStatus)
-          ? new Date(Date.now() - createdDaysAgo * 86400000).toISOString()
-          : null,
-        createdAt: new Date(Date.now() - createdDaysAgo * 86400000).toISOString(),
-      };
-    };
-    return [
-      makeHostBooking({ ref: 'HOST-DEMO-001', courtId: 'c1', courtName: 'Paddle Rage Court 1', date: '2026-07-12', slots: [14, 15], rate: 60, gcashRef: '1234567890123', createdDaysAgo: 1 }),
-      makeHostBooking({ ref: 'HOST-DEMO-002', courtId: 'c2', courtName: 'Paddle Rage Court 2', date: '2026-07-14', slots: [18, 19, 20], rate: 90, gcashRef: '9876543210123', createdDaysAgo: 2 }),
-      makeHostBooking({ ref: 'HOST-DEMO-003', courtId: 'c3', courtName: 'Paddle Rage Court 3', date: '2026-07-18', slots: [8, 9], rate: 60, method: 'cash', paymentStatus: 'unpaid', status: 'pending', createdDaysAgo: 0 }),
-      makeHostBooking({ ref: 'HOST-DEMO-004', courtId: 'c4', courtName: 'Paddle Rage Court 4', date: '2026-07-04', slots: [16, 17], rate: 60, gcashRef: '2223334445556', paymentStatus: 'paid', createdDaysAgo: 6 }),
-      makeHostBooking({ ref: 'HOST-DEMO-005', courtId: 'c5', courtName: 'Paddle Rage Court 5', date: '2026-06-29', slots: [19, 20, 21], rate: 90, gcashRef: '3334445556667', paymentStatus: 'downpayment_paid', createdDaysAgo: 12 }),
-      makeHostBooking({ ref: 'HOST-DEMO-006', courtId: 'c6', courtName: 'Paddle Rage Court 6', date: '2026-07-20', slots: [10, 11, 12], rate: 90, gcashRef: '4445556667778', paymentStatus: 'for_verification', status: 'verifying', createdDaysAgo: 0 }),
-      makeHostBooking({ ref: 'HOST-DEMO-MULTI-001-A', groupRef: 'HOST-DEMO-MULTI-001', courtId: 'c7', courtName: 'Paddle Rage Court 7', date: '2026-07-25', slots: [17, 18, 19, 20], rate: 90, gcashRef: '5556667778889', createdDaysAgo: 0 }),
-      makeHostBooking({ ref: 'HOST-DEMO-MULTI-001-B', groupRef: 'HOST-DEMO-MULTI-001', courtId: 'c8', courtName: 'Paddle Rage Court 8', date: '2026-07-25', slots: [17, 18, 19, 20], rate: 90, gcashRef: '5556667778889', createdDaysAgo: 0 }),
-      makeHostBooking({ ref: 'HOST-DEMO-MULTI-001-C', groupRef: 'HOST-DEMO-MULTI-001', courtId: 'c9', courtName: 'Paddle Rage Court 9', date: '2026-07-25', slots: [17, 18, 19, 20], rate: 90, gcashRef: '5556667778889', createdDaysAgo: 0 }),
-    ];
-  };
-
-  function freshDb() {
-    return {
-      courts: defaultCourts(),
-      bookings: defaultHostDemoBookings(),
-      bookingRescheduleRequests: [],
-      openPlayRegistrations: [],
-      openPlayHostApplications: [],
-      openPlayHostSessions: [],
-      openPlayHostSessionRegistrations: [],
-      openPlayGameSessions: [],
-      openPlayGamePlayers: [],
-      openPlayGameRounds: [],
-      openPlayGameShares: [],
-      blockedDates: [],
-      deletedBookingArchive: [],
-      accounts: defaultAccounts(),
-      settings: defaultSettings(),
-      agreements: [],
-      weeklyFees: [],
-    };
-  }
-
-  function readDb() {
-    const parsed = _safeJsonParse(localStorage.getItem(STORE_KEY));
-    if (!parsed || typeof parsed !== 'object') {
-      const db = freshDb();
-      localStorage.setItem(STORE_KEY, JSON.stringify(db));
-      return db;
-    }
-    const accounts = Array.isArray(parsed.accounts) && parsed.accounts.length ? parsed.accounts : defaultAccounts();
-    const bookings = Array.isArray(parsed.bookings) ? parsed.bookings : [];
-    let localSeedChanged = false;
-    for (const defaultAccount of defaultAccounts()) {
-      if (!accounts.some(a => String(a.id) === String(defaultAccount.id))) {
-        accounts.push(defaultAccount);
-        localSeedChanged = true;
-      }
-    }
-    for (const demoBooking of defaultHostDemoBookings()) {
-      if (!bookings.some(b => String(b.ref) === String(demoBooking.ref))) {
-        bookings.push(demoBooking);
-        localSeedChanged = true;
-      }
-    }
-    const openPlayGamePlayers = (Array.isArray(parsed.openPlayGamePlayers)
-      ? parsed.openPlayGamePlayers
-      : []
-    ).map(player => {
-      if (Number.isFinite(Number(player.performance_seed_rating))) return player;
-      localSeedChanged = true;
-      return {
-        ...player,
-        performance_seed_rating: openPlayPerformanceSeed(player.skill_level),
-      };
-    });
-    const db = {
-      ...freshDb(),
-      ...parsed,
-      settings: { ...defaultSettings(), ...(parsed.settings || {}) },
-      courts: Array.isArray(parsed.courts) ? parsed.courts : defaultCourts(),
-      bookings,
-      bookingRescheduleRequests: Array.isArray(parsed.bookingRescheduleRequests) ? parsed.bookingRescheduleRequests : [],
-      openPlayRegistrations: Array.isArray(parsed.openPlayRegistrations) ? parsed.openPlayRegistrations : [],
-      openPlayHostApplications: Array.isArray(parsed.openPlayHostApplications) ? parsed.openPlayHostApplications : [],
-      openPlayHostSessions: Array.isArray(parsed.openPlayHostSessions) ? parsed.openPlayHostSessions : [],
-      openPlayHostSessionRegistrations: Array.isArray(parsed.openPlayHostSessionRegistrations) ? parsed.openPlayHostSessionRegistrations : [],
-      openPlayGameSessions: (Array.isArray(parsed.openPlayGameSessions)
-        ? parsed.openPlayGameSessions
-        : []
-      ).map(session => ({
-        ...session,
-        ranking_mode: normalizeOpenPlayRankingMode(session.ranking_mode),
-        performance_rating_version: session.performance_rating_version || 'pr-performance-v1',
-        performance_rating_k: Number(session.performance_rating_k || 24),
-        performance_rating_scale: Number(session.performance_rating_scale || 400),
-        performance_rating_min_games: Number(session.performance_rating_min_games || 3),
-      })),
-      openPlayGamePlayers,
-      openPlayGameRounds: Array.isArray(parsed.openPlayGameRounds) ? parsed.openPlayGameRounds : [],
-      openPlayGameShares: Array.isArray(parsed.openPlayGameShares) ? parsed.openPlayGameShares : [],
-      blockedDates: Array.isArray(parsed.blockedDates) ? parsed.blockedDates : [],
-      deletedBookingArchive: Array.isArray(parsed.deletedBookingArchive) ? parsed.deletedBookingArchive : [],
-      accounts,
-      agreements: Array.isArray(parsed.agreements) ? parsed.agreements : [],
-      weeklyFees: Array.isArray(parsed.weeklyFees) ? parsed.weeklyFees : [],
-    };
-    if (localSeedChanged) writeDb(db);
-    return db;
-  }
-
-  function writeDb(db) {
-    localStorage.setItem(STORE_KEY, JSON.stringify(db));
-  }
-
-  function mutateLocalOpenPlayGamePublicShare(db, sessionId, enabled, rotate = false) {
-    const session = db.openPlayGameSessions.find(item =>
-      String(item.id) === String(sessionId)
-    );
-    if (!session) throw new Error('PLAY_MANAGER_SESSION_NOT_FOUND');
-
-    if (!enabled) {
-      db.openPlayGameShares = (db.openPlayGameShares || []).filter(share =>
-        String(share.session_id) !== String(sessionId)
-      );
-      return null;
-    }
-
-    const now = Date.now();
-    const status = String(session.status || '');
-    const completedAt = Date.parse(session.updated_at || '');
-    const completedIsFresh = status === 'completed'
-      && Number.isFinite(completedAt)
-      && now - completedAt <= 24 * 60 * 60 * 1000;
-    if (!['active', 'paused'].includes(status) && !completedIsFresh) {
-      throw new Error('PLAY_MANAGER_SESSION_NOT_SHAREABLE');
-    }
-
-    db.openPlayGameShares = (db.openPlayGameShares || []).filter(share => {
-      const expiresAt = Date.parse(share.expires_at || '');
-      const belongsToSession = String(share.session_id) === String(sessionId);
-      return Number.isFinite(expiresAt) && expiresAt > now && !(rotate && belongsToSession);
-    });
-    const token = localShareToken();
-    const expiresAt = status === 'completed'
-      ? Math.min(now + 24 * 60 * 60 * 1000, completedAt + 24 * 60 * 60 * 1000)
-      : now + 24 * 60 * 60 * 1000;
-    db.openPlayGameShares.push({
-      id: localRef('gms'),
-      session_id: sessionId,
-      token,
-      created_at: new Date(now).toISOString(),
-      rotated_at: new Date(now).toISOString(),
-      expires_at: new Date(expiresAt).toISOString(),
-    });
-    return token;
-  }
-
-  function requireLocalPlayManagerSession(db, sessionId, allowedStatuses) {
-    const session = db.openPlayGameSessions.find(item =>
-      String(item.id) === String(sessionId)
-    );
-    if (!session) throw new Error('PLAY_MANAGER_SESSION_NOT_FOUND');
-    if (!allowedStatuses.includes(String(session.status || ''))) {
-      throw new Error('PLAY_MANAGER_SESSION_NOT_ACTIVE');
-    }
-    return session;
-  }
-
-  function localOpenPlayPlayerHasRatedGame(db, player) {
-    const playerId = String(player?.id || '');
-    if (!playerId) return false;
-    return (db.openPlayGameRounds || [])
-      .filter(round => String(round.session_id) === String(player.session_id))
-      .some(round => (round.assignments || []).some(game => {
-        const results = [
-          ...(Array.isArray(game.completedGames) ? game.completedGames : []),
-          game,
-        ];
-        return results.some(result =>
-          ['A', 'B'].includes(result?.winner) &&
-          [...(result.teamA || []), ...(result.teamB || [])]
-            .some(id => String(id) === playerId)
-        );
-      }));
-  }
-
-  function localOpenPlayLiveBoard(db, shareToken) {
-    const token = String(shareToken || '').trim();
-    if (!/^[0-9a-f]{64}$/.test(token)) return null;
-    const share = (db.openPlayGameShares || []).find(row => row.token === token);
-    if (!share) return null;
-    const shareExpiresAt = Date.parse(share.expires_at || '');
-    if (!Number.isFinite(shareExpiresAt) || shareExpiresAt <= Date.now()) return null;
-
-    const session = (db.openPlayGameSessions || []).find(row =>
-      String(row.id) === String(share.session_id)
-    );
-    if (!session) return null;
-    const status = String(session.status || '');
-    const rankingMode = normalizeOpenPlayRankingMode(session.ranking_mode);
-    const completedAt = Date.parse(session.updated_at || '');
-    const completedIsFresh = status === 'completed'
-      && Number.isFinite(completedAt)
-      && Date.now() - completedAt <= 24 * 60 * 60 * 1000;
-    if (!['active', 'paused'].includes(status) && !completedIsFresh) return null;
-
-    const sessionPlayers = (db.openPlayGamePlayers || [])
-      .filter(player => String(player.session_id) === String(session.id));
-    const activePlayers = sessionPlayers
-      .filter(player => player.status === 'active')
-      .sort((left, right) =>
-        Number(left.seed_order || 0) - Number(right.seed_order || 0) ||
-        String(left.created_at || '').localeCompare(String(right.created_at || '')) ||
-        String(left.id).localeCompare(String(right.id))
-      );
-    const playerById = new Map(sessionPlayers.map(player => [String(player.id), player.full_name || 'Player']));
-    const rounds = (db.openPlayGameRounds || [])
-      .filter(round => String(round.session_id) === String(session.id))
-      .sort((left, right) =>
-        Number(left.round_no || 0) - Number(right.round_no || 0) ||
-        String(left.created_at || '').localeCompare(String(right.created_at || ''))
-      );
-    const latestRound = rounds[rounds.length - 1] || null;
-    const liveAssigned = new Set(
-      (latestRound?.assignments || [])
-        .flatMap(game => game.winner
-          ? [
-              ...(game.readyMatch?.teamA || []),
-              ...(game.readyMatch?.teamB || []),
-            ]
-          : [...(game.teamA || []), ...(game.teamB || [])]
-        )
-        .map(String)
-    );
-    const activeIds = new Set(activePlayers.map(player => String(player.id)));
-    const readyLineups = (latestRound?.assignments || [])
-      .map((game, courtIndex) => {
-        const teamOneIds = (game.readyMatch?.teamA || []).map(String);
-        const teamTwoIds = (game.readyMatch?.teamB || []).map(String);
-        const teamIds = [...teamOneIds, ...teamTwoIds];
-        const uniqueTeamIds = [...new Set(teamIds)];
-        if (
-          !game.winner
-          || teamOneIds.length !== 2
-          || teamTwoIds.length !== 2
-          || uniqueTeamIds.length !== 4
-          || uniqueTeamIds.some(playerId => !activeIds.has(playerId))
-        ) return null;
-
-        const storedOrder = [...new Set((game.readyMatch?.queueOrder || []).map(String))];
-        const teamSet = new Set(uniqueTeamIds);
-        const playerIds = storedOrder.length === 4
-          && storedOrder.every(playerId => teamSet.has(playerId))
-          ? storedOrder
-          : teamIds;
-        const reservedAt = game.readyMatch?.reservedAt || game.resultAt || '';
-        const parsedReservedAt = Date.parse(reservedAt);
-        return {
-          courtIndex,
-          courtName: game.courtName || `Court ${courtIndex + 1}`,
-          players: playerIds.map(playerId => playerById.get(playerId) || 'Player'),
-          team1: teamOneIds.map(playerId => playerById.get(playerId) || 'Player'),
-          team2: teamTwoIds.map(playerId => playerById.get(playerId) || 'Player'),
-          sortTime: Number.isFinite(parsedReservedAt) ? parsedReservedAt : Number.MAX_SAFE_INTEGER,
-        };
-      })
-      .filter(Boolean)
-      .sort((left, right) => left.sortTime - right.sortTime || left.courtIndex - right.courtIndex);
-    const publicUpNext = readyLineups.length ? {
-      courtName: readyLineups[0].courtName,
-      players: readyLineups[0].players,
-      team1: readyLineups[0].team1,
-      team2: readyLineups[0].team2,
-    } : null;
-    const queuedIds = [];
-    const queuedSet = new Set();
-    (latestRound?.queue_snapshot || []).map(String).forEach(playerId => {
-      if (activeIds.has(playerId) && !liveAssigned.has(playerId) && !queuedSet.has(playerId)) {
-        queuedSet.add(playerId);
-        queuedIds.push(playerId);
-      }
-    });
-    activePlayers.forEach(player => {
-      const playerId = String(player.id);
-      if (!liveAssigned.has(playerId) && !queuedSet.has(playerId)) {
-        queuedSet.add(playerId);
-        queuedIds.push(playerId);
-      }
-    });
-
-    const ratingMatches = [];
-    let resultCount = 0;
-    let latestResult = null;
-    let latestResultTime = -Infinity;
-    let ratingSequence = 0;
-    const processGame = (game, round, courtIndex, completedGameIndex = null) => {
-      const teamOne = (game.teamA || []).map(String);
-      const teamTwo = (game.teamB || []).map(String);
-      if (game.winner === 'A' || game.winner === 'B') {
-        resultCount += 1;
-        ratingMatches.push({
-          matchId: game.matchId || '',
-          roundNo: Number(round?.round_no || 0),
-          courtIndex,
-          completedGameIndex,
-          teamA: teamOne,
-          teamB: teamTwo,
-          winner: game.winner,
-          resultAt: game.resultAt || '',
-          sequence: ratingSequence++,
-        });
-        const resultAt = game.resultAt || null;
-        const parsedResultTime = Date.parse(resultAt || '');
-        const parsedRoundTime = Date.parse(round?.created_at || '');
-        const resultTime = Number.isFinite(parsedResultTime)
-          ? parsedResultTime
-          : (Number.isFinite(parsedRoundTime) ? parsedRoundTime : 0);
-        if (resultTime >= latestResultTime) {
-          const courtName = game.courtName || `Court ${courtIndex + 1}`;
-          latestResultTime = resultTime;
-          latestResult = {
-            eventId: [
-              Number(round?.round_no || 0),
-              courtName,
-              resultAt || '',
-              game.winner,
-            ].join(':'),
-            roundNo: Number(round?.round_no || 0),
-            courtIndex,
-            courtName,
-            team1: teamOne.map(playerId => playerById.get(playerId) || 'Player'),
-            team2: teamTwo.map(playerId => playerById.get(playerId) || 'Player'),
-            winner: game.winner,
-            resultAt,
-          };
-        }
-      }
-    };
-    rounds.forEach(round => {
-      (round.assignments || []).forEach((game, courtIndex) => {
-        (game.completedGames || []).forEach((completedGame, completedGameIndex) => {
-          processGame(completedGame, round, courtIndex, completedGameIndex);
-        });
-        processGame(game, round, courtIndex, null);
-      });
-    });
-    const activeIdSet = new Set(activePlayers.map(player => String(player.id)));
-    const standings = window.PBOpenPlayRating?.calculateStandings
-      ? window.PBOpenPlayRating
-          .calculateStandings(sessionPlayers, ratingMatches, {
-            minGames: Number(session.performance_rating_min_games || 3),
-            mode: rankingMode,
-          })
-          .filter(row => activeIdSet.has(String(row.id)) || row.games > 0)
-          .map(row => ({
-            name: row.name,
-            rating: row.rating,
-            ratingExact: row.ratingExact,
-            points: row.points,
-            pointsExact: row.pointsExact,
-            games: row.games,
-            wins: row.wins,
-            losses: row.losses,
-            winRate: row.winRate,
-            winPercentage: row.winPercentage,
-            mode: row.mode,
-            eligible: row.eligible,
-            rank: row.rank,
-            averageOpponentRating: row.averageOpponentRating,
-            averageOpponentRatingExact: row.averageOpponentRatingExact,
-            bestUpset: row.bestUpset,
-            bestUpsetExact: row.bestUpsetExact,
-            headToHeadGames: row.headToHeadGames,
-            headToHeadWins: row.headToHeadWins,
-            headToHeadLosses: row.headToHeadLosses,
-            headToHeadPercentage: row.headToHeadPercentage,
-            rankCriterion: row.rankCriterion,
-            rankReason: row.rankReason,
-            tieBreakReason: row.tieBreakReason,
-            requiresPodiumDecider: row.requiresPodiumDecider,
-            podiumDeciderGroupId: row.podiumDeciderGroupId,
-          }))
-      : [];
-
-    return {
-      generatedAt: nowIso(),
-      session: {
-        date: session.date || '',
-        timeLabel: session.time_label || '',
-        courtNames: session.court_names || [],
-        status,
-        currentRound: Number(latestRound?.round_no || session.current_round || 0),
-      },
-      players: activePlayers.map(player => player.full_name || 'Player'),
-      latestRound: latestRound ? {
-        roundNo: Number(latestRound.round_no || 0),
-        assignments: (latestRound.assignments || []).map((game, index) => ({
-          courtName: game.courtName || `Court ${index + 1}`,
-          team1: (game.teamA || []).map(playerId => playerById.get(String(playerId)) || 'Player'),
-          team2: (game.teamB || []).map(playerId => playerById.get(String(playerId)) || 'Player'),
-          startedAt: game.startedAt || null,
-          winner: game.winner || null,
-          gameCount: 1 + (Array.isArray(game.completedGames) ? game.completedGames.length : 0),
-        })),
-        upNext: publicUpNext,
-        queue: queuedIds.map(playerId => playerById.get(playerId) || 'Player'),
-      } : null,
-      standings,
-      ratingSystem: {
-        mode: rankingMode,
-        name: rankingMode === 'competitive'
-          ? 'Competitive Ranking'
-          : rankingMode === 'win_percentage'
-            ? 'Individual Win Percentage'
-            : 'Individual Performance Rating',
-        version: rankingMode === 'competitive'
-          ? 'competitive-ranking-v2'
-          : rankingMode === 'win_percentage'
-            ? 'win-percentage-v1'
-            : (session.performance_rating_version || 'pr-performance-v1'),
-        minGames: Number(session.performance_rating_min_games || 3),
-        rankingMetric: rankingMode === 'competitive'
-          ? 'competitive'
-          : rankingMode === 'win_percentage'
-            ? 'win_percentage'
-            : 'session_points',
-      },
-      resultCount,
-      latestResult,
-    };
-  }
-
-  function buildLocalAvailabilityGraphic(date, courtIds = [], options) {
-    const session = window.Auth?.getSession?.() || null;
-    const role = session?.role || '';
-    const guestSafe = options?.guestSafe === true;
-    if (!guestSafe && (!['owner', 'court_owner'].includes(role)
-        || (session?.status && session.status !== 'active'))) {
-      throw new Error('An active Paddle Rage owner account is required.');
-    }
-
-    const requestedDate = String(date || '').trim();
-    const requestedCourtIds = [...new Set((Array.isArray(courtIds) ? courtIds : [])
-      .map(id => String(id || '').trim()).filter(Boolean))];
-    const excludedBookingRefs = new Set((Array.isArray(options?.excludeBookingRefs)
-      ? options.excludeBookingRefs
-      : []).map(value => String(value || '').trim()).filter(Boolean));
-    const phParts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
-      timeZone: 'Asia/Manila',
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-    }).formatToParts(new Date()).filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
-    const phToday = `${phParts.year}-${phParts.month}-${phParts.day}`;
-    const maxDateValue = new Date(`${phToday}T12:00:00Z`);
-    maxDateValue.setUTCDate(maxDateValue.getUTCDate() + 366);
-    const maxDate = maxDateValue.toISOString().slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(requestedDate) || requestedDate < phToday
-        || requestedDate > maxDate || requestedCourtIds.length > 50) {
-      throw new Error('Availability date must be within the next 366 Manila calendar days.');
-    }
-
-    const db = readDb();
-    const settings = db.settings || {};
-    const openHour = Number(settings.open_hour);
-    const closeHour = Number(settings.close_hour);
-    if (!Number.isInteger(openHour) || !Number.isInteger(closeHour)
-        || openHour < 0 || openHour > 23 || closeHour < 1 || closeHour > 24 || closeHour <= openHour) {
-      throw new Error('Court operating hours are not configured correctly.');
-    }
-    const maintenance = _safeJsonParse(String(settings.maintenance_config || ''));
-    if (!maintenance || typeof maintenance !== 'object' || Array.isArray(maintenance)
-        || (Object.prototype.hasOwnProperty.call(maintenance, 'rules') && !Array.isArray(maintenance.rules))) {
-      throw new Error('Maintenance schedule is not configured correctly.');
-    }
-    const maintenanceRules = Array.isArray(maintenance.rules)
-      ? maintenance.rules
-      : Object.keys(maintenance).length ? [maintenance] : [];
-    const enabled = value => value === true || ['true', '1'].includes(String(value || '').toLowerCase());
-    const inRange = (hour, start, end) => Number.isInteger(start) && Number.isInteger(end) && start !== end
-      && (start < end ? hour >= start && hour < end : hour >= start || hour < end);
-    const appliesToCourt = (rule, courtId) => {
-      const ids = Array.isArray(rule?.courtIds) ? rule.courtIds.map(String).filter(Boolean) : [];
-      return ids.length === 0 || ids.includes(String(courtId));
-    };
-    const dayOfWeek = value => new Date(`${value}T12:00:00Z`).getUTCDay();
-    const maintenanceMatch = (rule, hour, courtId) => {
-      if (!rule || typeof rule !== 'object' || Array.isArray(rule)) {
-        throw new Error('Maintenance schedule is not configured correctly.');
-      }
-      if (!['true', 'false', '1', '0'].includes(String(rule.enabled ?? false).toLowerCase())) {
-        throw new Error('Maintenance schedule is not configured correctly.');
-      }
-      if (!enabled(rule.enabled)) return false;
-      const start = Number(rule.start), end = Number(rule.end);
-      const mode = String(rule.mode || 'specific').toLowerCase();
-      if (!Number.isInteger(start) || start < 0 || start > 23 || !Number.isInteger(end)
-          || end < 0 || end > 24 || start === end || !['specific', 'weekly', 'monthly'].includes(mode)
-          || (Object.prototype.hasOwnProperty.call(rule, 'courtIds') && !Array.isArray(rule.courtIds))) {
-        throw new Error('Maintenance schedule is not configured correctly.');
-      }
-      if (!inRange(hour, start, end) || !appliesToCourt(rule, courtId)) return false;
-      if (mode === 'specific') {
-        if (!Array.isArray(rule.dates)) throw new Error('Maintenance schedule is not configured correctly.');
-        return rule.dates.map(String).includes(requestedDate);
-      }
-      if (mode === 'weekly') {
-        if (!Array.isArray(rule.recurring?.days)) throw new Error('Maintenance schedule is not configured correctly.');
-        const days = rule.recurring.days.map(Number);
-        if (days.some(day => !Number.isInteger(day) || day < 0 || day > 6)) {
-          throw new Error('Maintenance schedule is not configured correctly.');
-        }
-        return days.includes(dayOfWeek(requestedDate));
-      }
-      const monthlyDay = Number(rule.recurring?.day);
-      if (!Number.isInteger(monthlyDay) || monthlyDay < 1 || monthlyDay > 31) {
-        throw new Error('Maintenance schedule is not configured correctly.');
-      }
-      return monthlyDay === Number(requestedDate.slice(8, 10));
-    };
-    const bookingOccupiesSlot = booking => {
-      if (['cancelled', 'forfeited'].includes(String(booking?.status || '').toLowerCase())) return false;
-      const placeholder = String(booking?.email || '').trim().toLowerCase() === 'reserve@hold.internal'
-        && ['reserving...', 'reserving…'].includes(String(booking?.fullName ?? booking?.full_name ?? '').trim().toLowerCase());
-      const createdMs = new Date(booking?.createdAt ?? booking?.created_at ?? '').getTime();
-      return !(String(booking?.status || '').toLowerCase() === 'verifying' && placeholder
-        && Number.isFinite(createdMs) && Date.now() - createdMs >= PB_RESERVATION_HOLD_MINUTES * 60 * 1000);
-    };
-    const labels = {
-      closed: 'Closed', reserved: 'Reserved', blocked: 'Blocked', private: 'Private Event',
-      group: 'Group Session', openplay: 'Open Play', maintenance: 'Maintenance',
-    };
-    const hourLabel = value => {
-      const hour = ((Number(value) % 24) + 24) % 24;
-      return `${hour % 12 || 12}:00 ${hour < 12 ? 'AM' : 'PM'}`;
-    };
-    const selected = new Set(requestedCourtIds);
-    const courts = (db.courts || []).filter(court => !court.blocked && (!selected.size || selected.has(String(court.id))));
-    if (!courts.length || (selected.size && courts.length !== selected.size)) {
-      throw new Error('One or more selected courts are unavailable.');
-    }
-    const blockedDate = (db.blockedDates || []).map(String).includes(requestedDate);
-    const currentHour = Number(phParts.hour);
-    const snapshotCourts = courts.sort((a, b) => String(a.id).localeCompare(String(b.id))).map(court => {
-      const occupied = new Set((db.bookings || [])
-        .filter(booking => String(booking.courtId ?? booking.court_id) === String(court.id)
-          && String(booking.date) === requestedDate
-          && !excludedBookingRefs.has(String(booking.ref || '').trim())
-          && bookingOccupiesSlot(booking))
-        .flatMap(booking => booking.slots || []).map(Number).filter(Number.isInteger));
-      const slots = [];
-      for (let hour = openHour; hour < closeHour; hour += 1) {
-        let reason = null;
-        let label = 'Available';
-        if (requestedDate < PB_PUBLIC_COURT_OPENING_DATE) { reason = 'pre_opening'; label = 'Not open yet'; }
-        else if (blockedDate) { reason = 'blocked_date'; label = 'Closed'; }
-        else if (requestedDate === phToday && hour < currentHour) { reason = 'past'; label = 'Past'; }
-        else if (requestedDate === phToday && hour === currentHour) { reason = 'current'; label = 'In progress'; }
-        else if (occupied.has(hour)) { reason = 'booked'; label = 'Booked'; }
-        else {
-          const rule = maintenanceRules.find(item => maintenanceMatch(item, hour, court.id));
-          if (rule) { reason = 'maintenance'; label = labels[String(rule.label || 'maintenance').toLowerCase()] || 'Maintenance'; }
-        }
-        slots.push({ hour, startHour: hour, endHour: hour + 1, startLabel: hourLabel(hour),
-          endLabel: hourLabel(hour + 1), state: reason ? 'unavailable' : 'free', reason, label });
-      }
-      const availableCount = slots.filter(slot => slot.state === 'free').length;
-      return { id: String(court.id), name: String(court.name), availableCount, totalSlots: slots.length, slots };
-    });
-    const asOf = `${phToday}T${phParts.hour}:${phParts.minute}:${phParts.second}.000+08:00`;
-    return _pbNormalizeAvailabilityGraphicSnapshot({
-      version: 1, date: requestedDate, timezone: 'Asia/Manila', asOf,
-      openHour, closeHour, courts: snapshotCourts,
-    }, requestedDate, requestedCourtIds);
-  }
-
-  function buildLocalAdminRescheduleOptions(ref, date) {
-    const session = window.Auth?.getSession?.();
-    if (!session || !['owner','court_owner','staff'].includes(session.role)
-        || (session.status && session.status !== 'active')) {
-      throw new Error('An active dashboard account is required.');
-    }
-    _pbAssertPublicBookingDate(date);
-    const db = readDb();
-    const booking = db.bookings.find(row => String(row.ref) === String(ref));
-    if (!booking) throw new Error('Booking not found.');
-    if (!['confirmed','pending','verifying'].includes(booking.status)) throw new Error('Only an active booking can be rescheduled.');
-    if ((db.bookingRescheduleRequests || []).some(request => request.status === 'pending'
-        && (request.selectedBookingRefs || request.selected_booking_refs || request.itemRefs || [])
-          .map(String).includes(String(ref)))) {
-      throw new Error('Review the pending reschedule request before moving this booking.');
-    }
-    if (!Array.isArray(booking.slots) || booking.slots.some(hour =>
-      !/^(?:[0-9]|1[0-9]|2[0-3])$/.test(String(hour)))) {
-      throw new Error('The original booking has invalid time slots.');
-    }
-    const oldSlots = booking.slots.map(Number).sort((a,b) => a-b);
-    const duration = oldSlots.length;
-    if (!duration || duration > 24 || oldSlots.some((hour,index) => !Number.isInteger(hour)
-        || hour < 0 || hour > 23 || (index && hour !== oldSlots[index-1]+1))
-        || Number(booking.duration ?? duration) !== duration) {
-      throw new Error('The original booking must have a continuous, valid duration.');
-    }
-    const courtId = String(booking.courtId || booking.court_id || '');
-    const snapshot = buildLocalAvailabilityGraphic(date,[courtId],{guestSafe:true,excludeBookingRefs:[String(ref)]});
-    const court = snapshot.courts.find(row => row.id === courtId);
-    const starts = [];
-    for (let hour=snapshot.openHour;hour+duration<=snapshot.closeHour;hour++) {
-      if (date === booking.date && hour === oldSlots[0]) continue;
-      if (Array.from({length:duration},(_,index) => hour+index)
-          .every(slot => court?.slots.some(item => item.hour === slot && item.state === 'free'))) starts.push(hour);
-    }
-    return {bookingRef:String(ref),courtId,date,duration,starts,oldDate:booking.date,oldSlots};
-  }
-
-  const localRescheduleNotificationSummary = () => ({
-    pending: 0,
-    processing: 0,
-    sent: 0,
-    failed: 0,
-    cancelled: 0,
-    retryable: 0,
-    exhausted: 0,
-  });
-
-  const localRescheduleCutoffHours = db => {
-    const configured = Number(db?.settings?.reschedule_cutoff_hours ?? 24);
-    return Number.isInteger(configured) ? Math.max(1, Math.min(configured, 720)) : 24;
-  };
-
-  const localRescheduleCooldownSeconds = db => {
-    const configured = Number(db?.settings?.reschedule_submission_cooldown_seconds ?? 15);
-    return Number.isInteger(configured) ? Math.max(5, Math.min(configured, 300)) : 15;
-  };
-
-  const localRescheduleFamilyKey = booking => [
-    booking?.groupRef,
-    booking?.bookingGroupRef,
-    booking?.booking_group_ref,
-    booking?.ref,
-  ].map(value => String(value || '').trim()).find(Boolean) || '';
-
-  function applyLocalAdminGroupedReschedule(ref, changes) {
-    const session = window.Auth?.getSession?.();
-    if (!session || !['owner','court_owner','staff'].includes(session.role)
-        || (session.status && session.status !== 'active')) {
-      throw new Error('An active dashboard account is required.');
-    }
-    if (!Array.isArray(changes) || changes.length < 1 || changes.length > 8) {
-      throw new Error('Choose between 1 and 8 booking items to reschedule.');
-    }
-    const db = readDb();
-    const anchorRef = String(ref || '').trim();
-    const anchor = db.bookings.find(row => String(row.ref) === anchorRef);
-    if (!anchor) throw new Error('Booking not found.');
-    const familyKey = localRescheduleFamilyKey(anchor);
-    if (db.bookings.filter(row => localRescheduleFamilyKey(row) === familyKey).length > 8) {
-      throw new Error('This booking group has more than 8 items. Review its records before rescheduling.');
-    }
-    const selected = new Set();
-    const targetSlots = new Set();
-    const items = changes.map(change => {
-      const bookingRef = String(change?.bookingRef || '').trim();
-      if (!bookingRef || selected.has(bookingRef)) throw new Error('Choose distinct booking items.');
-      selected.add(bookingRef);
-      const booking = db.bookings.find(row => String(row.ref) === bookingRef);
-      if (!booking || localRescheduleFamilyKey(booking) !== familyKey) {
-        throw new Error('All selected items must belong to the same booking group.');
-      }
-      const options = buildLocalAdminRescheduleOptions(bookingRef, change.date);
-      if (!Array.isArray(change.expectedSlots) || change.expectedSlots.some(hour =>
-        !['number','string'].includes(typeof hour) || !/^(?:[0-9]|1[0-9]|2[0-3])$/.test(String(hour)))) {
-        throw new Error('The original schedule changed. Reopen rescheduling.');
-      }
-      const expectedSlots = change.expectedSlots.map(Number).sort((a,b) => a-b);
-      if (change.expectedDate !== options.oldDate || change.expectedCourtId !== options.courtId
-          || JSON.stringify(expectedSlots) !== JSON.stringify(options.oldSlots)) {
-        throw new Error('The original schedule changed. Reopen rescheduling.');
-      }
-      if (!Number.isInteger(change.startHour) || !options.starts.includes(change.startHour)) {
-        throw new Error('That time is no longer available. Choose another slot.');
-      }
-      const slots = Array.from({length:options.duration},(_,index) => change.startHour+index);
-      for (const hour of slots) {
-        const key = JSON.stringify([options.courtId,change.date,hour]);
-        if (targetSlots.has(key)) throw new Error('Selected booking items overlap on the same court. Choose different times.');
-        targetSlots.add(key);
-      }
-      return {bookingRef,courtId:options.courtId,date:change.date,slots,startTime:_fmtBookingHour(change.startHour),
-        endTime:_fmtBookingHour(change.startHour+options.duration),duration:options.duration,
-        oldDate:options.oldDate,oldSlots:options.oldSlots,oldStartTime:booking.startTime,oldEndTime:booking.endTime};
-    });
-    // No storage writes occur until every item and destination has passed.
-    for (const item of items) {
-      const booking = db.bookings.find(row => String(row.ref) === item.bookingRef);
-      Object.assign(booking,{date:item.date,slots:item.slots,startTime:item.startTime,
-        endTime:item.endTime,duration:item.duration});
-    }
-    writeDb(db);
-    return {bookingRef:anchorRef,items};
-  }
-
-  const localRescheduleCourtId = booking => String(
-    booking?.courtId ?? booking?.court_id ?? '',
-  ).trim();
-
-  const localRescheduleSlots = booking => (Array.isArray(booking?.slots)
-    ? booking.slots
-      .map(value => /^(?:[0-9]|1[0-9]|2[0-3])$/.test(String(value).trim())
-        ? Number(String(value).trim())
-        : Number.NaN)
-      .filter(Number.isInteger)
-      .sort((left, right) => left - right)
-    : []);
-
-  const localRescheduleSameSlots = (left, right) => {
-    const firstRaw = Array.isArray(left) ? left : [];
-    const secondRaw = Array.isArray(right) ? right : [];
-    const first = localRescheduleSlots({ slots: left });
-    const second = localRescheduleSlots({ slots: right });
-    return first.length === firstRaw.length
-      && second.length === secondRaw.length
-      && new Set(first).size === first.length
-      && new Set(second).size === second.length
-      && first.length === second.length
-      && first.every((hour, index) => hour === second[index]);
-  };
-
-  const localRescheduleValidDate = value => {
-    const date = String(value || '').trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
-    const parsed = new Date(`${date}T12:00:00Z`);
-    return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date;
-  };
-
-  const localRescheduleMaxDate = () => {
-    const maxDate = new Date(`${_pbManilaToday()}T12:00:00Z`);
-    maxDate.setUTCDate(maxDate.getUTCDate() + 366);
-    return maxDate.toISOString().slice(0, 10);
-  };
-
-  const localRescheduleStartMs = booking => {
-    const date = String(booking?.date || '').trim();
-    const rawSlots = Array.isArray(booking?.slots) ? booking.slots : [];
-    const slots = localRescheduleSlots(booking);
-    if (!localRescheduleValidDate(date) || !slots.length
-        || slots.length !== rawSlots.length || new Set(slots).size !== slots.length) {
-      return Number.NaN;
-    }
-    return Date.parse(`${date}T${String(slots[0]).padStart(2, '0')}:00:00+08:00`);
-  };
-
-  const localRescheduleEligibility = (rows, db) => {
-    const cutoffHours = localRescheduleCutoffHours(db);
-    const starts = (Array.isArray(rows) ? rows : []).map(localRescheduleStartMs);
-    const earliestStartMs = starts.length ? Math.min(...starts) : Number.NaN;
-    const allConfirmed = rows.length > 0 && rows.every(row =>
-      String(row?.status || '').trim().toLowerCase() === 'confirmed'
-    );
-    return {
-      cutoffHours,
-      earliestStartMs,
-      earliestStart: Number.isFinite(earliestStartMs)
-        ? new Date(earliestStartMs).toISOString()
-        : null,
-      eligible: allConfirmed && Number.isFinite(earliestStartMs)
-        && earliestStartMs > Date.now() + cutoffHours * 60 * 60 * 1000,
-    };
-  };
-
-  function localRescheduleRequestView(request, includePrivate = false) {
-    if (!request) return null;
-    const oldSchedule = request.oldSchedule ? {
-      ...request.oldSchedule,
-      items:(request.oldSchedule.items || []).map(item => {
-        if (includePrivate) return { ...item };
-        const guestItem = { ...(item || {}) };
-        delete guestItem.scheduleFingerprint;
-        return guestItem;
-      }),
-    } : request.oldSchedule;
-    const payload = {
-      ...request,
-      oldSchedule,
-      requestedSchedule:request.requestedSchedule ? {
-        ...request.requestedSchedule,
-        items:(request.requestedSchedule.items || []).map(item => ({ ...item })),
-      } : request.requestedSchedule,
-      canWithdraw:String(request.status || '').toLowerCase() === 'pending',
-      decision:{
-        reason:request.decision?.reason || null,
-        reviewedAt:request.decision?.reviewedAt || null,
-        ...(includePrivate ? { reviewedByRole:request.decision?.reviewedByRole || null } : {}),
-      },
-    };
-    if (!includePrivate) {
-      delete payload.customer;
-      delete payload.canApprove;
-      delete payload.canReject;
-      delete payload.notification;
-      delete payload.events;
-      return payload;
-    }
-    payload.currentItems = oldSchedule?.items || [];
-    payload.requestedItems = payload.requestedSchedule?.items || [];
-    payload.notification = localRescheduleNotificationSummary();
-    return payload;
-  }
-
-  window.DB = {
-    async getCourts() { return readDb().courts; },
-    async getAvailabilityGraphic(date, courtIds = []) {
-      return buildLocalAvailabilityGraphic(date, courtIds);
-    },
-    async getAvailabilityGraphicSnapshot(date, courtIds = []) {
-      return this.getAvailabilityGraphic(date, courtIds);
-    },
-    async saveCourt(court) {
-      const db = readDb();
-      const row = { ...court, id: String(court.id || localRef('court')).toLowerCase() };
-      const idx = db.courts.findIndex(c => String(c.id) === String(row.id));
-      if (idx >= 0) db.courts[idx] = { ...db.courts[idx], ...row };
-      else db.courts.push(row);
-      writeDb(db);
-    },
-    async deleteCourt(id) {
-      const db = readDb();
-      db.courts = db.courts.filter(c => String(c.id) !== String(id));
-      writeDb(db);
-    },
-
-    async getBookings(filters = {}) {
-      const opts = filters || {};
-      return readDb().bookings
-        .filter(b => !opts.date || b.date === opts.date)
-        .filter(b => !opts.courtId || String(b.courtId) === String(opts.courtId))
-        .filter(b => !opts.hostUserId || String(b.hostUserId) === String(opts.hostUserId))
-        .filter(b => !opts.activeOnly || (b.status !== 'cancelled' && b.status !== 'forfeited'))
-        .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
-    },
-    async getInsightBookings() {
-      const session = window.Auth?.getSession?.();
-      if (!session || !['owner', 'court_owner'].includes(session.role)) {
-        throw new Error('An active owner session is required to load Paddle Rage Insights.');
-      }
-      return readDb().bookings.map(booking => ({
-        ref: booking.ref,
-        groupRef: booking.groupRef || null,
-        courtId: booking.courtId,
-        date: booking.date,
-        slots: booking.slots || [],
-        startTime: booking.startTime,
-        endTime: booking.endTime,
-        duration: Number(booking.duration || 0),
-        status: booking.status,
-        paymentStatus: booking.paymentStatus || 'unpaid',
-        createdAt: booking.createdAt,
-      })).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
-    },
-    async getMyHostBookings() {
-      const session = window.Auth?.getSession?.();
-      if (!session || session.role !== 'host' || (session.status && session.status !== 'active')) {
-        throw new Error('An active host account is required to load bookings.');
-      }
-      return readDb().bookings
-        .filter(booking => booking.hostBooking && booking.email !== 'reserve@hold.internal')
-        .filter(booking => String(booking.hostUserId || booking.createdByUserId || '') === String(session.id || ''))
-        .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
-    },
-    async markHostBookingGroupFullyPaid(bookingRef) {
-      const db = readDb();
-      const primary = db.bookings.find(booking => String(booking.ref) === String(bookingRef) || String(booking.groupRef || '') === String(bookingRef));
-      if (!primary) throw new Error('Booking not found.');
-      const rows = primary.groupRef ? db.bookings.filter(booking => String(booking.groupRef || '') === String(primary.groupRef)) : [primary];
-      if (rows.some(booking => !booking.hostBooking || booking.status !== 'confirmed' || !['downpayment_paid', 'paid'].includes(booking.paymentStatus))) {
-        throw new Error('Every row must be an active confirmed host booking.');
-      }
-      const refs = new Set(rows.map(booking => String(booking.ref)));
-      const paidAt = new Date().toISOString();
-      db.bookings = db.bookings.map(booking => refs.has(String(booking.ref)) ? {
-        ...booking, paymentStatus: 'paid', downpayment: booking.total, paidAt: booking.paidAt || paidAt,
-      } : booking);
-      writeDb(db);
-      return { status: 'confirmed', paymentStatus: 'paid', paidAt, refs: [...refs] };
-    },
-    async restoreForfeitedHostBookingAsFullyPaid(bookingRef, reason) {
-      if (String(reason || '').trim().length < 10) throw new Error('Enter a correction reason of at least 10 characters.');
-      const db = readDb();
-      const primary = db.bookings.find(booking => String(booking.ref) === String(bookingRef) || String(booking.groupRef || '') === String(bookingRef));
-      if (!primary) throw new Error('Booking not found.');
-      const rows = primary.groupRef ? db.bookings.filter(booking => String(booking.groupRef || '') === String(primary.groupRef)) : [primary];
-      if (rows.some(booking => !booking.hostBooking || booking.status !== 'forfeited' || booking.paymentStatus !== 'deposit_retained')) {
-        throw new Error('Every row must still be forfeited with its deposit retained.');
-      }
-      const refs = new Set(rows.map(booking => String(booking.ref)));
-      const paidAt = new Date().toISOString();
-      db.bookings = db.bookings.map(booking => refs.has(String(booking.ref)) ? {
-        ...booking, status: 'confirmed', paymentStatus: 'paid', downpayment: booking.total,
-        paidAt: booking.paidAt || paidAt, forfeitedAt: null, forfeitureReason: null,
-      } : booking);
-      writeDb(db);
-      return { status: 'confirmed', paymentStatus: 'paid', paidAt, refs: [...refs] };
-    },
-    async addBookings(bookings) {
-      const batch = Array.isArray(bookings) ? bookings.filter(Boolean) : [];
-      if (batch.length < 1 || batch.length > 8) {
-        throw new Error('Choose between one and eight booking items.');
-      }
-      batch.forEach(booking => _pbAssertPublicBookingDate(booking.date));
-
-      const db = readDb();
-      const rows = [];
-      for (const booking of batch) {
-        const existing = [...db.bookings, ...rows]
-          .filter(b => String(b.courtId) === String(booking.courtId) && b.date === booking.date && b.status !== 'cancelled' && b.status !== 'forfeited');
-        if (hasSlotConflict(existing, booking)) {
-          throw new Error('One or more time slots are no longer available. Please refresh and choose a different time.');
-        }
-        const row = {
-          ...booking,
-          ref: booking.ref || localRef('PB'),
-          receivedAccount: receivedAccountForBooking(booking),
-          createdAt: booking.createdAt || nowIso(),
-        };
-        rows.push({
-          ...row,
-          ...localBookingFeeSnapshot(row, db.settings || {}),
-        });
-      }
-
-      db.bookings.push(...rows);
-      writeDb(db);
-      return rows.map(row => row.ref);
-    },
-    async addBooking(booking) {
-      return this.addBookings([booking]);
-    },
-
-    async releaseBookingHold(ref) {
-      const db = readDb();
-      const target = db.bookings.find(booking => String(booking.ref) === String(ref));
-      if (!target) return ref;
-      const groupKey = String(target.groupRef || target.booking_group_ref || target.ref);
-      const group = db.bookings.filter(booking =>
-        String(booking.groupRef || booking.booking_group_ref || booking.ref) === groupKey
-      );
-      const safe = group.length > 0 && group.every(booking => {
-        const placeholder = String(booking.email || '').trim().toLowerCase() === 'reserve@hold.internal' &&
-          /^reserving(?:\.{3}|…)$/i.test(String(booking.fullName || booking.full_name || '').trim()) &&
-          String(booking.contactNumber || booking.contact_number || '').trim() === '00000000000';
-        const hasEvidence = !!(
-          booking.paymentProvider || booking.payment_provider ||
-          booking.paymentSessionId || booking.payment_session_id ||
-          booking.paymentCheckoutUrl || booking.payment_checkout_url ||
-          booking.paymentFlow || booking.payment_flow ||
-          booking.gcashRef || booking.gcash_ref ||
-          booking.downpayment || booking.paidAt || booking.paid_at ||
-          booking.receiptImageUrl || booking.receipt_image_url ||
-          booking.receiptImageHash || booking.receipt_image_hash ||
-          booking.receiptPhash || booking.receipt_phash ||
-          booking.receiptExtracted || booking.receipt_extracted ||
-          booking.receiptVerifiedAt || booking.receipt_verified_at ||
-          booking.bookingFeeEarnedAt || booking.booking_fee_earned_at ||
-          booking.billedAt || booking.billed_at
-        );
-        return placeholder && !hasEvidence;
-      });
-      if (!safe) throw new Error('Only an evidence-free temporary hold can be released.');
-      const refs = new Set(group.map(booking => String(booking.ref)));
-      db.bookings = db.bookings.filter(booking => !refs.has(String(booking.ref)));
-      writeDb(db);
-      return ref;
-    },
-    async getBookingByRef(ref) { return readDb().bookings.find(b => String(b.ref) === String(ref)) || null; },
-    async getAdminRescheduleOptions(ref, date) { return buildLocalAdminRescheduleOptions(ref,date); },
-    async rescheduleBookingsTransaction(ref, changes) { return applyLocalAdminGroupedReschedule(ref,changes); },
-    async rescheduleBookingTransaction(ref, schedule) {
-      const options = buildLocalAdminRescheduleOptions(ref,schedule?.date);
-      const expectedSlots = [...(schedule.expectedSlots || [])].map(Number).sort((a,b) => a-b);
-      if (schedule.expectedDate !== options.oldDate || JSON.stringify(expectedSlots) !== JSON.stringify(options.oldSlots)
-          || schedule.expectedCourtId !== options.courtId) {
-        throw new Error('The original schedule changed. Reopen rescheduling.');
-      }
-      if (!options.starts.includes(schedule.startHour)) throw new Error('That time is no longer available. Choose another slot.');
-      const db = readDb();
-      const booking = db.bookings.find(row => String(row.ref) === String(ref));
-      const result = {bookingRef:String(ref),date:schedule.date,
-        slots:Array.from({length:options.duration},(_,index) => schedule.startHour+index),
-        startTime:_fmtBookingHour(schedule.startHour),endTime:_fmtBookingHour(schedule.startHour+options.duration),
-        duration:options.duration,oldDate:options.oldDate,oldSlots:options.oldSlots};
-      Object.assign(booking,{date:result.date,slots:result.slots,startTime:result.startTime,endTime:result.endTime,duration:result.duration});
-      writeDb(db);
-      return result;
-    },
-    async getBookingManagementViewerContext() {
-      const session = window.Auth?.getSession?.() || null;
-      const active = Boolean(session) && (!session.status || session.status === 'active');
-      return {
-        isAuthenticated: active,
-        isSystemOwner: active && session.role === 'owner',
-      };
-    },
-    async getBookingForManagement(ref, email, options = {}) {
-      const requestedRef = String(ref || '').trim().toUpperCase();
-      const requestedEmail = String(email || '').trim().toLowerCase();
-      const ownerPreview = options?.ownerPreview === true;
-      if (ownerPreview) {
-        const session = window.Auth?.getSession?.() || null;
-        const activeOwner = Boolean(session)
-          && session.role === 'owner'
-          && (!session.status || session.status === 'active');
-        if (!activeOwner) {
-          const denied = new Error('An active System Owner account is required.');
-          denied.code = 'OWNER_PREVIEW_UNAUTHORIZED';
-          throw denied;
-        }
-      }
-      const matchesReference = booking => {
-        const rowRef = String(booking.ref || '').trim().toUpperCase();
-        const groupRef = String(booking.groupRef || booking.booking_group_ref || '').trim().toUpperCase();
-        return rowRef === requestedRef || groupRef === requestedRef || groupRef === `${requestedRef}-G`
-          || groupRef.replace(/-G$/, '') === requestedRef;
-      };
-      const bookings = readDb().bookings || [];
-      const anchor = bookings.find(booking => matchesReference(booking)
-        && String(booking.email || '').trim().toLowerCase() === requestedEmail);
-      if (!anchor) return [];
-      const groupRef = String(anchor.groupRef || anchor.booking_group_ref || '');
-      return bookings
-        .filter(booking => String(booking.email || '').trim().toLowerCase() === requestedEmail)
-        .filter(booking => groupRef
-          ? String(booking.groupRef || booking.booking_group_ref || '') === groupRef
-          : String(booking.ref || '') === String(anchor.ref || ''))
-        .sort((a, b) => `${a.date || ''}|${a.startTime || ''}|${a.courtName || ''}`
-          .localeCompare(`${b.date || ''}|${b.startTime || ''}|${b.courtName || ''}`))
-        .slice(0, 8)
-        .map(booking => ownerPreview
-          ? { ...booking, managementAccess: 'owner_preview' }
-          : booking);
-    },
-    async getBookingRescheduleState(ref, email) {
-      const rows = await this.getBookingForManagement(ref, email);
-      if (!rows.length) throw new Error('Booking not found. Check the reference and booking email.');
-      const db = readDb();
-      const refs = new Set(rows.map(row => String(row.ref)));
-      const request = db.bookingRescheduleRequests
-        .filter(item => (item.itemRefs || []).some(itemRef => refs.has(String(itemRef))))
-        .sort((a,b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0] || null;
-      const eligibility = localRescheduleEligibility(rows, db);
-      const confirmed = rows.filter(row => String(row.status || '').toLowerCase() === 'confirmed').length;
-      const bookingRef = String(ref || '').trim().toUpperCase();
-      return {
-        ok:true,
-        booking:{
-          ref:bookingRef,
-          bookingRef,
-          bookingGroupRef:[rows[0]?.groupRef, rows[0]?.bookingGroupRef, rows[0]?.booking_group_ref]
-            .map(value => String(value || '').trim()).find(Boolean) || null,
-          status:confirmed === rows.length ? 'confirmed' : 'mixed',
-          items:rows.map(row => ({
-            ref:row.ref,
-            courtId:localRescheduleCourtId(row),
-            courtName:row.courtName,
-            date:row.date,
-            slots:localRescheduleSlots(row).map(String),
-            startTime:row.startTime,
-            endTime:row.endTime,
-            duration:Number(row.duration ?? row.slots?.length ?? 0),
-            rate:Number(row.rate || 0),
-            total:Number(row.total || 0),
-            status:row.status,
-            paymentStatus:row.paymentStatus,
-          })),
-          reschedule:{
-            eligible:eligibility.eligible,
-            cutoffHours:eligibility.cutoffHours,
-            earliestStart:eligibility.earliestStart,
-            slotIsHeldWhilePending:false,
-            refundAvailable:false,
-          },
-        },
-        request:localRescheduleRequestView(request),
-      };
-    },
-    async getBookingRescheduleOptions(ref, email, itemRefs, date) {
-      const requestedDate = String(date || '').trim();
-      if (!localRescheduleValidDate(requestedDate)) throw new Error('Choose a valid schedule date.');
-      _pbAssertPublicBookingDate(requestedDate);
-      if (requestedDate > localRescheduleMaxDate()) {
-        throw new Error('Availability is limited to the next 366 Manila calendar days.');
-      }
-      const rows = await this.getBookingForManagement(ref, email);
-      const selectedRefs = [...new Set((Array.isArray(itemRefs) ? itemRefs : [])
-        .map(value => String(value || '').trim()).filter(Boolean))].sort();
-      const selected = rows.filter(row => selectedRefs.includes(String(row.ref))).sort((left, right) =>
-        `${left.courtName || ''}|${left.ref || ''}`.localeCompare(`${right.courtName || ''}|${right.ref || ''}`)
-      );
-      if (!selected.length || selected.length !== selectedRefs.length || selected.length > 8) {
-        throw new Error('Choose between one and eight valid booking items to reschedule.');
-      }
-      const db = readDb();
-      const eligibility = localRescheduleEligibility(selected, db);
-      if (!eligibility.eligible) {
-        throw _pbApiError(
-          `Only confirmed bookings more than ${eligibility.cutoffHours} hours away can be rescheduled.`,
-          'RESCHEDULE_NOT_ELIGIBLE',
-        );
-      }
-      const durations = [...new Set(selected.map(row => {
-        const slots = localRescheduleSlots(row);
-        const duration = Number(row.duration ?? slots.length);
-        return Number.isInteger(duration) && duration === slots.length ? duration : Number.NaN;
-      }))];
-      if (durations.length !== 1 || !Number.isInteger(durations[0]) || durations[0] < 1) {
-        throw new Error('Selected booking items must have the same valid duration.');
-      }
-      const selectedCourtIds = selected.map(localRescheduleCourtId);
-      if (selectedCourtIds.some(courtId => !courtId)
-          || new Set(selectedCourtIds).size !== selected.length) {
-        throw new Error('Select no more than one booking item for each court.');
-      }
-      const duration = durations[0];
-      const snapshot = buildLocalAvailabilityGraphic(requestedDate, selectedCourtIds, {
-        guestSafe:true,
-        excludeBookingRefs:selectedRefs,
-      });
-      const courtMap = new Map((snapshot.courts || []).map(court => [String(court.id), court]));
-      const options = [];
-      for (let hour = Number(snapshot.openHour || 8); hour + duration <= Number(snapshot.closeHour || 24); hour += 1) {
-        const hours = Array.from({ length:duration }, (_, index) => hour + index);
-        const available = selected.every(row => {
-          const court = courtMap.get(localRescheduleCourtId(row));
-          return hours.every(slotHour => (court?.slots || [])
-            .some(slot => Number(slot.hour) === slotHour && slot.state === 'free'));
-        });
-        options.push({
-          date:requestedDate,
-          startTime:_fmtBookingHour(hour),
-          endTime:_fmtBookingHour(hour + duration),
-          slots:hours.map(String),
-          available,
-        });
-      }
-      return {
-        ok:true,
-        date:requestedDate,
-        duration,
-        items:selected.map(row => ({ ref:row.ref, courtId:localRescheduleCourtId(row), courtName:row.courtName, duration })),
-        slots:Array.from({ length:Number(snapshot.closeHour) - Number(snapshot.openHour) }, (_, index) => {
-          const hour = Number(snapshot.openHour) + index;
-          const available = selected.every(row => (courtMap.get(localRescheduleCourtId(row))?.slots || [])
-            .some(slot => Number(slot.hour) === hour && slot.state === 'free'));
-          return {
-            hour,
-            label:`${_fmtBookingHour(hour)}–${_fmtBookingHour(hour + 1)}`,
-            startTime:_fmtBookingHour(hour),
-            endTime:_fmtBookingHour(hour + 1),
-            available,
-          };
-        }),
-        options,
-        slotIsHeldWhilePending:false,
-      };
-    },
-    async submitBookingRescheduleRequest(payload = {}) {
-      const rows = await this.getBookingForManagement(payload.bookingRef, payload.email);
-      const suppliedRefs = Array.isArray(payload.itemRefs) ? payload.itemRefs : [];
-      const itemRefs = [...new Set(suppliedRefs.map(value => String(value || '').trim()).filter(Boolean))].sort();
-      const selected = rows.filter(row => itemRefs.includes(String(row.ref))).sort((left, right) =>
-        `${left.courtName || ''}|${left.ref || ''}`.localeCompare(`${right.courtName || ''}|${right.ref || ''}`)
-      );
-      if (!itemRefs.length || itemRefs.length > 8 || itemRefs.length !== suppliedRefs.length
-          || selected.length !== itemRefs.length) {
-        throw new Error('One or more selected booking items are invalid.');
-      }
-      if (payload.acknowledgedNoRefund !== true || payload.acknowledgedSlotNotHeld !== true) {
-        throw new Error('Confirm both request acknowledgements.');
-      }
-      const requestedDate = String(payload.requestedDate || '').trim();
-      if (!localRescheduleValidDate(requestedDate)) throw new Error('Choose a valid schedule date.');
-      _pbAssertPublicBookingDate(requestedDate);
-      if (requestedDate > localRescheduleMaxDate()) {
-        throw new Error('Availability is limited to the next 366 Manila calendar days.');
-      }
-      const suppliedSlots = Array.isArray(payload.requestedSlots) ? payload.requestedSlots : [];
-      if (!suppliedSlots.length || suppliedSlots.length > 24
-          || suppliedSlots.some(value => !/^(?:[0-9]|1[0-9]|2[0-3])$/.test(String(value).trim()))) {
-        throw new Error('Choose a valid available schedule.');
-      }
-      const requestedSlots = [...new Set(suppliedSlots.map(value => Number(String(value).trim())))]
-        .sort((left, right) => left - right);
-      if (requestedSlots.length !== suppliedSlots.length
-          || requestedSlots.some((hour,index) => index > 0 && hour !== requestedSlots[index-1] + 1)) {
-        throw new Error('Choose one continuous schedule with no duplicate time slots.');
-      }
-      const cleanNote = String(payload.note || '').trim();
-      if (cleanNote.length > 500) throw new Error('The request note must be 500 characters or less.');
-
-      const db = readDb();
-      const groupKey = localRescheduleFamilyKey(selected[0]);
-      const existingPending = db.bookingRescheduleRequests.find(item => {
-        if (String(item.status || '').toLowerCase() !== 'pending') return false;
-        const existingGroup = String(
-          item.bookingFamilyKey || item.bookingGroupRef
-          || item.oldSchedule?.bookingGroupRef || item.bookingRef || '',
-        ).trim();
-        return groupKey && existingGroup === groupKey;
-      });
-
-      const existingItemRefs = [...(existingPending?.itemRefs || [])].map(String).sort();
-      if (existingPending
-          && existingItemRefs.length === itemRefs.length
-          && existingItemRefs.every((value, index) => value === itemRefs[index])
-          && String(existingPending.requestedSchedule?.requestedDate || '') === requestedDate
-          && localRescheduleSameSlots(existingPending.requestedSchedule?.requestedSlots, requestedSlots)
-          && String(existingPending.note || '').trim() === cleanNote) {
-        return { ok:true, idempotent:true, request:localRescheduleRequestView(existingPending) };
-      }
-
-      const cooldownSeconds = localRescheduleCooldownSeconds(db);
-      const latestSubmissionAt = Math.max(...db.bookingRescheduleRequests
-        .filter(item => {
-          const itemGroup = String(
-            item.bookingFamilyKey || item.bookingGroupRef
-            || item.oldSchedule?.bookingGroupRef || item.bookingRef || '',
-          ).trim();
-          return itemGroup === groupKey;
-        })
-        .map(item => Date.parse(item.createdAt || ''))
-        .filter(Number.isFinite), Number.NEGATIVE_INFINITY);
-      if (Number.isFinite(latestSubmissionAt)
-          && latestSubmissionAt > Date.now() - cooldownSeconds * 1000) {
-        const retryAfterSeconds = Math.max(1, Math.ceil(
-          (latestSubmissionAt + cooldownSeconds * 1000 - Date.now()) / 1000,
-        ));
-        const error = _pbApiError(
-          `Please wait ${retryAfterSeconds} seconds before changing this request again.`,
-          'TOO_MANY_REQUESTS',
-        );
-        error.retryAfterSeconds = retryAfterSeconds;
-        throw error;
-      }
-
-      const eligibility = localRescheduleEligibility(selected, db);
-      if (!eligibility.eligible) {
-        throw _pbApiError(
-          `Only confirmed bookings more than ${eligibility.cutoffHours} hours away can be rescheduled.`,
-          'RESCHEDULE_NOT_ELIGIBLE',
-        );
-      }
-      const durations = [...new Set(selected.map(row => {
-        const slots = localRescheduleSlots(row);
-        const duration = Number(row.duration ?? slots.length);
-        return Number.isInteger(duration) && duration === slots.length ? duration : Number.NaN;
-      }))];
-      if (durations.length !== 1 || !Number.isInteger(durations[0]) || durations[0] < 1) {
-        throw new Error('Selected booking items must have the same valid duration.');
-      }
-      const duration = durations[0];
-      if (requestedSlots.length !== duration) {
-        throw new Error('Choose one continuous schedule with the original duration.');
-      }
-      const selectedCourtIds = selected.map(localRescheduleCourtId);
-      if (selectedCourtIds.some(courtId => !courtId)
-          || new Set(selectedCourtIds).size !== selected.length) {
-        throw new Error('Select no more than one booking item for each court.');
-      }
-      const unchangedCount = selected.filter(row =>
-        String(row.date || '') === requestedDate
-        && localRescheduleSameSlots(row.slots, requestedSlots)
-      ).length;
-      if (unchangedCount === selected.length) {
-        throw new Error('Choose a schedule different from the current booking.');
-      }
-
-      const availability = buildLocalAvailabilityGraphic(requestedDate, selectedCourtIds, {
-        guestSafe:true,
-        excludeBookingRefs:itemRefs,
-      });
-      const availabilityByCourt = new Map((availability.courts || [])
-        .map(court => [String(court.id), court]));
-      for (const row of selected) {
-        const court = availabilityByCourt.get(localRescheduleCourtId(row));
-        const allAvailable = requestedSlots.every(hour => (court?.slots || [])
-          .some(slot => Number(slot.hour) === hour && slot.state === 'free'));
-        if (!allAvailable) throw _pbApiError(
-          'One or more requested slots are no longer available.',
-          'SLOT_UNAVAILABLE',
-        );
-      }
-
-      const createdAt = new Date().toISOString();
-      if (existingPending) {
-        existingPending.status = 'superseded';
-        existingPending.canApprove = false;
-        existingPending.canReject = false;
-        existingPending.canWithdraw = false;
-        existingPending.supersededAt = createdAt;
-        existingPending.updatedAt = createdAt;
-        existingPending.decision = {
-          ...(existingPending.decision || {}),
-          reason:'Replaced by a newer player request.',
-          reviewedAt:createdAt,
-          reviewedByRole:null,
-        };
-        existingPending.events = [
-          ...(existingPending.events || []),
-          { id:localRef('event'), eventType:'superseded', createdAt },
-        ];
-        existingPending.notification = localRescheduleNotificationSummary();
-      }
-      const request = {
-        id:globalThis.crypto?.randomUUID?.() || localRef('reschedule'),
-        bookingRef:String(payload.bookingRef || '').trim().toUpperCase(),
-        bookingGroupRef:selected[0].groupRef || selected[0].bookingGroupRef || selected[0].booking_group_ref || null,
-        bookingFamilyKey:groupKey,
-        itemRefs,
-        customer:{ name:selected[0].fullName || 'Player', email:String(selected[0].email || '').toLowerCase() },
-        status:'pending',
-        note:cleanNote,
-        oldSchedule:{ bookingRef:String(payload.bookingRef || ''), bookingGroupRef:selected[0].groupRef || selected[0].bookingGroupRef || selected[0].booking_group_ref || null, capturedAt:createdAt, items:selected.map(row => ({ ref:row.ref,courtId:localRescheduleCourtId(row),courtName:row.courtName,date:row.date,slots:localRescheduleSlots(row).map(String),startTime:row.startTime,endTime:row.endTime,duration:Number(row.duration ?? row.slots?.length ?? 0),rate:Number(row.rate || 0),total:Number(row.total || 0),status:row.status,scheduleFingerprint:JSON.stringify([localRescheduleCourtId(row),row.date,localRescheduleSlots(row),Number(row.duration ?? row.slots?.length ?? 0),Number(row.rate || 0),Number(row.total || 0),String(row.status || '')]) })) },
-        requestedSchedule:{ requestedDate,requestedSlots:requestedSlots.map(String),startTime:_fmtBookingHour(requestedSlots[0]),endTime:_fmtBookingHour(requestedSlots[requestedSlots.length-1] + 1),duration,items:selected.map(row => ({ ref:row.ref,courtId:localRescheduleCourtId(row),courtName:row.courtName,date:requestedDate,slots:requestedSlots.map(String),startTime:_fmtBookingHour(requestedSlots[0]),endTime:_fmtBookingHour(requestedSlots[requestedSlots.length-1] + 1),duration,rate:Number(row.rate || 0),total:Number(row.total || 0) })) },
-        acknowledgements:{ noRefund:true, slotNotHeld:true },
-        decision:{ reason:null, reviewedAt:null, reviewedByRole:null },
-        createdAt,
-        updatedAt:createdAt,
-        canApprove:true,
-        canReject:true,
-        canWithdraw:true,
-        notification:localRescheduleNotificationSummary(),
-        events:[{ id:localRef('event'), eventType:'submitted', createdAt }],
-      };
-      db.bookingRescheduleRequests.push(request);
-      writeDb(db);
-      this.dispatchBookingRescheduleNotifications({ requestId:request.id, allowFailure:true }).catch(() => {});
-      return { ok:true, request:localRescheduleRequestView(request) };
-    },
-    async withdrawBookingRescheduleRequest(payload = {}) {
-      const rows = await this.getBookingForManagement(payload.bookingRef, payload.email);
-      const ownedRefs = new Set(rows.map(row => String(row.ref || '')));
-      const normalizedEmail = String(payload.email || '').trim().toLowerCase();
-      const db = readDb();
-      const request = db.bookingRescheduleRequests.find(item => String(item.id) === String(payload.requestId));
-      const ownsRequest = request
-        && String(request?.customer?.email || '').trim().toLowerCase() === normalizedEmail
-        && (request.itemRefs || []).some(itemRef => ownedRefs.has(String(itemRef)));
-      if (!ownsRequest || request.status !== 'pending') throw new Error('This request can no longer be withdrawn.');
-      request.status = 'withdrawn';
-      request.canApprove = false;
-      request.canReject = false;
-      request.canWithdraw = false;
-      request.updatedAt = new Date().toISOString();
-      request.withdrawnAt = request.updatedAt;
-      request.decision = {
-        reason:'Withdrawn by the player before review.',
-        reviewedAt:null,
-        reviewedByRole:null,
-      };
-      request.events = [...(request.events || []), { id:localRef('event'), eventType:'withdrawn', createdAt:request.updatedAt }];
-      request.notification = localRescheduleNotificationSummary();
-      writeDb(db);
-      return { ok:true, request:localRescheduleRequestView(request) };
-    },
-    async listBookingRescheduleRequests(status = null, limit = 100) {
-      const session = window.Auth?.getSession?.() || null;
-      if (!session || !['owner','court_owner'].includes(String(session.role || '')) || (session.status && session.status !== 'active')) throw new Error('Only an active owner can review schedule requests.');
-      const db = readDb();
-      const normalizedStatus = String(status || '').toLowerCase();
-      const all = [...db.bookingRescheduleRequests].sort((a,b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
-      const safeLimit = Math.max(1,Math.min(Number(limit)||100,200));
-      const requests = (normalizedStatus && normalizedStatus !== 'all'
-        ? all.filter(item => String(item.status) === normalizedStatus)
-        : all)
-        .slice(0,safeLimit)
-        .map(item => localRescheduleRequestView(item, true));
-      const pendingRequests = all
-        .filter(item => String(item.status || '').toLowerCase() === 'pending')
-        .slice(0,safeLimit)
-        .map(item => localRescheduleRequestView(item, true));
-      const historyRequests = all
-        .filter(item => String(item.status || '').toLowerCase() !== 'pending')
-        .slice(0,safeLimit)
-        .map(item => localRescheduleRequestView(item, true));
-      const counts = all.reduce((out,item) => { const key=String(item.status || 'pending'); out[key]=(out[key]||0)+1; return out; }, { pending:0,approved:0,rejected:0,withdrawn:0,conflicted:0,superseded:0 });
-      return { ok:true, counts, requests, pendingRequests, historyRequests };
-    },
-    async getBookingRescheduleRequest(requestId) {
-      const result = await this.listBookingRescheduleRequests(null,250);
-      const request = result.requests.find(item => String(item.id) === String(requestId));
-      if (!request) throw new Error('Schedule request not found.');
-      return { ok:true, request, events:[...(request.events || [])] };
-    },
-    async reviewBookingRescheduleRequest(requestId, decision, reason = '') {
-      const session = window.Auth?.getSession?.() || null;
-      if (!session || !['owner','court_owner'].includes(String(session.role || '')) || (session.status && session.status !== 'active')) throw new Error('Only an active owner can review schedule requests.');
-      const db = readDb();
-      const request = db.bookingRescheduleRequests.find(item => String(item.id) === String(requestId));
-      if (!request || request.status !== 'pending') throw new Error('This request is no longer pending.');
-      const normalizedDecision = String(decision || '').toLowerCase();
-      const note = String(reason || '').trim();
-      if (!['approved','rejected'].includes(normalizedDecision)) throw new Error('Choose approve or decline.');
-      if (note.length > 500) throw new Error('The decision note must be 500 characters or less.');
-      if (normalizedDecision === 'rejected' && note.length < 5) throw new Error('Enter a clear reason before declining.');
-
-      const markConflicted = (decisionReason, errorMessage) => {
-        const reviewedAt = new Date().toISOString();
-        request.status = 'conflicted';
-        request.canApprove = false;
-        request.canReject = false;
-        request.canWithdraw = false;
-        request.updatedAt = reviewedAt;
-        request.conflictedAt = reviewedAt;
-        request.decision = {
-          reason:decisionReason,
-          reviewedAt,
-          reviewedByRole:session.role,
-        };
-        request.events = [
-          ...(request.events || []),
-          {
-            id:localRef('event'),
-            eventType:'conflicted',
-            fromStatus:'pending',
-            toStatus:'conflicted',
-            createdAt:reviewedAt,
-          },
-        ];
-        request.notification = localRescheduleNotificationSummary();
-        writeDb(db);
-        return {
-          ok:false,
-          code:'SLOT_CONFLICT',
-          error:errorMessage,
-          request:localRescheduleRequestView(request, true),
-        };
-      };
-
-      if (normalizedDecision === 'approved') {
-        const refs = new Set((request.itemRefs || []).map(String));
-        const oldByRef = new Map((request.oldSchedule?.items || []).map(item => [String(item.ref),item]));
-        const expectedFamilyKey = String(
-          request.bookingFamilyKey || request.bookingGroupRef
-          || request.oldSchedule?.bookingGroupRef || request.bookingRef || '',
-        ).trim();
-        if (!refs.size || refs.size > 8 || oldByRef.size !== refs.size) {
-          return markConflicted(
-            'The saved request evidence is incomplete. Nothing was moved.',
-            'The saved request no longer has a complete booking selection.',
-          );
-        }
-        for (const ref of refs) {
-          const current = db.bookings.find(row => String(row.ref) === ref);
-          const old = oldByRef.get(ref);
-          const currentDuration = Number(current?.duration ?? current?.slots?.length ?? 0);
-          const oldDuration = Number(old?.duration ?? old?.slots?.length ?? 0);
-          const customerEmail = String(request.customer?.email || '').trim().toLowerCase();
-          const currentEmail = String(current?.email || '').trim().toLowerCase();
-          const snapshotMatches = current && old
-            && String(current.status || '').toLowerCase() === 'confirmed'
-            && localRescheduleCourtId(current) === String(old.courtId || '')
-            && String(current.date || '') === String(old.date || '')
-            && localRescheduleSameSlots(current.slots, old.slots)
-            && Number.isInteger(currentDuration) && currentDuration === oldDuration
-            && currentDuration === localRescheduleSlots(current).length
-            && Number(current.rate || 0) === Number(old.rate || 0)
-            && Number(current.total || 0) === Number(old.total || 0)
-            && (!customerEmail || currentEmail === customerEmail)
-            && (!expectedFamilyKey || localRescheduleFamilyKey(current) === expectedFamilyKey);
-          if (!snapshotMatches) {
-            return markConflicted(
-              'The original booking changed after this request was submitted. Nothing was moved.',
-              'The current booking changed after this request was submitted.',
-            );
-          }
-        }
-
-        const eligibility = localRescheduleEligibility(
-          db.bookings.filter(row => refs.has(String(row.ref))),
-          db,
-        );
-        if (!eligibility.eligible) {
-          return markConflicted(
-            `The original booking is now inside the ${eligibility.cutoffHours}-hour reschedule cutoff. Nothing was moved.`,
-            'The booking is now too close to its start time to reschedule.',
-          );
-        }
-
-        const requestedItems = Array.isArray(request.requestedSchedule?.items)
-          ? request.requestedSchedule.items
-          : [];
-        const requestedByRef = new Map(requestedItems.map(item => [String(item.ref),item]));
-        const requestedDate = String(request.requestedSchedule?.requestedDate || '').trim();
-        const requestedRawSlots = Array.isArray(request.requestedSchedule?.requestedSlots)
-          ? request.requestedSchedule.requestedSlots
-          : [];
-        const requestedSlots = localRescheduleSlots({
-          slots:requestedRawSlots,
-        });
-        const requestedEvidenceValid = requestedItems.length === refs.size
-          && requestedByRef.size === refs.size
-          && localRescheduleValidDate(requestedDate)
-          && requestedDate >= _pbMinimumPublicBookingDate()
-          && requestedDate <= localRescheduleMaxDate()
-          && requestedSlots.length > 0
-          && requestedSlots.length <= 24
-          && requestedSlots.length === requestedRawSlots.length
-          && new Set(requestedSlots).size === requestedSlots.length
-          && requestedSlots.every((hour, index) => index === 0 || hour === requestedSlots[index - 1] + 1)
-          && [...refs].every(ref => {
-            const old = oldByRef.get(ref);
-            const requested = requestedByRef.get(ref);
-            return requested && old
-              && String(requested.date || '') === requestedDate
-              && localRescheduleSameSlots(requested.slots, requestedSlots)
-              && localRescheduleCourtId(requested) === String(old.courtId || '')
-              && Number(requested.duration ?? requested.slots?.length ?? 0) === Number(old.duration ?? old.slots?.length ?? 0)
-              && Number(requested.duration ?? requested.slots?.length ?? 0) === requestedSlots.length
-              && Number(requested.rate || 0) === Number(old.rate || 0)
-              && Number(requested.total || 0) === Number(old.total || 0);
-          });
-        if (!requestedEvidenceValid
-            || new Set(requestedItems.map(localRescheduleCourtId)).size !== requestedItems.length) {
-          return markConflicted(
-            'The saved requested schedule is no longer valid. Nothing was moved.',
-            'The saved requested schedule is invalid.',
-          );
-        }
-
-        const noScheduleChange = [...refs].every(ref => {
-          const current = db.bookings.find(row => String(row.ref) === ref);
-          const requested = requestedByRef.get(ref);
-          return String(current?.date || '') === String(requested?.date || '')
-            && localRescheduleSameSlots(current?.slots, requested?.slots);
-        });
-        if (noScheduleChange) {
-          return markConflicted(
-            'The requested schedule is identical to the current reservation. Nothing was moved.',
-            'The request does not change the booking schedule.',
-          );
-        }
-
-        const availability = buildLocalAvailabilityGraphic(
-          requestedDate,
-          requestedItems.map(localRescheduleCourtId),
-          { guestSafe:true, excludeBookingRefs:[...refs] },
-        );
-        const availabilityByCourt = new Map((availability.courts || [])
-          .map(court => [String(court.id), court]));
-        const unavailable = requestedItems.some(item => {
-          const court = availabilityByCourt.get(localRescheduleCourtId(item));
-          return requestedSlots.some(hour => !(court?.slots || [])
-            .some(slot => Number(slot.hour) === hour && slot.state === 'free'));
-        });
-        if (unavailable) {
-          return markConflicted(
-            'The requested schedule is no longer available. Nothing was moved.',
-            'A requested slot was booked or blocked after this request was submitted.',
-          );
-        }
-
-        db.bookings = db.bookings.map(row => {
-          const requested = requestedByRef.get(String(row.ref));
-          return requested ? { ...row,date:requested.date,slots:[...(requested.slots || [])].map(Number),startTime:requested.startTime,endTime:requested.endTime,duration:Number(requested.duration || requested.slots?.length || row.duration) } : row;
-        });
-      }
-      request.status = normalizedDecision;
-      request.canApprove = false;
-      request.canReject = false;
-      request.canWithdraw = false;
-      request.updatedAt = new Date().toISOString();
-      request.reviewedAt = request.updatedAt;
-      if (normalizedDecision === 'approved') request.approvedAt = request.updatedAt;
-      else request.rejectedAt = request.updatedAt;
-      request.decision = {
-        reason:note || (normalizedDecision === 'approved' ? 'Approved by Paddle Rage.' : null),
-        reviewedAt:request.updatedAt,
-        reviewedByRole:session.role,
-      };
-      request.events = [...(request.events || []), { id:localRef('event'),eventType:normalizedDecision,createdAt:request.updatedAt }];
-      request.notification = localRescheduleNotificationSummary();
-      writeDb(db);
-      return { ok:true, request:localRescheduleRequestView(request, true) };
-    },
-    async dispatchBookingRescheduleNotifications() { return { ok:true,skipped:true,reason:'Local data mode' }; },
-    async updateBooking(ref, updates) {
-      if (updates.date !== undefined) _pbAssertPublicBookingDate(updates.date);
-      const db = readDb();
-      let updated = false;
-      db.bookings = db.bookings.map(b => {
-        if (String(b.ref) !== String(ref)) return b;
-        updated = true;
-        const next = { ...b, ...updates };
-        if (updates.receivedAccount === undefined && updates.paymentMethod !== undefined) {
-          next.receivedAccount = receivedAccountForBooking(next);
-        }
-        if (!next.receivedAccount) next.receivedAccount = receivedAccountForBooking(next);
-        return next;
-      });
-      if (!updated) {
-        const missing = new Error(`Booking ${ref} was not updated because it no longer exists.`);
-        missing.code = 'BOOKING_UPDATE_NOT_ALLOWED';
-        throw missing;
-      }
-      writeDb(db);
-    },
-    async confirmBookingTransaction(ref) {
-      const bookingRef = String(ref || '').trim();
-      if (!bookingRef) throw new Error('A booking reference is required.');
-
-      const session = window.Auth?.getSession?.() || null;
-      if (!session || !['owner', 'court_owner'].includes(String(session.role || '')) ||
-          (session.status && session.status !== 'active')) {
-        throw new Error('Only an active owner or court owner can confirm a booking payment.');
-      }
-
-      const db = readDb();
-      const target = db.bookings.find(booking => String(booking.ref) === bookingRef);
-      if (!target) throw new Error('Booking not found.');
-
-      const groupRef = String(target.groupRef || target.bookingGroupRef || '').trim();
-      const items = groupRef
-        ? db.bookings.filter(booking =>
-            String(booking.groupRef || booking.bookingGroupRef || '').trim() === groupRef)
-        : [target];
-      const refs = items.map(booking => String(booking.ref)).sort();
-      if (!items.length || new Set(refs).size !== refs.length) {
-        throw new Error('The logical booking has invalid or duplicate rows.');
-      }
-
-      const lowerValue = value => String(value || '').toLowerCase().trim();
-      const singleValue = (values, message) => {
-        const unique = [...new Set(values)];
-        if (unique.length !== 1) throw new Error(message);
-        return unique[0];
-      };
-      const bookingStatus = singleValue(
-        items.map(item => lowerValue(item.status)),
-        'Grouped booking statuses are mixed. Review the booking details before confirming.',
-      );
-      const paymentStatus = singleValue(
-        items.map(item => lowerValue(item.paymentStatus ?? item.payment_status)),
-        'Grouped payment statuses are mixed. Review the payment details before confirming.',
-      );
-      const hostBooking = singleValue(
-        items.map(item => !!(item.hostBooking ?? item.host_booking)),
-        'Grouped booking ownership types are mixed. Review the booking details before confirming.',
-      );
-      const paymentMethod = singleValue(
-        items.map(item => lowerValue(item.paymentMethod ?? item.payment_method)),
-        'Grouped payment methods are mixed. Review the payment details before confirming.',
-      );
-
-      if (['cancelled', 'completed', 'forfeited'].includes(bookingStatus)) {
-        throw new Error('This booking is already in a terminal state and cannot be confirmed.');
-      }
-      if (!['pending', 'verifying', 'confirmed'].includes(bookingStatus)) {
-        throw new Error('This booking is not ready for confirmation.');
-      }
-      if (['failed', 'rejected', 'deposit_retained'].includes(paymentStatus)) {
-        throw new Error('This payment is already rejected or otherwise terminal.');
-      }
-      const supportedMethods = ['cash', ...PB_DIGITAL_PAYMENT_METHODS];
-      if (!supportedMethods.includes(paymentMethod)) {
-        throw new Error('This payment method cannot use one-tap confirmation.');
-      }
-      const digitalPayment = PB_DIGITAL_PAYMENT_METHODS.includes(paymentMethod);
-      if (digitalPayment && !['for_verification', 'paid', 'downpayment_paid'].includes(paymentStatus)) {
-        throw new Error('This digital payment is not ready for confirmation.');
-      }
-      if (!digitalPayment && !['unpaid', 'pending', 'paid', 'downpayment_paid'].includes(paymentStatus)) {
-        throw new Error('This cash booking payment state is not ready for confirmation.');
-      }
-      if (items.some(item => lowerValue(item.email) === 'reserve@hold.internal')) {
-        throw new Error('This reservation hold has not been completed by the customer.');
-      }
-
-      const normalizeReference = (method, typedReference) => {
-        const provider = lowerValue(method);
-        const raw = String(typedReference || '');
-        const normalized = provider === 'gcash'
-          ? raw.replace(/[^0-9]/g, '')
-          : raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
-        if (!normalized) throw new Error('A payment reference is required before confirming payment.');
-        if (provider === 'gcash' && !/^[0-9]{13}$/.test(normalized)) {
-          throw new Error('The GCash reference must contain exactly 13 digits.');
-        }
-        if (provider === 'bdopay' && !/^BN[0-9]{16}$/.test(normalized)) {
-          throw new Error('The BDO Pay reference is invalid.');
-        }
-        if (provider === 'maya' && !/^[A-Z0-9]{12}$/.test(normalized)) {
-          throw new Error('The Maya reference is invalid.');
-        }
-        if (provider === 'bpi' && !/^[0-9]{10,20}$/.test(normalized)) {
-          throw new Error('The BPI confirmation number is invalid.');
-        }
-        return provider === 'gcash' ? normalized : `${provider}:${normalized}`;
-      };
-
-      let paymentReferenceKey = '';
-      if (digitalPayment) {
-        paymentReferenceKey = singleValue(
-          items.map(item => normalizeReference(
-            item.paymentMethod ?? item.payment_method,
-            item.gcashRef ?? item.gcash_ref,
-          )),
-          'The payment reference is missing or inconsistent across this booking.',
-        );
-      }
-
-      const amountRows = items.map(item => {
-        const total = Number(item.total);
-        const hasDownpayment = item.downpayment !== undefined &&
-          item.downpayment !== null && item.downpayment !== '';
-        const downpayment = hasDownpayment ? Number(item.downpayment) : total;
-        if (!Number.isFinite(total) || total <= 0 ||
-            !Number.isFinite(downpayment) || downpayment <= 0 ||
-            downpayment > total + 0.01 || (hostBooking && !hasDownpayment)) {
-          throw new Error('Stored booking payment amounts require manual review.');
-        }
-        return { item, total, downpayment };
-      });
-      const expectedTotal = amountRows.reduce((sum, row) => sum + row.total, 0);
-      const expectedDue = amountRows.reduce((sum, row) => sum + row.downpayment, 0);
-      if (expectedDue <= 0 || expectedDue > expectedTotal + 0.01) {
-        throw new Error('Stored booking payment amounts require manual review.');
-      }
-
-      let targetPaymentStatus = paymentStatus;
-      if (digitalPayment || ['paid', 'downpayment_paid'].includes(paymentStatus)) {
-        const fullRows = amountRows.filter(row => Math.abs(row.downpayment - row.total) <= 0.01);
-        const partialRows = amountRows.filter(row => row.downpayment < row.total - 0.01);
-        if (hostBooking) {
-          if (fullRows.length === amountRows.length) {
-            targetPaymentStatus = 'paid';
-          } else if (partialRows.length === amountRows.length) {
-            const settings = db.settings || {};
-            const feeRate = Number(
-              settings.maintenance_fee ?? settings.service_fee_rate ?? settings.booking_fee ?? 0,
-            );
-            const flatFee = ['flat', 'booking', 'per_booking', 'per_transaction'].includes(
-              lowerValue(settings.fee_type),
-            );
-            const hasUnderpayment = amountRows.some(({ item, total, downpayment }) => {
-              const slotCount = Array.isArray(item.slots) ? item.slots.length : 0;
-              const configuredServiceFee = Number.isFinite(feeRate) && feeRate >= 0
-                ? feeRate * (flatFee ? 1 : slotCount)
-                : 0;
-              const storedServiceFee = item.bookingFeeAmountSnapshot ?? item.booking_fee_amount_snapshot;
-              const parsedStoredServiceFee = Number(storedServiceFee);
-              const requestedServiceFee = storedServiceFee !== null && storedServiceFee !== undefined
-                  && Number.isFinite(parsedStoredServiceFee)
-                ? parsedStoredServiceFee
-                : configuredServiceFee;
-              const serviceFee = Math.min(Math.max(requestedServiceFee, 0), total);
-              const required = Math.round(
-                (serviceFee + ((total - serviceFee) * 0.25)) * 100,
-              ) / 100;
-              return Math.abs(downpayment - required) > 0.01;
-            });
-            if (hasUnderpayment) {
-              throw new Error('The host reservation payment is lower than the required amount.');
-            }
-            targetPaymentStatus = 'downpayment_paid';
-          } else {
-            throw new Error('Grouped host payment amounts are mixed. Review the payment details before confirming.');
-          }
-        } else {
-          if (fullRows.length !== amountRows.length || Math.abs(expectedDue - expectedTotal) > 0.01) {
-            throw new Error('Regular bookings require full payment before confirmation.');
-          }
-          targetPaymentStatus = 'paid';
-        }
-      }
-
-      if (['paid', 'downpayment_paid'].includes(paymentStatus) && paymentStatus !== targetPaymentStatus) {
-        throw new Error('The settled payment state does not match the stored amount.');
-      }
-      if (bookingStatus === 'confirmed' && paymentStatus !== targetPaymentStatus) {
-        throw new Error('The confirmed booking has an inconsistent payment state.');
-      }
-
-      const receiptUrls = new Set();
-      const receiptHashes = new Set();
-      items.forEach(item => {
-        const receiptUrl = String(item.receiptImageUrl ?? item.receipt_image_url ?? '').trim();
-        const receiptHash = String(item.receiptImageHash ?? item.receipt_image_hash ?? '').trim();
-        if (receiptUrl) receiptUrls.add(receiptUrl);
-        if (receiptHash) receiptHashes.add(receiptHash);
-      });
-      if (receiptUrls.size > 1 || receiptHashes.size > 1) {
-        throw new Error('Grouped receipt evidence is inconsistent. Review the payment details before confirming.');
-      }
-      if (digitalPayment && paymentStatus === 'for_verification' && receiptUrls.size === 0) {
-        throw new Error('A receipt image is required before confirming this payment.');
-      }
-
-      if (digitalPayment) {
-        const currentRefs = new Set(refs);
-        const safeReferenceKey = item => {
-          const method = lowerValue(item.paymentMethod ?? item.payment_method);
-          if (!PB_DIGITAL_PAYMENT_METHODS.includes(method)) return '';
-          try {
-            return normalizeReference(method, item.gcashRef ?? item.gcash_ref);
-          } catch (_) {
-            return '';
-          }
-        };
-        const duplicateBooking = db.bookings.some(item =>
-          !currentRefs.has(String(item.ref)) && safeReferenceKey(item) === paymentReferenceKey,
-        );
-        const duplicateSettledExternal = [
-          ...(db.openPlayRegistrations || []),
-          ...(db.openPlayHostSessionRegistrations || []),
-        ].some(item => {
-          const state = lowerValue(item.paymentStatus ?? item.payment_status);
-          return ['paid', 'downpayment_paid', 'deposit_retained'].includes(state) &&
-            safeReferenceKey(item) === paymentReferenceKey;
-        });
-        if (duplicateBooking || duplicateSettledExternal) {
-          throw new Error('This payment reference has already been used for another payment.');
-        }
-      }
-
-      if (bookingStatus === 'confirmed' && paymentStatus === targetPaymentStatus) {
-        return {
-          transitioned: false,
-          booking: { ...target },
-          paymentStatus: targetPaymentStatus,
-          status: 'confirmed',
-          refs,
-        };
-      }
-
-      const refSet = new Set(refs);
-      const confirmedAt = nowIso();
-      db.bookings = db.bookings.map(booking => {
-        if (!refSet.has(String(booking.ref))) return booking;
-        const next = {
-          ...booking,
-          status: 'confirmed',
-          paymentStatus: targetPaymentStatus,
-        };
-        if (['paid', 'downpayment_paid'].includes(targetPaymentStatus)) {
-          next.paidAt = booking.paidAt || booking.paid_at || confirmedAt;
-          next.bookingFeeEarnedAt = booking.bookingFeeEarnedAt
-            || booking.booking_fee_earned_at
-            || confirmedAt;
-        }
-        return next;
-      });
-      writeDb(db);
-      const confirmedBooking = db.bookings.find(booking => String(booking.ref) === bookingRef);
-      return {
-        transitioned: true,
-        ...(confirmedBooking ? { booking: confirmedBooking } : {}),
-        paymentStatus: targetPaymentStatus,
-        status: 'confirmed',
-        refs,
-      };
-    },
-    async transferCancelledBookingPayment(sourceRef, targetRef, reason, noRefundConfirmed, idempotencyKey) {
-      const sourceBookingRef = String(sourceRef || '').trim();
-      const targetBookingRef = String(targetRef || '').trim();
-      const transferReason = String(reason || '').trim();
-      const requestKey = String(idempotencyKey || '').trim();
-      if (!sourceBookingRef || !targetBookingRef || sourceBookingRef === targetBookingRef) {
-        throw new Error('Choose two different source and destination bookings.');
-      }
-      if (transferReason.length < 10 || transferReason.length > 1000) {
-        throw new Error('Enter a transfer reason between 10 and 1000 characters.');
-      }
-      if (noRefundConfirmed !== true) {
-        throw new Error('Confirm that no refund or chargeback was issued for the cancelled booking.');
-      }
-      if (!requestKey) throw new Error('A payment-transfer idempotency key is required.');
-
-      const session = window.Auth?.getSession?.() || null;
-      if (!session || !['owner', 'court_owner'].includes(String(session.role || '')) ||
-          (session.status && session.status !== 'active')) {
-        throw new Error('Only an active owner or court owner can move a cancelled booking payment.');
-      }
-
-      const db = readDb();
-      db.bookingPaymentTransfers = Array.isArray(db.bookingPaymentTransfers)
-        ? db.bookingPaymentTransfers
-        : [];
-      const replay = db.bookingPaymentTransfers.find(item => String(item.idempotencyKey) === requestKey);
-      if (replay) {
-        if (replay.sourceBookingRef !== sourceBookingRef || replay.targetBookingRef !== targetBookingRef ||
-            replay.reason !== transferReason || replay.noRefundConfirmed !== true) {
-          throw new Error('This payment-transfer request key was already used for different details.');
-        }
-        return {
-          transitioned: false,
-          transferId: replay.id,
-          sourceBookingRef,
-          targetBookingRef,
-          targetBookingStatus: replay.targetBookingStatus,
-          targetPaymentStatus: replay.targetPaymentStatus,
-          sourceBookingRefs: [...replay.sourceBookingRefs],
-          targetBookingRefs: [...replay.targetBookingRefs],
-        };
-      }
-
-      const logicalGroup = booking => {
-        const groupRef = String(booking?.groupRef || booking?.bookingGroupRef || booking?.booking_group_ref || '').trim();
-        return groupRef
-          ? db.bookings.filter(item => String(item.groupRef || item.bookingGroupRef || item.booking_group_ref || '').trim() === groupRef)
-          : booking ? [booking] : [];
-      };
-      const source = db.bookings.find(booking => String(booking.ref) === sourceBookingRef);
-      const target = db.bookings.find(booking => String(booking.ref) === targetBookingRef);
-      if (!source || !target) throw new Error('The source or destination booking was not found.');
-      const sourceItems = logicalGroup(source);
-      const targetItems = logicalGroup(target);
-      const sourceRefs = sourceItems.map(item => String(item.ref)).sort();
-      const targetRefs = targetItems.map(item => String(item.ref)).sort();
-      if (sourceRefs.some(ref => targetRefs.includes(ref))) {
-        throw new Error('The source and destination must be different logical bookings.');
-      }
-      if (!sourceItems.length || sourceItems.length !== targetItems.length) {
-        throw new Error('The complete cancelled and replacement booking groups must have the same number of rows.');
-      }
-
-      const lower = value => String(value || '').trim().toLowerCase();
-      const normalizedName = value => lower(value).replace(/\s+/g, ' ');
-      const digits = value => String(value || '').replace(/\D/g, '');
-      const one = (items, value, message) => {
-        const values = [...new Set(items.map(value))];
-        if (values.length !== 1) throw new Error(message);
-        return values[0];
-      };
-      const sourceStatus = one(sourceItems, item => lower(item.status), 'The cancelled booking group has mixed reservation states.');
-      const targetStatus = one(targetItems, item => lower(item.status), 'The new booking group has mixed reservation states.');
-      const sourcePaymentStatus = one(sourceItems, item => lower(item.paymentStatus ?? item.payment_status), 'The cancelled booking group has mixed payment states.');
-      const targetPaymentStatus = one(targetItems, item => lower(item.paymentStatus ?? item.payment_status), 'The new booking group has mixed payment states.');
-      const sourceMethod = one(sourceItems, item => lower(item.paymentMethod ?? item.payment_method), 'The cancelled booking group has mixed payment methods.');
-      const targetMethod = one(targetItems, item => lower(item.paymentMethod ?? item.payment_method), 'The new booking group has mixed payment methods.');
-      if (sourceStatus !== 'cancelled') throw new Error('The source booking must already be cancelled.');
-      if (!['pending', 'verifying'].includes(targetStatus)) throw new Error('The new booking is no longer awaiting confirmation.');
-      if (!['unpaid', 'paid', 'downpayment_paid'].includes(sourcePaymentStatus)) {
-        throw new Error('The cancelled source must contain a durably accepted payment.');
-      }
-      if (targetPaymentStatus !== 'for_verification') throw new Error('The new booking payment must still be For Verification.');
-      const sourceHasSettlementEvidence = sourceItems.every(item =>
-        Boolean(String(item.paidAt || item.paid_at || '').trim()) &&
-        Boolean(String(item.bookingFeeEarnedAt || item.booking_fee_earned_at || '').trim()),
-      );
-      if (!sourceHasSettlementEvidence) {
-        throw new Error('The cancelled booking lacks durable prior-acceptance timestamps.');
-      }
-      if (sourceMethod !== targetMethod || !PB_DIGITAL_PAYMENT_METHODS.includes(sourceMethod)) {
-        throw new Error('Both bookings must use the same digital payment method.');
-      }
-
-      const normalizeReference = (method, typedReference) => {
-        const raw = String(typedReference || '');
-        const normalized = method === 'gcash'
-          ? raw.replace(/[^0-9]/g, '')
-          : raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
-        return normalized ? (method === 'gcash' ? normalized : `${method}:${normalized}`) : '';
-      };
-      const sourcePaymentRef = one(sourceItems, item => normalizeReference(sourceMethod, item.gcashRef ?? item.gcash_ref), 'The cancelled booking reference is inconsistent.');
-      const targetPaymentRef = one(targetItems, item => normalizeReference(targetMethod, item.gcashRef ?? item.gcash_ref), 'The new booking reference is inconsistent.');
-      if (!sourcePaymentRef || sourcePaymentRef !== targetPaymentRef) {
-        throw new Error('Both bookings must carry the same payment reference.');
-      }
-
-      const sourceEmail = one(sourceItems, item => lower(item.email), 'The cancelled booking group has mixed customer emails.');
-      const targetEmail = one(targetItems, item => lower(item.email), 'The new booking group has mixed customer emails.');
-      const sourcePhone = one(sourceItems, item => digits(item.contactNumber ?? item.contact_number), 'The cancelled booking group has mixed contact numbers.');
-      const targetPhone = one(targetItems, item => digits(item.contactNumber ?? item.contact_number), 'The new booking group has mixed contact numbers.');
-      const sourceName = one(sourceItems, item => normalizedName(item.fullName ?? item.full_name), 'The cancelled booking group has mixed customer names.');
-      const targetName = one(targetItems, item => normalizedName(item.fullName ?? item.full_name), 'The new booking group has mixed customer names.');
-      if (!sourceEmail || sourceEmail !== targetEmail || sourcePhone !== targetPhone || !sourceName || sourceName !== targetName) {
-        throw new Error('Both bookings must belong to the same player.');
-      }
-      const sourceHost = one(sourceItems, item => !!(item.hostBooking ?? item.host_booking), 'The cancelled booking group has mixed booking types.');
-      const targetHost = one(targetItems, item => !!(item.hostBooking ?? item.host_booking), 'The new booking group has mixed booking types.');
-      if (sourceHost !== targetHost) throw new Error('Both bookings must have the same booking type.');
-      const sourceHostId = one(sourceItems, item => String(item.hostUserId ?? item.host_user_id ?? ''), 'The cancelled booking has mixed host ownership.');
-      const targetHostId = one(targetItems, item => String(item.hostUserId ?? item.host_user_id ?? ''), 'The new booking has mixed host ownership.');
-      if (sourceHostId !== targetHostId) throw new Error('Both bookings must have the same host ownership.');
-
-      const roundMoney = value => Math.round(Number(value) * 100) / 100;
-      const signatureMoney = value => {
-        if (value === null || value === undefined || value === '') return '';
-        const parsed = Number(value);
-        return Number.isFinite(parsed) ? roundMoney(parsed).toFixed(2) : 'invalid';
-      };
-      const snapshotBoolean = value => value === true || value === 1 || lower(value) === 'true';
-      const paymentShape = items => {
-        let total = 0;
-        let paid = 0;
-        let fullRows = 0;
-        let partialRows = 0;
-        const signatures = items.map(item => {
-          const rowTotal = Number(item.total);
-          const hasDownpayment = item.downpayment !== null && item.downpayment !== undefined && item.downpayment !== '';
-          const rowPaid = hasDownpayment ? Number(item.downpayment) : NaN;
-          if (!Number.isFinite(rowTotal) || rowTotal <= 0 || !Number.isFinite(rowPaid) || rowPaid <= 0 || rowPaid > rowTotal + 0.01) {
-            throw new Error('Stored booking payment amounts require manual review.');
-          }
-          total += rowTotal;
-          paid += rowPaid;
-          if (Math.abs(rowPaid - rowTotal) <= 0.01) fullRows += 1;
-          else if (rowPaid < rowTotal - 0.01) partialRows += 1;
-          const slots = Array.isArray(item.slots) ? item.slots : [];
-          const duration = item.duration ?? slots.length ?? 0;
-          const bookingFeeAmountSnapshot = item.bookingFeeAmountSnapshot ?? item.booking_fee_amount_snapshot;
-          const bookingFeeRateSnapshot = item.bookingFeeRateSnapshot ?? item.booking_fee_rate_snapshot;
-          const bookingFeeTypeSnapshot = item.bookingFeeTypeSnapshot ?? item.booking_fee_type_snapshot ?? '';
-          const bookingFeeUnitsSnapshot = item.bookingFeeUnitsSnapshot ?? item.booking_fee_units_snapshot;
-          const bookingFeeLedgerEligibleSnapshot = item.bookingFeeLedgerEligibleSnapshot ?? item.booking_fee_ledger_eligible_snapshot ?? false;
-          return [
-            signatureMoney(rowTotal),
-            signatureMoney(rowPaid),
-            String(duration),
-            String(slots.length),
-            signatureMoney(bookingFeeAmountSnapshot),
-            signatureMoney(bookingFeeRateSnapshot),
-            String(bookingFeeTypeSnapshot),
-            bookingFeeUnitsSnapshot === null || bookingFeeUnitsSnapshot === undefined ? '' : String(bookingFeeUnitsSnapshot),
-            String(snapshotBoolean(bookingFeeLedgerEligibleSnapshot)),
-          ].join('|');
-        }).sort();
-        return { total: roundMoney(total), paid: roundMoney(paid), fullRows, partialRows, signatures };
-      };
-      const sourceAmount = paymentShape(sourceItems);
-      const targetAmount = paymentShape(targetItems);
-      if (sourceAmount.total !== targetAmount.total || sourceAmount.paid !== targetAmount.paid ||
-          JSON.stringify(sourceAmount.signatures) !== JSON.stringify(targetAmount.signatures)) {
-        throw new Error('The cancelled and replacement court-hour or fee snapshots do not match.');
-      }
-      let resolvedTargetPaymentStatus = '';
-      if (targetAmount.fullRows === targetItems.length) {
-        resolvedTargetPaymentStatus = 'paid';
-      } else if (targetHost && targetAmount.partialRows === targetItems.length) {
-        const settings = db.settings || {};
-        const feeRate = Number(settings.maintenance_fee ?? settings.service_fee_rate ?? settings.booking_fee ?? 0);
-        const flatFee = ['flat', 'booking', 'per_booking', 'per_transaction'].includes(lower(settings.fee_type));
-        const underpaid = targetItems.some(item => {
-          const total = Number(item.total);
-          const paid = Number(item.downpayment);
-          const slots = Array.isArray(item.slots) ? item.slots : [];
-          const storedFee = item.bookingFeeAmountSnapshot ?? item.booking_fee_amount_snapshot;
-          const parsedStoredFee = Number(storedFee);
-          const configuredFee = Number.isFinite(feeRate) && feeRate >= 0 ? feeRate * (flatFee ? 1 : slots.length) : 0;
-          const requestedFee = storedFee !== null && storedFee !== undefined && Number.isFinite(parsedStoredFee)
-            ? parsedStoredFee : configuredFee;
-          const serviceFee = Math.min(Math.max(requestedFee, 0), total);
-          const required = roundMoney(serviceFee + ((total - serviceFee) * 0.25));
-          return Math.abs(paid - required) > 0.01;
-        });
-        if (underpaid) throw new Error('The replacement host payment is lower than the required amount.');
-        resolvedTargetPaymentStatus = 'downpayment_paid';
-      } else {
-        throw new Error('The replacement payment amount cannot be accepted as stored.');
-      }
-      if (['paid', 'downpayment_paid'].includes(sourcePaymentStatus) && sourcePaymentStatus !== resolvedTargetPaymentStatus) {
-        throw new Error('The accepted source payment state does not match the replacement amount.');
-      }
-
-      const allRefs = new Set([...sourceRefs, ...targetRefs]);
-      const alreadyTransferredOrRejected = [...sourceItems, ...targetItems].some(item =>
-        item.paymentTransferId || item.payment_transfer_id || item.paymentReassignedFromRef || item.payment_reassigned_from_ref ||
-        item.paymentReassignedToRef || item.payment_reassigned_to_ref || lower(item.receiptStatus ?? item.receipt_status) === 'rejected',
-      );
-      if (alreadyTransferredOrRejected) throw new Error('A previously transferred or rejected receipt cannot be moved.');
-
-      const distinctEvidence = (items, camelKey, snakeKey) => [...new Set(items
-        .map(item => String(item[camelKey] ?? item[snakeKey] ?? '').trim())
-        .filter(Boolean))];
-      const sourceReceiptHashes = distinctEvidence(sourceItems, 'receiptImageHash', 'receipt_image_hash');
-      const targetReceiptHashes = distinctEvidence(targetItems, 'receiptImageHash', 'receipt_image_hash');
-      const sourceReceiptPhashes = distinctEvidence(sourceItems, 'receiptPhash', 'receipt_phash');
-      const targetReceiptPhashes = distinctEvidence(targetItems, 'receiptPhash', 'receipt_phash');
-      const sourceReceiptHash = sourceReceiptHashes[0] || '';
-      const targetReceiptHash = targetReceiptHashes[0] || '';
-      const sourceReceiptPhash = sourceReceiptPhashes[0] || '';
-      const targetReceiptPhash = targetReceiptPhashes[0] || '';
-      const consistentReceiptEvidence = sourceReceiptHashes.length <= 1 && targetReceiptHashes.length <= 1 &&
-        sourceReceiptPhashes.length <= 1 && targetReceiptPhashes.length <= 1;
-      const exactReceiptEvidence = (sourceReceiptHash && targetReceiptHash && sourceReceiptHash === targetReceiptHash) ||
-        (sourceReceiptPhash && targetReceiptPhash && sourceReceiptPhash === targetReceiptPhash);
-      if (!consistentReceiptEvidence || !exactReceiptEvidence) {
-        throw new Error('The cancelled and replacement bookings must contain the same stored receipt fingerprint.');
-      }
-
-      const sourceGroupRef = String(source.groupRef || source.bookingGroupRef || source.booking_group_ref || '').trim();
-      const targetGroupRef = String(target.groupRef || target.bookingGroupRef || target.booking_group_ref || '').trim();
-      const sourceClaimScope = sourceGroupRef ? 'booking_group' : 'booking';
-      const targetClaimScope = targetGroupRef ? 'booking_group' : 'booking';
-      const sourceClaimOwnerId = sourceGroupRef || sourceBookingRef;
-      const targetClaimOwnerId = targetGroupRef || targetBookingRef;
-      const localReferenceLedger = Array.isArray(db.usedGcashRefs)
-        ? db.usedGcashRefs
-        : Array.isArray(db.used_gcash_refs) ? db.used_gcash_refs : null;
-      let canonicalLedgerClaim = null;
-      if (localReferenceLedger) {
-        const canonicalClaims = localReferenceLedger.filter(item =>
-          String(item.gcashRef ?? item.gcash_ref ?? '').trim() === sourcePaymentRef,
-        );
-        if (canonicalClaims.length !== 1) {
-          throw new Error('The accepted source does not uniquely own its canonical payment reference.');
-        }
-        canonicalLedgerClaim = canonicalClaims[0];
-        const ledgerScope = lower(canonicalLedgerClaim.claimScope ?? canonicalLedgerClaim.claim_scope);
-        const ledgerOwnerId = String(canonicalLedgerClaim.claimOwnerId ?? canonicalLedgerClaim.claim_owner_id ?? '').trim();
-        const ledgerProvider = lower(canonicalLedgerClaim.provider);
-        if (ledgerScope !== sourceClaimScope || ledgerOwnerId !== sourceClaimOwnerId || ledgerProvider !== sourceMethod) {
-          throw new Error('The canonical payment reference belongs to another booking.');
-        }
-      }
-      const balanceHistory = (db.hostBookingBalancePayments || []).some(payment => {
-        const bookingRefs = Array.isArray(payment.bookingRefs ?? payment.booking_refs) ? (payment.bookingRefs ?? payment.booking_refs).map(String) : [];
-        const bookingRef = String(payment.bookingRef ?? payment.booking_ref ?? '');
-        const bookingGroupRef = String(payment.bookingGroupRef ?? payment.booking_group_ref ?? '');
-        return allRefs.has(bookingRef) || bookingRefs.some(ref => allRefs.has(ref)) ||
-          Boolean(bookingGroupRef && (bookingGroupRef === sourceGroupRef || bookingGroupRef === targetGroupRef));
-      });
-      if (balanceHistory) throw new Error('A booking with Payment 2 or balance history cannot move its initial payment.');
-
-      const remittanceHistory = (db.bookingFeeRemittanceItems || []).some(item => allRefs.has(String(item.bookingRef ?? item.booking_ref ?? '')));
-      const billedBooking = [...sourceItems, ...targetItems].some(item =>
-        item.weeklyFeeId || item.weekly_fee_id || item.billedAt || item.billed_at,
-      );
-      const statementContainsRef = (db.weeklyFees || []).some(statement => {
-        let billedRefs = statement.billedRefs ?? statement.billed_refs ?? [];
-        if (typeof billedRefs === 'string') {
-          try { billedRefs = JSON.parse(billedRefs); } catch (_) { billedRefs = []; }
-        }
-        return Array.isArray(billedRefs) && billedRefs.some(ref => allRefs.has(String(ref)));
-      });
-      if (remittanceHistory || billedBooking || statementContainsRef) {
-        throw new Error('A remitted or prepared booking payment cannot be moved.');
-      }
-
-      const transferHistory = db.bookingPaymentTransfers.some(transfer => {
-        const refs = [
-          transfer.sourceBookingRef,
-          transfer.targetBookingRef,
-          ...(Array.isArray(transfer.sourceBookingRefs) ? transfer.sourceBookingRefs : []),
-          ...(Array.isArray(transfer.targetBookingRefs) ? transfer.targetBookingRefs : []),
-        ].map(String);
-        return refs.some(ref => allRefs.has(ref));
-      });
-      if (transferHistory) throw new Error('One of these bookings already has payment transfer history.');
-
-      const thirdBookingClaim = db.bookings.some(item =>
-        !allRefs.has(String(item.ref)) &&
-        normalizeReference(lower(item.paymentMethod ?? item.payment_method), item.gcashRef ?? item.gcash_ref) === sourcePaymentRef,
-      );
-      const thirdOpenPlayClaim = (db.openPlayRegistrations || []).some(item =>
-        normalizeReference(lower(item.paymentMethod ?? item.payment_method), item.gcashRef ?? item.gcash_ref) === sourcePaymentRef,
-      );
-      const thirdHostSessionClaim = (db.openPlayHostSessionRegistrations || []).some(item =>
-        normalizeReference(lower(item.paymentMethod ?? item.payment_method), item.gcashRef ?? item.gcash_ref) === sourcePaymentRef,
-      );
-      const thirdBalanceClaim = (db.hostBookingBalancePayments || []).some(item =>
-        normalizeReference(lower(item.paymentProvider ?? item.payment_provider), item.paymentReference ?? item.payment_reference) === sourcePaymentRef,
-      );
-      if (thirdBookingClaim || thirdOpenPlayClaim || thirdHostSessionClaim || thirdBalanceClaim) {
-        throw new Error('This payment reference is also attached to a third payment.');
-      }
-
-      const transferId = globalThis.crypto?.randomUUID?.() || `local-transfer-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const transferredAt = nowIso();
-      const sourceRefSet = new Set(sourceRefs);
-      const targetRefSet = new Set(targetRefs);
-      const receiptSource = sourceItems.find(item => item.receiptImageUrl || item.receipt_image_url) || sourceItems[0];
-      if (canonicalLedgerClaim) {
-        const usesSnakeCase = Object.prototype.hasOwnProperty.call(canonicalLedgerClaim, 'claim_scope');
-        if (usesSnakeCase) {
-          canonicalLedgerClaim.booking_ref = targetBookingRef;
-          canonicalLedgerClaim.claim_scope = targetClaimScope;
-          canonicalLedgerClaim.claim_owner_id = targetClaimOwnerId;
-        } else {
-          canonicalLedgerClaim.bookingRef = targetBookingRef;
-          canonicalLedgerClaim.claimScope = targetClaimScope;
-          canonicalLedgerClaim.claimOwnerId = targetClaimOwnerId;
-        }
-      }
-      db.bookings = db.bookings.map(booking => {
-        const bookingRef = String(booking.ref);
-        if (sourceRefSet.has(bookingRef)) {
-          return {
-            ...booking,
-            paymentTransferId: transferId,
-            paymentReassignedToRef: targetBookingRef,
-          };
-        }
-        if (!targetRefSet.has(bookingRef)) return booking;
-        return {
-          ...booking,
-          status: 'confirmed',
-          paymentStatus: resolvedTargetPaymentStatus,
-          paidAt: booking.paidAt || booking.paid_at || receiptSource.paidAt || receiptSource.paid_at || transferredAt,
-          bookingFeeEarnedAt: booking.bookingFeeEarnedAt || booking.booking_fee_earned_at || transferredAt,
-          paymentTransferId: transferId,
-          paymentReassignedFromRef: sourceBookingRef,
-          receiptImageUrl: booking.receiptImageUrl || booking.receipt_image_url || receiptSource.receiptImageUrl || receiptSource.receipt_image_url || null,
-          receiptImageHash: booking.receiptImageHash || booking.receipt_image_hash || receiptSource.receiptImageHash || receiptSource.receipt_image_hash || null,
-          receiptPhash: booking.receiptPhash || booking.receipt_phash || receiptSource.receiptPhash || receiptSource.receipt_phash || null,
-          receiptExtracted: booking.receiptExtracted || booking.receipt_extracted || receiptSource.receiptExtracted || receiptSource.receipt_extracted || null,
-          receiptConfidence: booking.receiptConfidence ?? booking.receipt_confidence ?? receiptSource.receiptConfidence ?? receiptSource.receipt_confidence ?? null,
-          receiptVerifiedAt: booking.receiptVerifiedAt || booking.receipt_verified_at || receiptSource.receiptVerifiedAt || receiptSource.receipt_verified_at || null,
-        };
-      });
-      const audit = {
-        id: transferId,
-        idempotencyKey: requestKey,
-        sourceBookingRef,
-        targetBookingRef,
-        sourceBookingRefs: sourceRefs,
-        targetBookingRefs: targetRefs,
-        sourceBookingGroupRef: sourceGroupRef || null,
-        targetBookingGroupRef: targetGroupRef || null,
-        paymentMethod: sourceMethod,
-        paymentReferenceKey: sourcePaymentRef,
-        evidenceLedgerKeys: [sourcePaymentRef],
-        amount: targetAmount.paid,
-        sourcePaymentStatus,
-        targetBookingStatus: 'confirmed',
-        targetPaymentStatus: resolvedTargetPaymentStatus,
-        reason: transferReason,
-        noRefundConfirmed: true,
-        createdAt: transferredAt,
-        actorUserId: session.userId || session.id || null,
-        actorRole: session.role,
-      };
-      db.bookingPaymentTransfers.push(audit);
-      writeDb(db);
-      return {
-        transitioned: true,
-        transferId,
-        sourceBookingRef,
-        targetBookingRef,
-        targetBookingStatus: 'confirmed',
-        targetPaymentStatus: resolvedTargetPaymentStatus,
-        sourceBookingRefs: sourceRefs,
-        targetBookingRefs: targetRefs,
-      };
-    },
-    async rejectBookingPaymentTransaction(ref, reason) {
-      const bookingRef = String(ref || '').trim();
-      const reviewReason = String(reason || '').trim();
-      if (!bookingRef) throw new Error('A booking reference is required.');
-      if (reviewReason.length < 3) throw new Error('A Not Received reason of at least 3 characters is required.');
-
-      const session = window.Auth?.getSession?.() || null;
-      if (!session || !['owner', 'court_owner'].includes(String(session.role || '')) ||
-          (session.status && session.status !== 'active')) {
-        throw new Error('Only an active owner or court owner can mark a booking payment as not received.');
-      }
-
-      const db = readDb();
-      const target = db.bookings.find(booking => String(booking.ref) === bookingRef);
-      if (!target) throw new Error('Booking not found.');
-      const groupRef = String(target.groupRef || target.bookingGroupRef || '').trim();
-      const items = groupRef
-        ? db.bookings.filter(booking =>
-            String(booking.groupRef || booking.bookingGroupRef || '').trim() === groupRef)
-        : [target];
-      const refs = items.map(booking => String(booking.ref)).sort();
-      const statuses = [...new Set(items.map(item => String(item.status || '').toLowerCase()))];
-      const paymentStatuses = [...new Set(items.map(item =>
-        String(item.paymentStatus ?? item.payment_status ?? '').toLowerCase(),
-      ))];
-      const methods = [...new Set(items.map(item =>
-        String(item.paymentMethod ?? item.payment_method ?? '').toLowerCase(),
-      ))];
-      if (statuses.length === 1 && statuses[0] === 'cancelled' &&
-          paymentStatuses.length === 1 && paymentStatuses[0] === 'rejected') {
-        return { transitioned: false, status: 'cancelled', paymentStatus: 'rejected', refs };
-      }
-      if (statuses.length !== 1 || paymentStatuses.length !== 1 || methods.length !== 1) {
-        throw new Error('Grouped booking payment states are mixed.');
-      }
-      if (!['verifying', 'pending'].includes(statuses[0]) ||
-          !['unpaid', 'pending', 'for_verification'].includes(paymentStatuses[0])) {
-        throw new Error('This payment is no longer awaiting review.');
-      }
-      if (!PB_DIGITAL_PAYMENT_METHODS.includes(methods[0])) {
-        throw new Error('Only a digital payment review can use Not Received.');
-      }
-
-      const refSet = new Set(refs);
-      db.bookings = db.bookings.map(booking => refSet.has(String(booking.ref))
-        ? {
-          ...booking,
-          status: 'cancelled',
-          paymentStatus: 'rejected',
-          receiptStatus: 'rejected',
-          paidAt: null,
-          paymentReviewReason: reviewReason,
-        }
-        : booking);
-      writeDb(db);
-      return { transitioned: true, status: 'cancelled', paymentStatus: 'rejected', refs };
-    },
-    async markBookingsBilled(refs, weeklyFeeId) {
-      if (!Array.isArray(refs) || refs.length === 0) return;
-      const db = readDb();
-      db.bookings = db.bookings.map(b => refs.includes(b.ref) ? { ...b, billedAt: nowIso(), weeklyFeeId } : b);
-      writeDb(db);
-    },
-    async deleteBooking(ref) {
-      const db = readDb();
-      const existing = db.bookings.find(b => String(b.ref) === String(ref));
-      if (existing) {
-        db.deletedBookingArchive.unshift({
-          id: localRef('del'),
-          bookingRef: existing.ref,
-          source: 'local_delete',
-          originalBooking: { ...existing },
-          originalBookingRow: { ...existing },
-          recoveredBooking: null,
-          recoveredBookingRow: null,
-          recoveryStatus: 'deleted',
-          recoveredFrom: null,
-          notes: 'Automatically archived before local delete.',
-          deletedAt: nowIso(),
-          archivedAt: nowIso(),
-          restoredAt: null,
-          restoredBy: null,
-          createdAt: nowIso(),
-        });
-      }
-      db.bookings = db.bookings.filter(b => String(b.ref) !== String(ref));
-      writeDb(db);
-    },
-
-    async voidDeleteBookingGroup(ref, reason) {
-      if (Auth.getSession()?.role !== 'owner') throw new Error('Only the System Owner can void and delete a booking.');
-      if (String(reason || '').trim().length < 3) throw new Error('A void reason of at least 3 characters is required.');
-      const db = readDb();
-      const target = db.bookings.find(b => String(b.ref) === String(ref));
-      if (!target) throw new Error('Booking not found.');
-      const groupKey = target.groupRef || target.bookingGroupRef || target.ref;
-      const matches = db.bookings.filter(b => String(b.groupRef || b.bookingGroupRef || b.ref) === String(groupKey));
-      const refs = new Set(matches.map(b => String(b.ref)));
-      const now = nowIso();
-      let voidedFee = 0;
-      matches.forEach(b => {
-        const fee = b.bookingFeeEarnedAt || b.booking_fee_earned_at
-          ? Number(b.bookingFeeAmountSnapshot ?? b.booking_fee_amount_snapshot ?? 0) : 0;
-        voidedFee += Math.max(fee, 0);
-        db.deletedBookingArchive.unshift({
-          id: localRef('del'), bookingRef: b.ref, source: 'owner_void',
-          originalBooking: { ...b }, originalBookingRow: { ...b },
-          recoveryStatus: 'voided',
-          notes: `System Owner voided and deleted this booking. Fee excluded from future computation. Reason: ${String(reason).trim()}`,
-          voidedFeeAmount: Math.max(fee, 0), voidReason: String(reason).trim(),
-          voidedAt: now, voidedBy: Auth.getSession()?.id || null,
-          deletedAt: now, archivedAt: now, createdAt: now,
-        });
-      });
-      db.bookings = db.bookings.filter(b => !refs.has(String(b.ref)));
-      writeDb(db);
-      return { deleted_count: matches.length, voided_fee_amount: voidedFee };
-    },
-
-    async getDeletedBookingArchive(filters = {}) {
-      const opts = filters || {};
-      return readDb().deletedBookingArchive
-        .filter(r => !opts.status || r.recoveryStatus === opts.status)
-        .filter(r => !opts.bookingRef || String(r.bookingRef) === String(opts.bookingRef))
-        .sort((a, b) => String(b.deletedAt || '').localeCompare(String(a.deletedAt || '')))
-        .slice(0, Number(opts.limit || 250));
-    },
-
-    async restoreDeletedBookingArchive(id) {
-      const db = readDb();
-      const idx = db.deletedBookingArchive.findIndex(r => String(r.id) === String(id));
-      if (idx < 0) throw new Error('Deleted booking archive row not found.');
-      const entry = db.deletedBookingArchive[idx];
-      if (entry.recoveryStatus === 'voided' || entry.source === 'owner_void') {
-        throw new Error('A voided booking is final and cannot be restored.');
-      }
-      const booking = { ...(entry.originalBooking || entry.originalBookingRow || {}) };
-      if (!booking.ref) throw new Error('Archive row has no booking reference.');
-      if (db.bookings.some(b => String(b.ref) === String(booking.ref))) {
-        throw new Error(`Booking ${booking.ref} already exists in active bookings.`);
-      }
-      const existing = db.bookings
-        .filter(b => String(b.courtId) === String(booking.courtId) && b.date === booking.date && b.status !== 'cancelled' && b.status !== 'forfeited');
-      if (hasSlotConflict(existing, booking)) {
-        throw new Error('Cannot restore because one or more slots are already booked.');
-      }
-      db.bookings.push(booking);
-      db.deletedBookingArchive[idx] = {
-        ...entry,
-        recoveryStatus: 'restored',
-        recoveredBooking: { ...booking },
-        recoveredBookingRow: { ...booking },
-        recoveredFrom: entry.recoveredFrom || 'archive_restore',
-        restoredAt: nowIso(),
-        restoredBy: Auth.getSession()?.id || null,
-        notes: [entry.notes, 'Restored from deleted booking archive.'].filter(Boolean).join('\n'),
-      };
-      writeDb(db);
-      return booking;
-    },
-
-    async getOpenPlayRegistrations() {
-      return readDb().openPlayRegistrations.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
-    },
-    async addOpenPlayRegistration(reg) {
-      _pbAssertPublicBookingDate(reg.date);
-      const db = readDb();
-      let config = null;
-      try { config = JSON.parse(db.settings.open_play_config || 'null'); } catch (_) {}
-      if (!config || config.enabled === false) throw new Error('Open Play is not currently accepting registrations.');
-
-      const sessionStart = Number(config.start);
-      const sessionEnd = Number(config.end);
-      const dateParts = String(reg.date || '').split('-').map(Number);
-      const requestedDay = dateParts.length === 3
-        ? new Date(dateParts[0], dateParts[1] - 1, dateParts[2]).getDay()
-        : -1;
-      const enabledDays = Array.isArray(config.days) ? config.days.map(Number) : [];
-      const specificDates = Array.isArray(config.specificDates) ? config.specificDates.map(String) : [];
-      const enabledCourts = Array.isArray(config.courtIds) ? config.courtIds.map(String).filter(Boolean) : [];
-      if (!Number.isInteger(sessionStart) || !Number.isInteger(sessionEnd) || sessionEnd <= sessionStart || Number(reg.hour) !== sessionStart) {
-        throw new Error('This is not an active Open Play session.');
-      }
-      if (!enabledDays.includes(requestedDay) && !specificDates.includes(String(reg.date))) {
-        throw new Error('Open Play is not enabled on this date.');
-      }
-      if (enabledCourts.length && !enabledCourts.includes(String(reg.courtId))) {
-        throw new Error('This court is not enabled for Open Play.');
-      }
-
-      const court = db.courts.find(c => String(c.id) === String(reg.courtId));
-      if (!court || court.blocked) throw new Error('This court is not currently available.');
-      const paymentMethod = String(reg.paymentMethod || 'cash').toLowerCase();
-      if (db.settings[`payment_method_${paymentMethod}`] === '0') {
-        throw new Error('This payment method is not currently enabled.');
-      }
-      const paymentType = '100%';
-
-      const openPlayFee = Number(config.fee ?? db.settings.open_play_fee ?? 100);
-      const serviceFee = Number(db.settings.maintenance_fee ?? db.settings.service_fee_rate ?? db.settings.booking_fee ?? 0);
-      const total = Math.round((openPlayFee + serviceFee) * 100) / 100;
-      const canonicalAmount = total;
-      const maxPlayers = Math.max(1, Number(config.maxPlayers || 40));
-      const activeCount = db.openPlayRegistrations.filter(r =>
-        r.date === reg.date &&
-        String(r.court_id) === String(reg.courtId) &&
-        r.payment_status !== 'rejected'
-      ).length;
-      if (activeCount >= maxPlayers) throw new Error('This Open Play session is already full.');
-
-      const formatHour = value => {
-        const hour = ((Number(value) % 24) + 24) % 24;
-        return `${hour % 12 || 12}:00 ${hour < 12 ? 'AM' : 'PM'}`;
-      };
-      const row = {
-        id: localRef('op'),
-        full_name: reg.fullName,
-        court_id: String(reg.courtId),
-        court_name: court.name,
-        date: reg.date,
-        hour: sessionStart,
-        time_label: `${formatHour(sessionStart)} - ${formatHour(sessionEnd)}`,
-        payment_type: paymentType,
-        payment_method: paymentMethod,
-        gcash_ref: reg.gcashRef || null,
-        payment_status: 'pending',
-        amount: canonicalAmount,
-        receipt_image_url: reg.receiptImageUrl || null,
-        receipt_image_hash: null,
-        receipt_phash: null,
-        receipt_status: paymentMethod === 'cash' ? 'none' : 'manual_review',
-        receipt_flags: [],
-        receipt_extracted: null,
-        receipt_confidence: null,
-        receipt_verified_at: null,
-        created_at: nowIso(),
-      };
-      db.openPlayRegistrations.push(row);
-      writeDb(db);
-      return {
-        id: row.id,
-        courtId: row.court_id,
-        courtName: row.court_name,
-        date: row.date,
-        hour: row.hour,
-        timeLabel: row.time_label,
-        paymentType: row.payment_type,
-        paymentMethod: row.payment_method,
-        paymentStatus: row.payment_status,
-        amount: Number(row.amount || 0),
-        receiptStatus: row.receipt_status,
-        createdAt: row.created_at,
-      };
-    },
-    async updateOpenPlayRegistration(id, updates) {
-      const db = readDb();
-      db.openPlayRegistrations = db.openPlayRegistrations.map(r => {
-        if (String(r.id) !== String(id)) return r;
-        return {
-          ...r,
-          payment_status: updates.paymentStatus !== undefined ? updates.paymentStatus : r.payment_status,
-          gcash_ref: updates.gcashRef !== undefined ? updates.gcashRef : r.gcash_ref,
-          receipt_image_url: updates.receiptImageUrl !== undefined ? updates.receiptImageUrl : r.receipt_image_url,
-          receipt_image_hash: updates.receiptImageHash !== undefined ? updates.receiptImageHash : r.receipt_image_hash,
-          receipt_phash: updates.receiptPhash !== undefined ? updates.receiptPhash : r.receipt_phash,
-          receipt_status: updates.receiptStatus !== undefined ? updates.receiptStatus : r.receipt_status,
-          receipt_flags: updates.receiptFlags !== undefined ? updates.receiptFlags : r.receipt_flags,
-          receipt_extracted: updates.receiptExtracted !== undefined ? updates.receiptExtracted : r.receipt_extracted,
-          receipt_confidence: updates.receiptConfidence !== undefined ? updates.receiptConfidence : r.receipt_confidence,
-          receipt_verified_at: updates.receiptVerifiedAt !== undefined ? updates.receiptVerifiedAt : r.receipt_verified_at,
-        };
-      });
-      writeDb(db);
-    },
-    async getOpenPlayCountForDate(date, courtId = null) {
-      return readDb().openPlayRegistrations.filter(r =>
-        r.date === date &&
-        (!courtId || String(r.court_id) === String(courtId)) &&
-        r.payment_status !== 'rejected'
-      ).length;
-    },
-    async getOpenPlayCountsForDate(date) {
-      return readDb().openPlayRegistrations
-        .filter(r => r.date === date && r.payment_status !== 'rejected')
-        .reduce((counts, row) => {
-          const key = String(row.court_id || '');
-          counts[key] = (counts[key] || 0) + 1;
-          return counts;
-        }, {});
-    },
-    async deleteOpenPlayRegistration(id) {
-      const db = readDb();
-      db.openPlayRegistrations = db.openPlayRegistrations.filter(r => String(r.id) !== String(id));
-      writeDb(db);
-    },
-
-    async getOpenPlayHostApplications() {
-      return readDb().openPlayHostApplications.sort((a, b) => String(b.createdAt || b.created_at || '').localeCompare(String(a.createdAt || a.created_at || '')));
-    },
-    async addOpenPlayHostApplication(app) {
-      const db = readDb();
-      db.openPlayHostApplications.unshift({
-        id: localRef('hostapp'),
-        fullName: app.fullName,
-        contactNumber: app.contactNumber,
-        email: app.email,
-        gcashNumber: app.gcashNumber || '',
-        validIdFileName: app.validIdFileName || '',
-        validIdFileType: app.validIdFileType || '',
-        validIdFileSize: app.validIdFileSize || null,
-        validIdPath: app.validIdPath || '',
-        preferredSchedule: app.preferredSchedule || '',
-        notes: app.notes || '',
-        status: 'pending',
-        reviewNote: '',
-        reviewedBy: null,
-        reviewedAt: null,
-        emailVerifiedAt: nowIso(),
-        createdAt: nowIso(),
-        updatedAt: nowIso(),
-      });
-      writeDb(db);
-    },
-    async updateOpenPlayHostApplication(id, updates) {
-      const db = readDb();
-      let saved = null;
-      db.openPlayHostApplications = db.openPlayHostApplications.map(app => {
-        if (String(app.id) !== String(id)) return app;
-        saved = { ...app, ...updates, updatedAt: nowIso() };
-        return saved;
-      });
-      writeDb(db);
-      return saved;
-    },
-    async reviewOpenPlayHostApplication(id, status, reviewNote = '') {
-      const db = readDb();
-      const appIndex = db.openPlayHostApplications.findIndex(app => String(app.id) === String(id));
-      if (appIndex < 0) throw new Error('Host application not found.');
-      const existing = db.openPlayHostApplications[appIndex];
-      const account = db.accounts.find(acc =>
-        acc.role === 'host' && (
-          (existing.hostUserId && String(acc.id) === String(existing.hostUserId)) ||
-          String(acc.email || '').toLowerCase() === String(existing.email || '').toLowerCase()
-        )
-      );
-      if (status === 'approved' && !account) {
-        throw new Error('No matching host login exists for this application.');
-      }
-      if (account) account.status = status === 'approved' ? 'active' : 'suspended';
-      const saved = {
-        ...existing,
-        hostUserId: account?.id || existing.hostUserId || null,
-        status,
-        reviewNote,
-        reviewedBy: Auth.getSession()?.id || null,
-        reviewedAt: nowIso(),
-        updatedAt: nowIso(),
-      };
-      db.openPlayHostApplications[appIndex] = saved;
-      writeDb(db);
-      return {
-        ok: true,
-        status,
-        hostUserId: saved?.hostUserId || null,
-        loginLinked: !!account,
-        accountStatus: account?.status || null,
-      };
-    },
-    async repairOpenPlayHostActivation(id) {
-      const db = readDb();
-      const appIndex = db.openPlayHostApplications.findIndex(app => String(app.id) === String(id));
-      if (appIndex < 0) throw new Error('Host application not found.');
-      const app = db.openPlayHostApplications[appIndex];
-      const account = db.accounts.find(acc =>
-        acc.role === 'host' && (
-          (app.hostUserId && String(acc.id) === String(app.hostUserId)) ||
-          String(acc.email || '').toLowerCase() === String(app.email || '').toLowerCase()
-        )
-      );
-      if (!account) throw new Error('No matching host login exists for this application.');
-      account.status = 'active';
-      app.hostUserId = account.id;
-      app.status = 'approved';
-      app.updatedAt = nowIso();
-      writeDb(db);
-      return {
-        ok: true,
-        status: app.status,
-        hostUserId: account.id,
-        loginLinked: true,
-        accountStatus: 'active',
-      };
-    },
-    async getOpenPlayHostSessions(options = {}) {
-      const opts = options || {};
-      const sessions = readDb().openPlayHostSessions
-        .filter(session => !opts.id || String(session.id) === String(opts.id))
-        .filter(session => !opts.publicOnly || (session.status || 'published') === 'published')
-        .map(session => opts.publicOnly ? {
-          ...session,
-          hostUserId: null,
-          hostEmail: '',
-        } : session);
-      return sessions.sort((a, b) =>
-        String(a.date || '').localeCompare(String(b.date || '')) ||
-        Number(a.startHour || a.start_hour || 0) - Number(b.startHour || b.start_hour || 0)
-      );
-    },
-    async createOpenPlayHostSession(session) {
-      _pbAssertPublicBookingDate(session.date);
-      const db = readDb();
-      const row = {
-        id: localRef('hosts'),
-        hostUserId: session.hostUserId || null,
-        hostName: session.hostName,
-        hostEmail: session.hostEmail || '',
-        title: session.title,
-        date: session.date,
-        startHour: session.startHour,
-        endHour: session.endHour,
-        courtIds: session.courtIds || [],
-        courtNames: session.courtNames || [],
-        maxPlayers: session.maxPlayers || 16,
-        feePerPlayer: session.feePerPlayer || 0,
-        status: session.status || 'published',
-        notes: session.notes || '',
-        paymentInstructions: session.paymentInstructions || '',
-        createdAt: nowIso(),
-        updatedAt: nowIso(),
-      };
-      db.openPlayHostSessions.unshift(row);
-      writeDb(db);
-      return row;
-    },
-    async updateOpenPlayHostSession(id, updates) {
-      if (updates.date !== undefined) _pbAssertPublicBookingDate(updates.date);
-      const db = readDb();
-      let saved = null;
-      db.openPlayHostSessions = db.openPlayHostSessions.map(session => {
-        if (String(session.id) !== String(id)) return session;
-        saved = { ...session, ...updates, updatedAt: nowIso() };
-        return saved;
-      });
-      writeDb(db);
-      return saved;
-    },
-
-    async getOpenPlayHostSessionRegistrations(sessionId = null) {
-      return (readDb().openPlayHostSessionRegistrations || [])
-        .filter(r => !sessionId || String(r.sessionId || r.session_id) === String(sessionId))
-        .sort((a, b) => String(b.createdAt || b.created_at || '').localeCompare(String(a.createdAt || a.created_at || '')));
-    },
-    async getOpenPlayHostSessionRegistrationCount(sessionId) {
-      return (readDb().openPlayHostSessionRegistrations || [])
-        .filter(r => String(r.sessionId || r.session_id) === String(sessionId) && r.paymentStatus !== 'rejected' && r.payment_status !== 'rejected')
-        .length;
-    },
-    async addOpenPlayHostSessionRegistration(reg) {
-      const db = readDb();
-      if (!Array.isArray(db.openPlayHostSessionRegistrations)) db.openPlayHostSessionRegistrations = [];
-      const paymentMethod = String(reg.paymentMethod || 'gcash').toLowerCase();
-      const digitalPayment = PB_DIGITAL_PAYMENT_METHODS.includes(paymentMethod);
-      const row = {
-        id: localRef('hostreg'),
-        sessionId: reg.sessionId,
-        fullName: reg.fullName,
-        contactNumber: reg.contactNumber || '',
-        paymentMethod,
-        gcashRef: reg.gcashRef || null,
-        paymentStatus: digitalPayment ? 'pending' : (reg.paymentStatus || 'paid'),
-        amount: reg.amount || 0,
-        receiptImageUrl: reg.receiptImageUrl || null,
-        receiptImageHash: reg.receiptImageHash || null,
-        receiptPhash: reg.receiptPhash || null,
-        receiptStatus: digitalPayment ? 'manual_review' : 'none',
-        receiptFlags: reg.receiptFlags || [],
-        receiptExtracted: reg.receiptExtracted || null,
-        receiptConfidence: reg.receiptConfidence ?? null,
-        receiptVerifiedAt: reg.receiptVerifiedAt || null,
-        createdAt: nowIso(),
-        updatedAt: nowIso(),
-      };
-      db.openPlayHostSessionRegistrations.unshift(row);
-      writeDb(db);
-      return row;
-    },
-    async updateOpenPlayHostSessionRegistration(id, updates) {
-      const db = readDb();
-      let saved = null;
-      db.openPlayHostSessionRegistrations = (db.openPlayHostSessionRegistrations || []).map(registration => {
-        if (String(registration.id) !== String(id)) return registration;
-        saved = { ...registration, ...updates, updatedAt: nowIso() };
-        return saved;
-      });
-      writeDb(db);
-      if (!saved) throw new Error('Hosted Open Play registration not found.');
-      return saved;
-    },
-
-    async getOpenPlayGameSessions() {
-      return readDb().openPlayGameSessions.sort((a, b) =>
-        String(b.date || '').localeCompare(String(a.date || '')) ||
-        String(b.created_at || '').localeCompare(String(a.created_at || ''))
-      );
-    },
-    async setOpenPlayGamePublicShare(sessionId, enabled) {
-      return withLocalPlayManagerLock(async () => {
-        const db = readDb();
-        const token = mutateLocalOpenPlayGamePublicShare(db, sessionId, enabled, false);
-        writeDb(db);
-        return token;
-      });
-    },
-    async rotateOpenPlayGamePublicShare(sessionId) {
-      return withLocalPlayManagerLock(async () => {
-        const db = readDb();
-        const token = mutateLocalOpenPlayGamePublicShare(db, sessionId, true, true);
-        writeDb(db);
-        return token;
-      });
-    },
-    async getPublicOpenPlayGameLiveBoard(shareToken) {
-      return localOpenPlayLiveBoard(readDb(), shareToken);
-    },
-    async createOpenPlayGameSession(session) {
-      const db = readDb();
-      const row = {
-        id: localRef('gm'),
-        date: session.date,
-        time_label: session.timeLabel || null,
-        court_ids: session.courtIds || [],
-        court_names: session.courtNames || [],
-        mode: session.mode || 'smart_random_mixer',
-        ranking_mode: normalizeOpenPlayRankingMode(
-          session.rankingMode ?? session.ranking_mode
-        ),
-        status: session.status || 'draft',
-        current_round: session.currentRound || 0,
-        performance_rating_version: 'pr-performance-v1',
-        performance_rating_k: 24,
-        performance_rating_scale: 400,
-        performance_rating_min_games: 3,
-        created_at: nowIso(),
-        updated_at: nowIso(),
-      };
-      db.openPlayGameSessions.unshift(row);
-      writeDb(db);
-      return row;
-    },
-    async updateOpenPlayGameSession(id, updates) {
-      return withLocalPlayManagerLock(async () => {
-        const db = readDb();
-        let saved = null;
-        db.openPlayGameSessions = db.openPlayGameSessions.map(s => {
-          if (String(s.id) !== String(id)) return s;
-          const nextStatus = updates.status !== undefined ? updates.status : s.status;
-          if (
-            ['completed', 'cancelled'].includes(String(s.status || ''))
-            && String(nextStatus || '') !== String(s.status || '')
-          ) {
-            throw new Error('PLAY_MANAGER_SESSION_TERMINAL');
-          }
-          saved = {
-            ...s,
-            date: updates.date !== undefined ? updates.date : s.date,
-            time_label: updates.timeLabel !== undefined ? updates.timeLabel : s.time_label,
-            court_ids: updates.courtIds !== undefined ? updates.courtIds : s.court_ids,
-            court_names: updates.courtNames !== undefined ? updates.courtNames : s.court_names,
-            mode: updates.mode !== undefined ? updates.mode : s.mode,
-            ranking_mode: updates.rankingMode !== undefined || updates.ranking_mode !== undefined
-              ? normalizeOpenPlayRankingMode(updates.rankingMode ?? updates.ranking_mode)
-              : normalizeOpenPlayRankingMode(s.ranking_mode),
-            status: nextStatus,
-            current_round: updates.currentRound !== undefined ? updates.currentRound : s.current_round,
-            updated_at: nowIso(),
-          };
-          return saved;
-        });
-        if (!saved) throw new Error('PLAY_MANAGER_SESSION_NOT_FOUND');
-        writeDb(db);
-        return saved;
-      });
-    },
-    async getOpenPlayGamePlayers(sessionId) {
-      return readDb().openPlayGamePlayers
-        .filter(p => String(p.session_id) === String(sessionId))
-        .sort((a, b) => Number(a.seed_order || 0) - Number(b.seed_order || 0));
-    },
-    async addOpenPlayGamePlayer(sessionId, player) {
-      return withLocalPlayManagerLock(async () => {
-        const db = readDb();
-        requireLocalPlayManagerSession(db, sessionId, ['draft', 'active']);
-        const row = {
-          id: localRef('gmp'),
-          session_id: sessionId,
-          full_name: player.fullName || player.full_name,
-          source_registration_id: player.sourceRegistrationId || player.source_registration_id || null,
-          status: player.status || 'active',
-          seed_order: Number(player.seedOrder ?? player.seed_order ?? 0),
-          skill_level: normalizeOpenPlaySkillLevel(player.skillLevel ?? player.skill_level),
-          performance_seed_rating: openPlayPerformanceSeed(
-            player.skillLevel ?? player.skill_level
-          ),
-          queue_entered_at: player.queueEnteredAt || player.queue_entered_at || null,
-          created_at: nowIso(),
-        };
-        db.openPlayGamePlayers.push(row);
-        writeDb(db);
-        return row;
-      });
-    },
-    async updateOpenPlayGamePlayer(id, updates) {
-      return withLocalPlayManagerLock(async () => {
-        const db = readDb();
-        const index = db.openPlayGamePlayers.findIndex(player => String(player.id) === String(id));
-        if (index < 0) throw new Error('PLAY_MANAGER_PLAYER_NOT_FOUND');
-        const current = db.openPlayGamePlayers[index];
-        requireLocalPlayManagerSession(db, current.session_id, ['draft', 'active']);
-        const nextSkillLevel = updates.skillLevel !== undefined || updates.skill_level !== undefined
-          ? normalizeOpenPlaySkillLevel(updates.skillLevel ?? updates.skill_level)
-          : normalizeOpenPlaySkillLevel(current.skill_level);
-        const saved = {
-          ...current,
-          full_name: updates.fullName !== undefined || updates.full_name !== undefined
-            ? String(updates.fullName ?? updates.full_name).trim()
-            : current.full_name,
-          skill_level: nextSkillLevel,
-          performance_seed_rating: localOpenPlayPlayerHasRatedGame(db, current)
-            ? Number(current.performance_seed_rating || openPlayPerformanceSeed(current.skill_level))
-            : openPlayPerformanceSeed(nextSkillLevel),
-        };
-        db.openPlayGamePlayers[index] = saved;
-        writeDb(db);
-        return saved;
-      });
-    },
-    async replaceOpenPlayGamePlayers(sessionId, players) {
-      return withLocalPlayManagerLock(async () => {
-        const db = readDb();
-        requireLocalPlayManagerSession(db, sessionId, ['draft', 'active']);
-        db.openPlayGamePlayers = db.openPlayGamePlayers.filter(p => String(p.session_id) !== String(sessionId));
-        const rows = players.map((p, i) => {
-          const skillLevel = normalizeOpenPlaySkillLevel(p.skillLevel ?? p.skill_level);
-          return {
-            id: localRef('gmp'),
-            session_id: sessionId,
-            full_name: p.fullName || p.full_name,
-            source_registration_id: p.sourceRegistrationId || p.source_registration_id || null,
-            status: p.status || 'active',
-            seed_order: i,
-            skill_level: skillLevel,
-            performance_seed_rating: openPlayPerformanceSeed(skillLevel),
-            queue_entered_at: p.queueEnteredAt || p.queue_entered_at || null,
-            created_at: nowIso(),
-          };
-        });
-        db.openPlayGamePlayers.push(...rows);
-        writeDb(db);
-        return rows;
-      });
-    },
-    async syncOpenPlayGameQueueWaitTimes(sessionId, queuePlayerIds) {
-      return withLocalPlayManagerLock(async () => {
-        const db = readDb();
-        requireLocalPlayManagerSession(db, sessionId, ['active']);
-        const queuedIds = new Set((queuePlayerIds || []).map(String));
-        const enteredAt = nowIso();
-        db.openPlayGamePlayers = db.openPlayGamePlayers.map(player => {
-          if (String(player.session_id) !== String(sessionId)) return player;
-          const isQueued = player.status === 'active' && queuedIds.has(String(player.id));
-          return {
-            ...player,
-            queue_entered_at: isQueued ? (player.queue_entered_at || enteredAt) : null,
-          };
-        });
-        writeDb(db);
-        return db.openPlayGamePlayers
-          .filter(player => String(player.session_id) === String(sessionId))
-          .sort((a, b) =>
-            Number(a.seed_order || 0) - Number(b.seed_order || 0) ||
-            String(a.created_at || '').localeCompare(String(b.created_at || '')) ||
-            String(a.id).localeCompare(String(b.id))
-          );
-      });
-    },
-    async getOpenPlayGameRounds(sessionId) {
-      return readDb().openPlayGameRounds
-        .filter(r => String(r.session_id) === String(sessionId))
-        .sort((a, b) => Number(a.round_no || 0) - Number(b.round_no || 0));
-    },
-    async addOpenPlayGameRound(round) {
-      return withLocalPlayManagerLock(async () => {
-        const db = readDb();
-        const session = requireLocalPlayManagerSession(db, round.sessionId, ['draft', 'active']);
-        if (Number(round.roundNo) !== Number(session.current_round || 0) + 1) {
-          throw new Error('PLAY_MANAGER_ROUND_CONFLICT');
-        }
-        const row = {
-          id: localRef('gmr'),
-          session_id: round.sessionId,
-          round_no: round.roundNo,
-          assignments: round.assignments || [],
-          queue_snapshot: round.queueSnapshot || [],
-          partner_history: round.partnerHistory || {},
-          opponent_history: round.opponentHistory || {},
-          created_at: nowIso(),
-          completed_at: round.completedAt || null,
-        };
-        db.openPlayGameRounds.push(row);
-        db.openPlayGameSessions = db.openPlayGameSessions.map(s =>
-          String(s.id) === String(round.sessionId)
-            ? { ...s, current_round: round.roundNo, status: 'active', updated_at: nowIso() }
-            : s
-        );
-        writeDb(db);
-        return row;
-      });
-    },
-    async updateOpenPlayGameRound(id, updates) {
-      return withLocalPlayManagerLock(async () => {
-        const db = readDb();
-        const current = db.openPlayGameRounds.find(r => String(r.id) === String(id));
-        if (!current) throw new Error('Open Play round not found.');
-        const session = requireLocalPlayManagerSession(db, current.session_id, ['active']);
-        if (Number(current.round_no || 0) !== Number(session.current_round || 0)) {
-          throw new Error('PLAY_MANAGER_SESSION_NOT_ACTIVE');
-        }
-        const saved = {
-          ...current,
-          assignments: updates.assignments !== undefined ? updates.assignments : current.assignments,
-          queue_snapshot: updates.queueSnapshot !== undefined ? updates.queueSnapshot : current.queue_snapshot,
-          partner_history: updates.partnerHistory !== undefined ? updates.partnerHistory : current.partner_history,
-          opponent_history: updates.opponentHistory !== undefined ? updates.opponentHistory : current.opponent_history,
-          completed_at: updates.completedAt !== undefined ? updates.completedAt : current.completed_at,
-        };
-        db.openPlayGameRounds = db.openPlayGameRounds.map(r =>
-          String(r.id) === String(id) ? saved : r
-        );
-        writeDb(db);
-        return saved;
-      });
-    },
-    async updateOpenPlayGameRoundIfCurrent(id, expected, updates) {
-      return withLocalPlayManagerLock(async () => {
-        const db = readDb();
-      const index = db.openPlayGameRounds.findIndex(r => String(r.id) === String(id));
-      if (index < 0) throw new Error('Open Play round not found.');
-      const current = db.openPlayGameRounds[index];
-      const session = requireLocalPlayManagerSession(db, current.session_id, ['active']);
-      if (Number(current.round_no || 0) !== Number(session.current_round || 0)) {
-        throw new Error('PLAY_MANAGER_SESSION_NOT_ACTIVE');
-      }
-      const expectedAssignments = expected.assignments || [];
-      const expectedQueue = expected.queueSnapshot ?? expected.queue_snapshot ?? [];
-      if (
-        JSON.stringify(current.assignments || []) !== JSON.stringify(expectedAssignments) ||
-        JSON.stringify(current.queue_snapshot || []) !== JSON.stringify(expectedQueue)
-      ) {
-        throw new Error('PLAY_MANAGER_ROUND_CONFLICT');
-      }
-      const saved = {
-        ...current,
-        assignments: updates.assignments !== undefined ? updates.assignments : current.assignments,
-        queue_snapshot: updates.queueSnapshot !== undefined ? updates.queueSnapshot : current.queue_snapshot,
-      };
-      db.openPlayGameRounds[index] = saved;
-      writeDb(db);
-        return saved;
-      });
-    },
-    async replaceOpenPlayGameCourtPlayer(id, expected, replacement) {
-      return withLocalPlayManagerLock(async () => {
-        const db = readDb();
-      const roundIndex = db.openPlayGameRounds.findIndex(r => String(r.id) === String(id));
-      if (roundIndex < 0) throw new Error('Open Play round not found.');
-      const current = db.openPlayGameRounds[roundIndex];
-      const expectedAssignments = expected.assignments || [];
-      const expectedQueue = expected.queueSnapshot ?? expected.queue_snapshot ?? [];
-      if (
-        JSON.stringify(current.assignments || []) !== JSON.stringify(expectedAssignments) ||
-        JSON.stringify(current.queue_snapshot || []) !== JSON.stringify(expectedQueue)
-      ) {
-        throw new Error('PLAY_MANAGER_ROUND_CONFLICT');
-      }
-      const session = db.openPlayGameSessions.find(item => String(item.id) === String(current.session_id));
-      const hasNewerRound = db.openPlayGameRounds.some(round =>
-        String(round.session_id) === String(current.session_id) &&
-        Number(round.round_no || 0) > Number(current.round_no || 0)
-      );
-      if (
-        !session ||
-        session.status !== 'active' ||
-        current.completed_at ||
-        hasNewerRound
-      ) {
-        throw new Error('PLAY_MANAGER_SESSION_NOT_ACTIVE');
-      }
-      const courtIndex = Number(replacement.courtIndex);
-      const slotIndex = Number(replacement.slotIndex);
-      const teamKey = replacement.team === 'B' ? 'teamB' : replacement.team === 'A' ? 'teamA' : '';
-      if (!Number.isInteger(courtIndex) || courtIndex < 0 || !Number.isInteger(slotIndex) || slotIndex < 0 || !teamKey) {
-        throw new Error('PLAY_MANAGER_REPLACEMENT_SLOT_INVALID');
-      }
-      const assignments = JSON.parse(JSON.stringify(current.assignments || []));
-      const game = assignments[courtIndex];
-      if (!game || game.winner || String(game[teamKey]?.[slotIndex]) !== String(replacement.outgoingPlayerId)) {
-        throw new Error('PLAY_MANAGER_REPLACEMENT_SLOT_CHANGED');
-      }
-
-      const outgoingIndex = db.openPlayGamePlayers.findIndex(player =>
-        String(player.id) === String(replacement.outgoingPlayerId) &&
-        String(player.session_id) === String(current.session_id) &&
-        player.status === 'active'
-      );
-      if (outgoingIndex < 0) throw new Error('PLAY_MANAGER_REPLACEMENT_PLAYER_NOT_ACTIVE');
-
-      const incomingName = String(replacement.incomingPlayerName || '').trim();
-      const incomingId = replacement.incomingPlayerId ? String(replacement.incomingPlayerId) : '';
-      if ((!incomingId && !incomingName) || (incomingId && incomingName)) {
-        throw new Error('PLAY_MANAGER_REPLACEMENT_PLAYER_REQUIRED');
-      }
-
-      let incoming = null;
-      if (incomingName) {
-        if (incomingName.length > 90) throw new Error('Player name is too long.');
-        if (db.openPlayGamePlayers.some(player =>
-          String(player.session_id) === String(current.session_id) &&
-          String(player.full_name || '').trim().toLowerCase() === incomingName.toLowerCase()
-        )) {
-          throw new Error('That player is already in the session.');
-        }
-        incoming = {
-          id: localRef('gmp'),
-          session_id: current.session_id,
-          full_name: incomingName,
-          source_registration_id: null,
-          status: 'active',
-          skill_level: normalizeOpenPlaySkillLevel(
-            replacement.incomingPlayerSkillLevel ?? replacement.incoming_player_skill_level
-          ),
-          performance_seed_rating: openPlayPerformanceSeed(
-            replacement.incomingPlayerSkillLevel ?? replacement.incoming_player_skill_level
-          ),
-          seed_order: db.openPlayGamePlayers
-            .filter(player => String(player.session_id) === String(current.session_id))
-            .reduce((highest, player) => Math.max(highest, Number(player.seed_order || 0) + 1), 0),
-          created_at: nowIso(),
-        };
-      } else {
-        if (String(replacement.outgoingPlayerId) === incomingId) {
-          throw new Error('Replacement player must be different.');
-        }
-        incoming = db.openPlayGamePlayers.find(player =>
-          String(player.id) === incomingId &&
-          String(player.session_id) === String(current.session_id) &&
-          player.status === 'active'
-        );
-        if (!incoming) throw new Error('PLAY_MANAGER_REPLACEMENT_PLAYER_NOT_ACTIVE');
-        const alreadyPlaying = assignments
-          .filter(assignment => !assignment.winner)
-          .some(assignment =>
-            [...(assignment.teamA || []), ...(assignment.teamB || [])]
-              .some(playerId => String(playerId) === incomingId)
-          );
-        if (alreadyPlaying) throw new Error('PLAY_MANAGER_REPLACEMENT_PLAYER_ALREADY_PLAYING');
-      }
-
-      game[teamKey][slotIndex] = String(incoming.id);
-      game.startedAt = nowIso();
-      const players = db.openPlayGamePlayers.map(player =>
-        replacement.markOutgoingRemoved === true && String(player.id) === String(replacement.outgoingPlayerId)
-          ? { ...player, status: 'removed' }
-          : player
-      );
-      if (incomingName) players.push(incoming);
-
-      const assignedIds = assignments
-        .filter(assignment => !assignment.winner)
-        .flatMap(assignment =>
-          [...(assignment.teamA || []), ...(assignment.teamB || [])].map(String)
-        );
-      if (assignedIds.length !== new Set(assignedIds).size) {
-        throw new Error('PLAY_MANAGER_REPLACEMENT_DUPLICATE_ASSIGNMENT');
-      }
-      const activeIds = new Set(players
-        .filter(player =>
-          String(player.session_id) === String(current.session_id) &&
-          player.status === 'active'
-        )
-        .map(player => String(player.id))
-      );
-      if (assignedIds.some(playerId => !activeIds.has(playerId))) {
-        throw new Error('PLAY_MANAGER_REPLACEMENT_PLAYER_NOT_ACTIVE');
-      }
-
-      const assignedSet = new Set(assignedIds);
-      const outgoingId = String(replacement.outgoingPlayerId);
-      const queueSnapshot = [];
-      const queueIds = new Set();
-      (current.queue_snapshot || []).map(String).forEach(playerId => {
-        if (
-          playerId !== outgoingId &&
-          activeIds.has(playerId) &&
-          !assignedSet.has(playerId) &&
-          !queueIds.has(playerId)
-        ) {
-          queueIds.add(playerId);
-          queueSnapshot.push(playerId);
-        }
-      });
-      players
-        .filter(player =>
-          String(player.session_id) === String(current.session_id) &&
-          player.status === 'active' &&
-          String(player.id) !== outgoingId &&
-          !assignedSet.has(String(player.id))
-        )
-        .sort((a, b) =>
-          Number(a.seed_order || 0) - Number(b.seed_order || 0) ||
-          String(a.created_at || '').localeCompare(String(b.created_at || '')) ||
-          String(a.id).localeCompare(String(b.id))
-        )
-        .forEach(player => {
-          const playerId = String(player.id);
-          if (!queueIds.has(playerId)) {
-            queueIds.add(playerId);
-            queueSnapshot.push(playerId);
-          }
-        });
-      if (!replacement.markOutgoingRemoved) {
-        queueIds.add(outgoingId);
-        queueSnapshot.push(outgoingId);
-      }
-
-      const saved = {
-        ...current,
-        assignments,
-        queue_snapshot: queueSnapshot,
-      };
-      db.openPlayGameRounds[roundIndex] = saved;
-      db.openPlayGamePlayers = players;
-      writeDb(db);
-        return {
-          round: saved,
-          incoming_player: incoming,
-          created_walk_in: Boolean(incomingName),
-        };
-      });
-    },
-    async correctOpenPlayGameMatchWinner(id, expected, correction) {
-      return withLocalPlayManagerLock(async () => {
-        const db = readDb();
-        const roundIndex = db.openPlayGameRounds.findIndex(round => String(round.id) === String(id));
-        if (roundIndex < 0) throw new Error('PLAY_MANAGER_ROUND_NOT_FOUND');
-        const current = db.openPlayGameRounds[roundIndex];
-        if (JSON.stringify(current.assignments || []) !== JSON.stringify(expected.assignments || [])) {
-          throw new Error('PLAY_MANAGER_ROUND_CONFLICT');
-        }
-
-        const session = db.openPlayGameSessions.find(item =>
-          String(item.id) === String(current.session_id)
-        );
-        const role = window.Auth?.getSession?.()?.role || '';
-        const staffRoles = new Set(['owner', 'court_owner', 'staff']);
-        if (
-          !session ||
-          (['active', 'paused'].includes(session.status) && !staffRoles.has(role)) ||
-          (session.status === 'completed' && role !== 'owner') ||
-          !['active', 'paused', 'completed'].includes(session.status)
-        ) {
-          throw new Error('PLAY_MANAGER_WINNER_CORRECTION_FORBIDDEN');
-        }
-
-        const courtIndex = Number(correction.courtIndex);
-        const completedGameIndex = correction.completedGameIndex === null ||
-          correction.completedGameIndex === undefined
-          ? null
-          : Number(correction.completedGameIndex);
-        const expectedWinner = correction.expectedWinner;
-        const newWinner = correction.newWinner;
-        if (
-          !Number.isInteger(courtIndex) ||
-          courtIndex < 0 ||
-          (completedGameIndex !== null && (!Number.isInteger(completedGameIndex) || completedGameIndex < 0)) ||
-          !['A', 'B'].includes(expectedWinner) ||
-          !['A', 'B'].includes(newWinner) ||
-          expectedWinner === newWinner
-        ) {
-          throw new Error('PLAY_MANAGER_WINNER_CORRECTION_INVALID');
-        }
-
-        const assignments = JSON.parse(JSON.stringify(current.assignments || []));
-        const game = assignments[courtIndex];
-        const result = completedGameIndex === null
-          ? game
-          : game?.completedGames?.[completedGameIndex];
-        if (!result || result.winner !== expectedWinner) {
-          throw new Error('PLAY_MANAGER_WINNER_CORRECTION_CHANGED');
-        }
-
-        const correctedAt = nowIso();
-        result.winnerCorrections = [
-          ...(Array.isArray(result.winnerCorrections) ? result.winnerCorrections : []),
-          {
-            previousWinner: expectedWinner,
-            winner: newWinner,
-            correctedAt,
-            correctedBy: window.Auth?.getSession?.()?.id || null,
-          },
-        ];
-        result.winner = newWinner;
-        const saved = { ...current, assignments };
-        db.openPlayGameRounds[roundIndex] = saved;
-        writeDb(db);
-        return saved;
-      });
-    },
-    async deleteLatestOpenPlayGameRound(sessionId) {
-      return withLocalPlayManagerLock(async () => {
-        const db = readDb();
-        requireLocalPlayManagerSession(db, sessionId, ['active']);
-        const rounds = db.openPlayGameRounds
-          .filter(r => String(r.session_id) === String(sessionId))
-          .sort((a, b) => Number(a.round_no || 0) - Number(b.round_no || 0));
-        const last = rounds[rounds.length - 1];
-        if (!last) return null;
-        db.openPlayGameRounds = db.openPlayGameRounds.filter(r => String(r.id) !== String(last.id));
-        db.openPlayGameSessions = db.openPlayGameSessions.map(s =>
-          String(s.id) === String(sessionId)
-            ? { ...s, current_round: Math.max(0, Number(last.round_no || 1) - 1), updated_at: nowIso() }
-            : s
-        );
-        writeDb(db);
-        return last;
-      });
-    },
-    async clearOpenPlayGameRounds(sessionId) {
-      return withLocalPlayManagerLock(async () => {
-        const db = readDb();
-        requireLocalPlayManagerSession(db, sessionId, ['draft', 'active']);
-        db.openPlayGameRounds = db.openPlayGameRounds.filter(r => String(r.session_id) !== String(sessionId));
-        db.openPlayGameSessions = db.openPlayGameSessions.map(s =>
-          String(s.id) === String(sessionId)
-            ? { ...s, current_round: 0, status: 'draft', updated_at: nowIso() }
-            : s
-        );
-        writeDb(db);
-      });
-    },
-
-    async getBlockedDates() { return readDb().blockedDates; },
-    async addBlockedDate(date) {
-      const db = readDb();
-      if (!db.blockedDates.includes(date)) db.blockedDates.push(date);
-      db.blockedDates.sort();
-      writeDb(db);
-    },
-    async removeBlockedDate(date) {
-      const db = readDb();
-      db.blockedDates = db.blockedDates.filter(d => d !== date);
-      writeDb(db);
-    },
-
-    async getAccounts() { return readDb().accounts; },
-    async getHostFinanceAccounts() {
-      const role = window.Auth?.getSession?.()?.role || '';
-      if (!['owner', 'court_owner'].includes(role)) {
-        const error = new Error('Only system owners and court owners can view host finance accounts.');
-        error.code = 'HOST_ACCOUNTS_VIEW_NOT_ALLOWED';
-        throw error;
-      }
-      return readDb().accounts
-        .filter(account => account.role === 'host')
-        .map(rowToHostFinanceAccount)
-        .filter(account => account.id)
-        .sort((a, b) =>
-          String(a.fullName || '').localeCompare(String(b.fullName || '')) ||
-          String(a.createdAt || '').localeCompare(String(b.createdAt || ''))
-        );
-    },
-    async getHostFinanceBookings(hostUserId) {
-      const role = window.Auth?.getSession?.()?.role || '';
-      if (!['owner', 'court_owner'].includes(role)) {
-        const error = new Error('Only system owners and court owners can view host finance bookings.');
-        error.code = 'HOST_FINANCE_VIEW_NOT_ALLOWED';
-        throw error;
-      }
-      const id = String(hostUserId || '').trim();
-      if (!id || !readDb().accounts.some(account => account.role === 'host' && String(account.id) === id)) {
-        throw new Error('Host account not found.');
-      }
-      return readDb().bookings
-        .filter(booking => booking.hostBooking && booking.email !== 'reserve@hold.internal')
-        .filter(booking => String(booking.hostUserId || booking.createdByUserId || '') === id)
-        .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
-    },
-    async saveAccount(account) {
-      const db = readDb();
-      const idx = db.accounts.findIndex(a => String(a.id) === String(account.id));
-      if (idx >= 0) db.accounts[idx] = { ...db.accounts[idx], ...account };
-      else db.accounts.push({ ...account, id: account.id || localRef('acc'), createdAt: account.createdAt || nowIso() });
-      writeDb(db);
-    },
-    async deleteAccount(id) {
-      const db = readDb();
-      db.accounts = db.accounts.filter(a => String(a.id) !== String(id));
-      writeDb(db);
-    },
-
-    async getSettings() { return readDb().settings; },
-    async saveSetting(key, value) {
-      const db = readDb();
-      db.settings[key] = value;
-      writeDb(db);
-    },
-    clearCache() {},
-
-    async createPaymentSession() { throw new Error('Online checkout is disabled in local data mode.'); },
-    async sendConfirmationEmail() { return { ok: true, skipped: true, reason: 'Local data mode' }; },
-    async sendHostBalanceNotice() { return { ok: true, skipped: true, reason: 'Local data mode' }; },
-    async processHostBalanceDeadlines() { return { ok: true, skipped: true, reason: 'Local data mode' }; },
-    async getBookingBalanceNotifications() { return []; },
-    async sendRescheduleEmail() { return { ok: true, skipped: true, reason: 'Local data mode' }; },
-    async sendGroupedRescheduleEmail() { return { ok: true, skipped: true, reason: 'Local data mode' }; },
-    async sendBookingStatusEmail() { return { ok: true, skipped: true, reason: 'Local data mode' }; },
-    async sendTelegramNotification() { return { ok: true, skipped: true, reason: 'Local data mode' }; },
-    async confirmOpenPlayHostVerification() { return { ok: true, reviewable: true, skipped: true, reason: 'Local data mode' }; },
-    async dispatchOpenPlayHostReviewNotifications() { return { ok: true, skipped: true, reason: 'Local data mode' }; },
-    async sendOpenPlayHostTelegramTest() { return { ok: true, skipped: true, reason: 'Local data mode' }; },
-    async notifyBookingSubmitted() { return { ok: true, skipped: true, reason: 'Local data mode' }; },
-    async notifyBookingUpdate() { return { ok: true, skipped: true, reason: 'Local data mode' }; },
-    async getIntegrationStatus() {
-      return {
-        ok: true,
-        local: true,
-        services: [
-          { id: 'email', label: 'Email confirmations (Maileroo)', configured: false, required: ['MAILEROO_API_KEY', 'MAILEROO_FROM_ADDRESS'], missing: ['MAILEROO_API_KEY', 'MAILEROO_FROM_ADDRESS'], note: 'Local data mode' },
-          { id: 'telegram', label: 'Telegram admin alerts', configured: false, required: ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID'], missing: ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID'], note: 'Local data mode' },
-          { id: 'payments', label: 'PayMongo checkout', configured: false, required: ['PAYMONGO_SECRET_KEY', 'PAYMENT_SUCCESS_URL', 'PAYMENT_CANCEL_URL'], missing: ['PAYMONGO_SECRET_KEY', 'PAYMENT_SUCCESS_URL', 'PAYMENT_CANCEL_URL'], note: 'Local data mode' },
-          { id: 'ocr', label: 'Receipt OCR', configured: false, required: ['GOOGLE_VISION_API_KEY'], missing: ['GOOGLE_VISION_API_KEY'], note: 'Local data mode' },
-          { id: 'service_role', label: 'Server database access', configured: false, required: ['SERVICE_ROLE_KEY or SUPABASE_SERVICE_ROLE_KEY'], missing: ['SERVICE_ROLE_KEY or SUPABASE_SERVICE_ROLE_KEY'], note: 'Local data mode' },
-        ],
-      };
-    },
-    async stageBookingReceipt(payload) {
-      const bookingRef = String(payload?.bookingRef || '').trim();
-      if (!bookingRef || !payload?.imageFile) throw new Error('Booking reference and receipt are required.');
-      const imageFile = await _pbPrepareReceiptImage(payload.imageFile);
-      const stagedReceiptPath = `local:${bookingRef}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
-      const contentType = imageFile.type || payload.contentType || 'image/jpeg';
-      const size = Number(imageFile.size || 0);
-      const stagedAt = nowIso();
-      const receiptImageUrl = await _pbFileToDataUrl(imageFile);
-      const db = readDb();
-      const target = db.bookings.find(booking => String(booking.ref) === bookingRef);
-      if (!target) throw new Error('Booking not found.');
-      const groupRef = String(target.groupRef || target.bookingGroupRef || '');
-      db.bookings = db.bookings.map(booking => {
-        const sameBooking = String(booking.ref) === bookingRef;
-        const sameGroup = groupRef && String(booking.groupRef || booking.bookingGroupRef || '') === groupRef;
-        return sameBooking || sameGroup
-          ? {
-            ...booking,
-            receiptImageUrl,
-            receiptImageHash: null,
-            receiptStatus: 'manual_review',
-            receiptFlags: [],
-            receiptExtracted: null,
-            receiptConfidence: null,
-            receiptVerifiedAt: null,
-            receiptStagedPath: stagedReceiptPath,
-            receiptStagedAt: stagedAt,
-            receiptContentType: contentType,
-            receiptImageSize: size,
-          }
-          : booking;
-      });
-      writeDb(db);
-      _pbLocalStagedReceipts.set(stagedReceiptPath, {
-        bookingRef,
-        imageFile,
-        receiptImageUrl,
-        contentType,
-        size,
-        stagedAt,
-      });
-      return {
-        ok: true,
-        found: true,
-        bookingRef,
-        stagedReceiptPath,
-        receiptImageUrl,
-        receiptImageHash: null,
-        receiptStatus: 'manual_review',
-        receiptFlags: [],
-        receiptVerifiedAt: null,
-        verified: false,
-        contentType,
-        size,
-        stagedAt,
-      };
-    },
-    async recoverBookingReceipt(bookingRef) {
-      const normalizedRef = String(bookingRef || '').trim();
-      if (!normalizedRef) throw new Error('Booking reference is required.');
-      const db = readDb();
-      const target = db.bookings.find(booking => String(booking.ref) === normalizedRef);
-      if (!target) return null;
-      const groupRef = String(target.groupRef || target.bookingGroupRef || '');
-      const stagedBooking = db.bookings.find(booking => {
-        const sameBooking = String(booking.ref) === normalizedRef;
-        const sameGroup = groupRef && String(booking.groupRef || booking.bookingGroupRef || '') === groupRef;
-        return (sameBooking || sameGroup) &&
-          !!booking.receiptStagedPath &&
-          !booking.receiptVerifiedAt;
-      });
-      if (!stagedBooking) return null;
-      const stagedReceiptPath = String(stagedBooking.receiptStagedPath || '');
-      const memoryStage = _pbLocalStagedReceipts.get(stagedReceiptPath) || {};
-      const receiptImageUrl = String(
-        memoryStage.receiptImageUrl || stagedBooking.receiptImageUrl || '',
-      );
-      if (!memoryStage.bookingRef && receiptImageUrl) {
-        _pbLocalStagedReceipts.set(stagedReceiptPath, {
-          bookingRef: normalizedRef,
-          imageFile: null,
-          receiptImageUrl,
-          contentType: stagedBooking.receiptContentType || '',
-          size: Number(stagedBooking.receiptImageSize || 0),
-          stagedAt: stagedBooking.receiptStagedAt || null,
-        });
-      }
-      return {
-        ok: true,
-        found: true,
-        bookingRef: normalizedRef,
-        stagedReceiptPath,
-        receiptImageUrl,
-        receiptImageHash: stagedBooking.receiptImageHash || null,
-        receiptStatus: String(stagedBooking.receiptStatus || 'manual_review'),
-        receiptFlags: Array.isArray(stagedBooking.receiptFlags) ? stagedBooking.receiptFlags : [],
-        receiptVerifiedAt: null,
-        verified: false,
-        contentType: String(memoryStage.contentType || stagedBooking.receiptContentType || ''),
-        size: Number(memoryStage.size || stagedBooking.receiptImageSize || 0),
-        stagedAt: memoryStage.stagedAt || stagedBooking.receiptStagedAt || null,
-      };
-    },
-    async discardBookingReceipt(payload = {}) {
-      const bookingRef = String(payload?.bookingRef || '').trim();
-      const stagedReceiptPath = String(payload?.stagedReceiptPath || '').trim();
-      if (!bookingRef || !stagedReceiptPath) {
-        throw new Error('Booking reference and staged receipt path are required.');
-      }
-      const db = readDb();
-      const target = db.bookings.find(booking => String(booking.ref) === bookingRef);
-      const groupRef = String(target?.groupRef || target?.bookingGroupRef || '');
-      let discarded = false;
-      db.bookings = db.bookings.map(booking => {
-        const sameBooking = String(booking.ref) === bookingRef;
-        const sameGroup = groupRef && String(booking.groupRef || booking.bookingGroupRef || '') === groupRef;
-        const unverifiedStage = (sameBooking || sameGroup) &&
-          String(booking.receiptStagedPath || '') === stagedReceiptPath &&
-          !booking.receiptVerifiedAt;
-        if (!unverifiedStage) return booking;
-        discarded = true;
-        return {
-          ...booking,
-          receiptImageUrl: null,
-          receiptImageHash: null,
-          receiptStatus: 'none',
-          receiptFlags: [],
-          receiptExtracted: null,
-          receiptConfidence: null,
-          receiptVerifiedAt: null,
-          receiptStagedPath: null,
-          receiptStagedAt: null,
-          receiptContentType: null,
-          receiptImageSize: null,
-        };
-      });
-      if (discarded) writeDb(db);
-      _pbLocalStagedReceipts.delete(stagedReceiptPath);
-      return { ok: true, bookingRef, stagedReceiptPath, discarded };
-    },
-    async verifyGcashReceipt(payload = {}) {
-      const bookingRef = String(payload?.bookingRef || '').trim();
-      let imageFile = payload?.imageFile || null;
-      const stagedReceiptPath = String(payload?.stagedReceiptPath || '');
-      let receiptImageUrl = '';
-      if (stagedReceiptPath) {
-        const staged = _pbLocalStagedReceipts.get(stagedReceiptPath);
-        const db = readDb();
-        const target = db.bookings.find(booking => String(booking.ref) === bookingRef);
-        const persistedStageMatches = target &&
-          String(target.receiptStagedPath || '') === stagedReceiptPath &&
-          !target.receiptVerifiedAt;
-        if ((!staged || staged.bookingRef !== bookingRef) && !persistedStageMatches) {
-          throw new Error('The staged receipt is no longer available.');
-        }
-        imageFile = staged?.imageFile || null;
-        receiptImageUrl = String(staged?.receiptImageUrl || target?.receiptImageUrl || '');
-      }
-      if (!receiptImageUrl && imageFile) receiptImageUrl = await _pbFileToDataUrl(imageFile);
-      if (!receiptImageUrl) throw new Error('Receipt screenshot is required.');
-      if (stagedReceiptPath) _pbLocalStagedReceipts.delete(stagedReceiptPath);
-      const receiptVerifiedAt = nowIso();
-      const db = readDb();
-      const target = db.bookings.find(b => String(b.ref) === bookingRef);
-      const groupRef = target?.groupRef || target?.bookingGroupRef || '';
-      db.bookings = db.bookings.map(booking => {
-        const sameBooking = String(booking.ref) === bookingRef;
-        const sameGroup = groupRef && String(booking.groupRef || booking.bookingGroupRef || '') === String(groupRef);
-        return sameBooking || sameGroup
-          ? {
-            ...booking,
-            status: 'pending',
-            paymentStatus: 'for_verification',
-            receiptImageUrl,
-            receiptStatus: 'manual_review',
-            receiptFlags: ['local_data_mode'],
-            receiptExtracted: {},
-            receiptConfidence: 0,
-            receiptVerifiedAt,
-            receiptStagedPath: null,
-            receiptStagedAt: null,
-            receiptContentType: null,
-            receiptImageSize: null,
-          }
-          : booking;
-      });
-      writeDb(db);
-      return {
-        ok: true,
-        status: 'manual_review',
-        flags: ['local_data_mode'],
-        extracted: {},
-        confidence: 0,
-        receiptImageUrl,
-        receiptVerifiedAt,
-        message: 'Local data mode: receipt stored for manual review; OCR is not sent to Supabase.',
-      };
-    },
-    async getReceiptSignedUrl() { throw new Error('No stored receipt in local data mode.'); },
-    async getOpenPlayReceiptSignedUrl() { throw new Error('No stored receipt in local data mode.'); },
-
-    async seedDefaultData() { readDb(); },
-    async getAgreement(userId, version = 1) {
-      return readDb().agreements.find(a => String(a.userId) === String(userId) && Number(a.version) === Number(version)) || null;
-    },
-    async saveAgreement(data) {
-      const db = readDb();
-      const version = data.version || 1;
-      const idx = db.agreements.findIndex(a => String(a.userId) === String(data.userId) && Number(a.version || 1) === Number(version));
-      const row = { ...data, version, agreedAt: nowIso() };
-      if (idx >= 0) db.agreements[idx] = row;
-      else db.agreements.push(row);
-      writeDb(db);
-    },
-    async getBookingFeeRemittanceDashboard() {
-      const now = new Date();
-      const next = new Date(now.getFullYear(), now.getMonth() + (now.getDate() > 14 ? 1 : 0), 14);
-      const role = Auth.getSession()?.role || 'court_owner';
-      const roundLedger = value => Math.round((Number(value) || 0) * 100) / 100;
-      const reservationKeyFor = booking => {
-        const groupRef = String(
-          booking.groupRef || booking.bookingGroupRef || booking.booking_group_ref || '',
-        ).trim();
-        const bookingRef = String(booking.ref || '').trim();
-        return groupRef ? `group:${groupRef}` : bookingRef ? `booking:${bookingRef}` : '';
-      };
-      const earned = readDb().bookings.filter(booking => {
-        const earnedAt = booking.bookingFeeEarnedAt || booking.booking_fee_earned_at;
-        const transferredOut = booking.paymentReassignedToRef || booking.payment_reassigned_to_ref;
-        const eligible = booking.bookingFeeLedgerEligibleSnapshot
-          ?? booking.booking_fee_ledger_eligible_snapshot;
-        const amount = Number(
-          booking.bookingFeeAmountSnapshot ?? booking.booking_fee_amount_snapshot ?? 0,
-        );
-        return !!earnedAt && !transferredOut && eligible !== false && Number.isFinite(amount) && amount > 0;
-      });
-      const reservations = new Set(earned.map(reservationKeyFor).filter(Boolean));
-      const breakdown = new Map();
-      const courtBreakdown = new Map();
-      let billableHours = 0;
-      let accumulatedAmount = 0;
-      earned.forEach(booking => {
-        const reservationKey = reservationKeyFor(booking);
-        const type = String(
-          booking.bookingFeeTypeSnapshot ?? booking.booking_fee_type_snapshot ?? 'per_hour',
-        ).toLowerCase() === 'flat' ? 'flat' : 'per_hour';
-        const rate = Math.max(0, Number(
-          booking.bookingFeeRateSnapshot ?? booking.booking_fee_rate_snapshot ?? 0,
-        ) || 0);
-        const units = Math.max(0, Number(
-          booking.bookingFeeUnitsSnapshot ?? booking.booking_fee_units_snapshot ?? 0,
-        ) || 0);
-        const amount = Math.max(0, Number(
-          booking.bookingFeeAmountSnapshot ?? booking.booking_fee_amount_snapshot ?? 0,
-        ) || 0);
-        const courtId = String(
-          booking.courtId ?? booking.court_id ?? '',
-        ).trim();
-        const courtName = String(booking.courtName ?? booking.court_name ?? '').trim();
-        const courtKey = courtId
-          ? `court-id:${courtId}`
-          : courtName
-            ? `court-name:${courtName.toLowerCase().replace(/\s+/g, ' ')}`
-            : 'court-unknown';
-        const courtKeySource = courtId
-          ? 'court_id'
-          : courtName
-            ? 'court_name_fallback'
-            : 'unknown';
-        const key = `${type}|${rate.toFixed(2)}`;
-        const row = breakdown.get(key) || {
-          fee_type: type,
-          fee_rate: rate,
-          booking_rows_count: 0,
-          reservation_count: 0,
-          fee_units: 0,
-          billable_hours: 0,
-          amount: 0,
-          _reservationKeys: new Set(),
-        };
-        row.booking_rows_count += 1;
-        if (reservationKey) row._reservationKeys.add(reservationKey);
-        row.fee_units += units;
-        row.billable_hours += type === 'per_hour' ? units : 0;
-        row.amount += amount;
-        breakdown.set(key, row);
-
-        const court = courtBreakdown.get(courtKey) || {
-          court_key: courtKey,
-          court_key_source: courtKeySource,
-          court_id: courtId || null,
-          court_name: courtName || null,
-          booking_rows_count: 0,
-          reservation_count: 0,
-          billable_hours: 0,
-          court_hours: 0,
-          flat_fee_booking_count: 0,
-          gross_booking_fee_amount: 0,
-          adjustment_count: 0,
-          adjustment_amount: 0,
-          net_contribution: 0,
-          fee_breakdown: new Map(),
-          _reservationKeys: new Set(),
-        };
-        court.booking_rows_count += 1;
-        if (reservationKey) court._reservationKeys.add(reservationKey);
-        court.billable_hours += type === 'per_hour' ? units : 0;
-        court.court_hours = court.billable_hours;
-        court.flat_fee_booking_count += type === 'flat' ? 1 : 0;
-        court.gross_booking_fee_amount += amount;
-        court.net_contribution += amount;
-
-        const courtRate = court.fee_breakdown.get(key) || {
-          fee_type: type,
-          fee_rate: rate,
-          booking_rows_count: 0,
-          reservation_count: 0,
-          fee_units: 0,
-          unit_count: 0,
-          billable_hours: 0,
-          court_hours: 0,
-          flat_fee_booking_count: 0,
-          amount: 0,
-          _reservationKeys: new Set(),
-        };
-        courtRate.booking_rows_count += 1;
-        if (reservationKey) courtRate._reservationKeys.add(reservationKey);
-        courtRate.fee_units += units;
-        courtRate.unit_count = courtRate.fee_units;
-        courtRate.billable_hours += type === 'per_hour' ? units : 0;
-        courtRate.court_hours = courtRate.billable_hours;
-        courtRate.flat_fee_booking_count += type === 'flat' ? 1 : 0;
-        courtRate.amount += amount;
-        court.fee_breakdown.set(key, courtRate);
-        courtBreakdown.set(courtKey, court);
-
-        billableHours += type === 'per_hour' ? units : 0;
-        accumulatedAmount += amount;
-      });
-      for (const row of breakdown.values()) {
-        row.reservation_count = row._reservationKeys.size;
-        row.booking_count = row.booking_rows_count;
-        row.item_count = row.booking_rows_count;
-        row.flat_fee_booking_count = row.fee_type === 'flat' ? row.booking_rows_count : 0;
-        row.fee_units = roundLedger(row.fee_units);
-        row.unit_count = row.fee_units;
-        row.billable_hours = roundLedger(row.billable_hours);
-        row.court_hours = row.billable_hours;
-        row.amount = roundLedger(row.amount);
-        delete row._reservationKeys;
-      }
-      const rateRows = [...breakdown.values()].sort((a, b) => {
-        const typeOrder = value => value === 'per_hour' ? 1 : 2;
-        return typeOrder(a.fee_type) - typeOrder(b.fee_type) || a.fee_rate - b.fee_rate;
-      });
-      const courtRows = [...courtBreakdown.values()].map(court => {
-        court.reservation_count = court._reservationKeys.size;
-        court.billable_hours = roundLedger(court.billable_hours);
-        court.court_hours = court.billable_hours;
-        court.gross_booking_fee_amount = roundLedger(court.gross_booking_fee_amount);
-        court.adjustment_amount = roundLedger(court.adjustment_amount);
-        court.net_contribution = roundLedger(court.gross_booking_fee_amount + court.adjustment_amount);
-        court.fee_breakdown = [...court.fee_breakdown.values()].map(rateRow => {
-          rateRow.reservation_count = rateRow._reservationKeys.size;
-          rateRow.booking_count = rateRow.booking_rows_count;
-          rateRow.item_count = rateRow.booking_rows_count;
-          rateRow.fee_units = roundLedger(rateRow.fee_units);
-          rateRow.unit_count = rateRow.fee_units;
-          rateRow.billable_hours = roundLedger(rateRow.billable_hours);
-          rateRow.court_hours = rateRow.billable_hours;
-          rateRow.amount = roundLedger(rateRow.amount);
-          delete rateRow._reservationKeys;
-          return rateRow;
-        }).sort((a, b) => {
-          const typeOrder = value => value === 'per_hour' ? 1 : 2;
-          return typeOrder(a.fee_type) - typeOrder(b.fee_type) || a.fee_rate - b.fee_rate;
-        });
-        court.rate_type_breakdown = court.fee_breakdown;
-        delete court._reservationKeys;
-        return court;
-      }).sort((a, b) => String(a.court_name || a.court_id || a.court_key)
-        .localeCompare(String(b.court_name || b.court_id || b.court_key))
-        || a.court_key.localeCompare(b.court_key));
-      const earnedTimes = earned
-        .map(booking => booking.bookingFeeEarnedAt || booking.booking_fee_earned_at)
-        .filter(Boolean)
-        .sort();
-      const accumulatedGross = roundLedger(accumulatedAmount);
-      const flatFeeBookingCount = rateRows.reduce(
-        (sum, row) => sum + (Number(row.flat_fee_booking_count) || 0),
-        0,
-      );
-      const courtTotals = courtRows.reduce((totals, row) => ({
-        booking_rows_count: totals.booking_rows_count + row.booking_rows_count,
-        billable_hours: totals.billable_hours + row.billable_hours,
-        flat_fee_booking_count: totals.flat_fee_booking_count + row.flat_fee_booking_count,
-        gross_booking_fee_amount: totals.gross_booking_fee_amount + row.gross_booking_fee_amount,
-        attributed_adjustment_amount: totals.attributed_adjustment_amount + row.adjustment_amount,
-        net_contribution: totals.net_contribution + row.net_contribution,
-      }), {
-        booking_rows_count: 0,
-        billable_hours: 0,
-        flat_fee_booking_count: 0,
-        gross_booking_fee_amount: 0,
-        attributed_adjustment_amount: 0,
-        net_contribution: 0,
-      });
-      Object.keys(courtTotals).forEach(key => { courtTotals[key] = roundLedger(courtTotals[key]); });
-      courtTotals.court_hours = courtTotals.billable_hours;
-      const live = {
-        bookings_count: earned.length,
-        reservation_count: reservations.size,
-        booking_rows_count: earned.length,
-        billable_hours: roundLedger(billableHours),
-        court_hours: roundLedger(billableHours),
-        flat_fee_booking_count: flatFeeBookingCount,
-        fee_breakdown: rateRows,
-        rate_type_breakdown: rateRows,
-        court_breakdown: courtRows,
-        court_breakdown_meta: {
-          version: 1,
-          basis: 'local_earned_booking_fee_snapshots',
-          court_grouping: 'court_id_then_normalized_court_name_then_unknown',
-          reservation_count_scope: 'distinct_within_each_court',
-          reservation_count_additive: false,
-          adjustment_attribution: {
-            basis: 'not_available_local_data',
-            coverage: 'not_applicable',
-            exactly_attributed_rows_included: true,
-            top_level_count: 0,
-            top_level_amount: 0,
-            attributed_count: 0,
-            attributed_amount: 0,
-            unattributed_count: 0,
-            unattributed_amount: 0,
-            unknown_court_count: 0,
-          },
-          court_totals: courtTotals,
-          reconciliation: {
-            booking_rows_match: courtTotals.booking_rows_count === earned.length,
-            billable_hours_match: courtTotals.billable_hours === roundLedger(billableHours),
-            flat_fee_booking_count_match: courtTotals.flat_fee_booking_count === flatFeeBookingCount,
-            gross_booking_fee_amount_match: courtTotals.gross_booking_fee_amount === accumulatedGross,
-            adjustment_amount_match: courtTotals.attributed_adjustment_amount === 0,
-            net_amount_match: courtTotals.net_contribution === accumulatedGross,
-          },
-        },
-        gross_booking_fee_amount: accumulatedGross,
-        adjustment_count: 0,
-        adjustment_amount: 0,
-        net_amount: accumulatedGross,
-        credit_carryforward: 0,
-        amount: accumulatedGross,
-        coverage_start_at: earnedTimes[0] || null,
-      };
-      return {
-        server_now: now.toISOString(),
-        timezone: 'Asia/Manila',
-        role,
-        next_due_on: `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-14`,
-        can_prepare: false,
-        can_owner_override: role === 'owner',
-        accumulated: live,
-        live,
-        open_remaining_balance: 0,
-        total_outstanding_balance: live.amount,
-        accepted_total: 0,
-        settled_total: 0,
-        open_remittances: [],
-        active: [],
-        history: [],
-      };
-    },
-    async getBookingFeeRemittanceHistory() { return []; },
-    async getBookingFeeRemittanceDetail() { return null; },
-    async prepareBookingFeeRemittance() { throw new Error('Remittance preparation requires Supabase.'); },
-    async submitBookingFeeRemittance() { throw new Error('Remittance submission requires Supabase.'); },
-    async getBookingFeeRemittanceProofUrl() { throw new Error('No remittance receipt is stored in local data mode.'); },
-    async getBookingFeeRemittanceProofSignedUrl() { throw new Error('No remittance receipt is stored in local data mode.'); },
-    async reviewBookingFeeRemittancePayment() { throw new Error('Remittance review requires Supabase.'); },
-    async cancelBookingFeeRemittance() { throw new Error('Remittance cancellation requires Supabase.'); },
-    async getWeeklyFees() { return readDb().weeklyFees; },
-    async saveWeeklyFee(statement) {
-      const db = readDb();
-      const row = { ...statement, id: statement.id || localRef('fee'), generatedAt: statement.generatedAt || nowIso() };
-      db.weeklyFees.unshift(row);
-      writeDb(db);
-      return row;
-    },
-    async updateWeeklyFee(id, updates) {
-      const db = readDb();
-      db.weeklyFees = db.weeklyFees.map(f => String(f.id) === String(id) ? { ...f, ...updates } : f);
-      writeDb(db);
-    },
-    async submitWeeklyFeePayment(id, data) {
-      await this.updateWeeklyFee(id, { ...data, status: 'submitted', submittedAt: nowIso() });
-    },
-  };
-
-  window.PB_RESET_LOCAL_DATA = function resetLocalData() {
-    localStorage.removeItem(STORE_KEY);
-    return readDb();
-  };
-
-  console.info('[Paddle Rage Pickleball] Local data mode enabled. Supabase writes are bypassed in this browser.');
-})();
-
 window.Auth = {
 
   // ── Role model ──────────────────────────────────────────
   // owner       → System Owner   (full access: everything + accounts)
   // court_owner → Court Owner    (operations + payment settings, no account mgmt)
-  // staff       → Court Staff    (front-desk: bookings, payment review, open play)
-  ROLES: ['owner', 'court_owner', 'staff', 'host'],
-  ROLE_LABELS: { owner: 'System Owner', court_owner: 'Court Owner', staff: 'Court Staff', host: 'Open Play Host' },
+  // staff       → Court Staff    (front-desk: bookings and payment review)
+  ROLES: ['owner', 'court_owner', 'staff'],
+  ROLE_LABELS: { owner: 'System Owner', court_owner: 'Court Owner', staff: 'Court Staff' },
   ROLE_PERMISSIONS: {
-    owner:       ['dashboard', 'insights', 'bookings', 'payment_review', 'reports', 'courts', 'open_play', 'host_open_play', 'host_accounts_view', 'remittances', 'maintenance', 'payments', 'accounts', 'booking_delete', 'export', 'settings', 'owner_only'],
-    court_owner: ['dashboard', 'insights', 'bookings', 'payment_review', 'reports', 'courts', 'open_play', 'host_open_play', 'host_accounts_view', 'remittances', 'maintenance', 'payments', 'export', 'settings', 'court_owner_only'],
-    staff:       ['bookings', 'open_play', 'payment_review'],
-    host:        ['host_open_play'],
+    owner:       ['dashboard', 'bookings', 'payment_review', 'reports', 'courts', 'open_play_roster', 'open_play_manage', 'remittances', 'blocked_dates', 'payments', 'accounts', 'booking_delete', 'export', 'settings', 'owner_only'],
+    court_owner: ['dashboard', 'bookings', 'payment_review', 'reports', 'courts', 'open_play_roster', 'open_play_manage', 'remittances', 'payments', 'export', 'settings', 'court_owner_only'],
+    staff:       ['bookings', 'payment_review', 'open_play_roster'],
   },
 
   permissionsFor(role) {
@@ -7376,6 +4723,10 @@ window.Auth = {
   },
 
   async refreshSessionFromAuth({ remember = null } = {}) {
+    if (!PB_SUPABASE_AUTH_CONFIGURED) {
+      this._lastLoginMessage = 'Dashboard authentication is not configured.';
+      return null;
+    }
     const { data: authData, error } = await _sb.auth.getUser();
     if (error || !authData?.user) {
       this._lastLoginMessage = error
@@ -7384,61 +4735,76 @@ window.Auth = {
       return null;
     }
 
-    const { data: acc, error: accountErr } = await _sb
-      .from('accounts')
-      .select('*')
-      .eq('id', authData.user.id)
-      .maybeSingle();
+    const { data: acc, error: accountErr } = await _sb.rpc(
+      'get_my_tenant_session',
+      {
+        p_tenant_slug: PB_TENANT_SLUG,
+        p_hostname: PB_IS_LOCAL_HOST
+          ? String(PB_RUNTIME_CONFIG.productionHosts?.[0] || window.location.hostname)
+          : window.location.hostname,
+      }
+    );
 
     if (accountErr) {
-      console.error('refreshSessionFromAuth account lookup:', accountErr);
+      console.error('refreshSessionFromAuth tenant session lookup:', accountErr);
       this._lastLoginMessage = 'Could not verify your account status right now. Please try again in a moment.';
-      sessionStorage.removeItem('pb_session');
-      localStorage.removeItem('pb_session');
+      sessionStorage.removeItem('pickle-street-tugbok-session');
+      localStorage.removeItem('pickle-street-tugbok-session');
       return null;
     }
 
-    if (!acc) {
-      const meta = authData.user.user_metadata || {};
-      if (meta.role === 'host' && meta.account_status === 'pending') {
-        this._lastLoginMessage = 'Your host application is pending review.';
-      } else if (meta.role === 'host' && meta.account_status === 'suspended') {
-        this._lastLoginMessage = 'Your host application was not approved. Please contact the court owner.';
-      } else {
-        this._lastLoginMessage = 'This login is not linked to a dashboard account.';
-      }
+    if (!acc || acc.tenantSlug !== PB_TENANT_SLUG ||
+        acc.tenantId !== 'f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a' ||
+        acc.id !== authData.user.id || acc.status !== 'active' ||
+        !['owner','admin','court_owner','staff'].includes(acc.role)) {
+      this._lastLoginMessage = 'This login is not linked to a dashboard account.';
       await _sb.auth.signOut();
-      sessionStorage.removeItem('pb_session');
-      localStorage.removeItem('pb_session');
+      sessionStorage.removeItem('pickle-street-tugbok-session');
+      localStorage.removeItem('pickle-street-tugbok-session');
       return null;
     }
 
-    const session = { ...rowToAccount(acc), loginAt: new Date().toISOString() };
+    const role = acc.role === 'admin' ? 'court_owner' : acc.role;
+    const session = {
+      id: acc.id || authData.user.id,
+      tenantId: acc.tenantId || null,
+      tenantSlug: acc.tenantSlug || PB_TENANT_SLUG,
+      membershipRole: acc.membershipRole || null,
+      username: acc.username || String(acc.email || authData.user.email || '').split('@')[0],
+      role,
+      status: acc.status || 'active',
+      fullName: acc.fullName || authData.user.user_metadata?.full_name || authData.user.email || 'Account',
+      email: acc.email || authData.user.email || '',
+      loginAt: new Date().toISOString(),
+    };
 
     if (session.status && session.status !== 'active') {
-      this._lastLoginMessage = session.status === 'pending'
-        ? 'Your host application is pending review.'
-        : 'This account is not active. Please contact the court owner.';
+      this._lastLoginMessage = 'This account is not active. Please contact the court owner.';
       await _sb.auth.signOut();
-      sessionStorage.removeItem('pb_session');
-      localStorage.removeItem('pb_session');
+      sessionStorage.removeItem('pickle-street-tugbok-session');
+      localStorage.removeItem('pickle-street-tugbok-session');
       return null;
     }
 
-    const shouldRemember = remember === null ? localStorage.getItem('pb_remember') === '1' : !!remember;
-    sessionStorage.removeItem('pb_session');
-    localStorage.removeItem('pb_session');
+    const shouldRemember = remember === null ? localStorage.getItem('pickle-street-tugbok-remember') === '1' : !!remember;
+    sessionStorage.removeItem('pickle-street-tugbok-session');
+    localStorage.removeItem('pickle-street-tugbok-session');
     const store = shouldRemember ? localStorage : sessionStorage;
-    store.setItem('pb_session', JSON.stringify(session));
-    if (shouldRemember) localStorage.setItem('pb_remember', '1');
-    else localStorage.removeItem('pb_remember');
+    store.setItem('pickle-street-tugbok-session', JSON.stringify(session));
+    if (shouldRemember) localStorage.setItem('pickle-street-tugbok-remember', '1');
+    else localStorage.removeItem('pickle-street-tugbok-remember');
     return session;
   },
 
   async login(email, password, remember = false) {
-    // Sign in via Supabase Auth — establishes a verified JWT session.
+    // Select the storage scope before Supabase writes its verified JWT.
+    if (remember) localStorage.setItem(PB_AUTH_REMEMBER_KEY, '1');
+    else localStorage.removeItem(PB_AUTH_REMEMBER_KEY);
     const { data, error } = await _sb.auth.signInWithPassword({ email, password });
-    if (error || !data.user) return { ok: false, msg: error?.message || 'Invalid email or password.' };
+    if (error || !data.user) {
+      localStorage.removeItem(PB_AUTH_REMEMBER_KEY);
+      return { ok: false, msg: error?.message || 'Invalid email or password.' };
+    }
     this._lastLoginMessage = '';
     const session = await this.refreshSessionFromAuth({ remember });
     return session ? { ok: true } : { ok: false, msg: this._lastLoginMessage || 'Account is not active.' };
@@ -7446,12 +4812,12 @@ window.Auth = {
 
   getSession() {
     // Check localStorage first (remembered), then sessionStorage (tab-only).
-    const s = localStorage.getItem('pb_session') || sessionStorage.getItem('pb_session');
+    const s = localStorage.getItem('pickle-street-tugbok-session') || sessionStorage.getItem('pickle-street-tugbok-session');
     if (!s) return null;
     try { return JSON.parse(s); }
     catch (_) {
-      localStorage.removeItem('pb_session');
-      sessionStorage.removeItem('pb_session');
+      localStorage.removeItem('pickle-street-tugbok-session');
+      sessionStorage.removeItem('pickle-street-tugbok-session');
       return null;
     }
   },
@@ -7464,9 +4830,9 @@ window.Auth = {
 
   async logout() {
     await _sb.auth.signOut();
-    sessionStorage.removeItem('pb_session');
-    localStorage.removeItem('pb_session');
-    localStorage.removeItem('pb_remember');
+    sessionStorage.removeItem('pickle-street-tugbok-session');
+    localStorage.removeItem('pickle-street-tugbok-session');
+    localStorage.removeItem('pickle-street-tugbok-remember');
     window.location.href = 'login.html';
   },
 
@@ -7477,15 +4843,16 @@ window.Auth = {
 
   async add(d) {
     try {
-      await _invokeEdgeFunction('manage-account', {
+      const result = await _invokeEdgeFunction(`manage-account?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`, {
         action: 'create',
+        tenantSlug: PB_TENANT_SLUG,
         fullName: d.fullName,
-        username: d.username,
         email: d.email,
         password: d.password,
-        role: this.ROLES.includes(d.role) ? d.role : 'staff',
+        role: ['court_owner', 'staff'].includes(d.role) ? d.role : 'staff',
         status: d.status || 'active',
-      });
+      }, { preferDirect: true });
+      if (!result?.ok) throw new Error(result?.error || 'Account create failed.');
       return { ok: true };
     } catch (e) {
       return { ok: false, msg: _extractFnError(e, 'Account create failed.') };
@@ -7494,16 +4861,22 @@ window.Auth = {
 
   async update(id, d) {
     try {
-      await _invokeEdgeFunction('manage-account', {
+      const payload = {
         action: 'update',
+        tenantSlug: PB_TENANT_SLUG,
         id,
         fullName: d.fullName,
-        username: d.username,
         email: d.email,
-        password: d.password || '',
-        role: this.ROLES.includes(d.role) ? d.role : 'staff',
+        role: ['court_owner', 'staff'].includes(d.role) ? d.role : 'staff',
         status: d.status || 'active',
-      });
+      };
+      if (d.password) payload.password = d.password;
+      const result = await _invokeEdgeFunction(
+        `manage-account?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+        payload,
+        { preferDirect: true }
+      );
+      if (!result?.ok) throw new Error(result?.error || 'Account update failed.');
       return { ok: true };
     } catch (e) {
       return { ok: false, msg: _extractFnError(e, 'Account update failed.') };
@@ -7516,7 +4889,12 @@ window.Auth = {
   async changePassword(currentPassword, newPassword) {
     const sess = this.getSession();
     if (!sess || !sess.email) return { ok: false, msg: 'No active session. Please sign in again.' };
-    if (!newPassword || newPassword.length < 6) return { ok: false, msg: 'New password must be at least 6 characters.' };
+    const strongPassword = typeof newPassword === 'string' && newPassword.length >= 14 &&
+      !/\s/.test(newPassword) && /[a-z]/.test(newPassword) && /[A-Z]/.test(newPassword) &&
+      /\d/.test(newPassword) && /[^A-Za-z0-9]/.test(newPassword);
+    if (!strongPassword) {
+      return { ok: false, msg: 'Use at least 14 characters with uppercase, lowercase, a number, and a symbol, without spaces.' };
+    }
 
     // Re-authenticate to confirm the current password is correct.
     const { error: authErr } = await _sb.auth.signInWithPassword({ email: sess.email, password: currentPassword });
@@ -7531,71 +4909,15 @@ window.Auth = {
 
   async del(id) {
     try {
-      await _invokeEdgeFunction('manage-account', { action: 'delete', id });
+      const result = await _invokeEdgeFunction(`manage-account?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`, {
+        action: 'delete',
+        tenantSlug: PB_TENANT_SLUG,
+        id,
+      }, { preferDirect: true });
+      if (!result?.ok) throw new Error(result?.error || 'Account suspension failed.');
       return { ok: true };
     } catch (e) {
-      return { ok: false, msg: _extractFnError(e, 'Account delete failed.') };
+      return { ok: false, msg: _extractFnError(e, 'Account suspension failed.') };
     }
   },
 };
-
-if (window.PB_USE_LOCAL_DATA) {
-  Object.assign(window.Auth, {
-    async login(usernameOrEmail, password, remember = false) {
-      const accounts = await DB.getAccounts();
-      const user = accounts.find(a =>
-        (a.username === usernameOrEmail || a.email === usernameOrEmail) &&
-        (!a.password || a.password === password)
-      );
-      if (!user) return { ok: false, msg: 'Invalid email or password.' };
-      if (user.status && user.status !== 'active') {
-        return {
-          ok: false,
-          msg: user.status === 'pending'
-            ? 'Your host application is pending review.'
-            : 'This account is not active. Please contact the court owner.',
-        };
-      }
-      const session = { ...user, loginAt: new Date().toISOString(), isLocalData: true };
-      const store = remember ? localStorage : sessionStorage;
-      store.setItem('pb_session', JSON.stringify(session));
-      if (remember) localStorage.setItem('pb_remember', '1');
-      return { ok: true };
-    },
-
-    async logout() {
-      sessionStorage.removeItem('pb_session');
-      localStorage.removeItem('pb_session');
-      localStorage.removeItem('pb_remember');
-      window.location.href = 'login.html';
-    },
-
-    async add(d) {
-      const all = await DB.getAccounts();
-      if (all.find(x => x.username === d.username || x.email === d.email)) return { ok: false, msg: 'Username or email already exists.' };
-      const acc = {
-        id: `local_${Date.now().toString(36)}`,
-        fullName: d.fullName,
-        username: d.username,
-        password: d.password,
-        email: d.email,
-        role: this.ROLES.includes(d.role) ? d.role : 'staff',
-        status: d.status || 'active',
-        createdAt: new Date().toISOString(),
-      };
-      await DB.saveAccount(acc);
-      return { ok: true };
-    },
-
-    async changePassword(currentPassword, newPassword) {
-      const sess = this.getSession();
-      if (!sess) return { ok: false, msg: 'No active session. Please sign in again.' };
-      const accounts = await DB.getAccounts();
-      const user = accounts.find(a => String(a.id) === String(sess.id));
-      if (user?.password && user.password !== currentPassword) return { ok: false, msg: 'Current password is incorrect.' };
-      if (!newPassword || newPassword.length < 6) return { ok: false, msg: 'New password must be at least 6 characters.' };
-      await DB.saveAccount({ ...user, password: newPassword });
-      return { ok: true };
-    },
-  });
-}

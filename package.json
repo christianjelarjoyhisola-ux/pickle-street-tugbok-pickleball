@@ -1,14 +1,14 @@
 {
-  "name": "paddle-rage-pickleball",
+  "name": "pickle-street-tugbok",
   "version": "1.0.0",
   "private": true,
-  "description": "Paddle Rage Pickleball court booking and operations platform",
+  "description": "Pickle Street Tugbok booking and venue management on the protected multi-tenant platform",
   "scripts": {
     "dev": "node tools/local-server.js",
-    "build:vendor:qrcode": "esbuild tools/qrcode-browser-entry.js --bundle --minify --platform=browser --format=iife --outfile=qrcode.min.js",
-    "seed:demo": "node seed-demo-data.js",
-    "test": "node --test payment-review-pending-count.test.js host-balance-pending-summary.test.js court-lifecycle.test.js payment-method-brand.test.js booking-balance.test.js booking-quick-filters.test.js host-balance-payment.test.js host-balance-admin.test.js host-full-payment-recovery.test.js host-balance-review-routing.test.js host-bookings-read-routing.test.js revenue-report.test.js supabase-hardening.test.js platform-allocation-ledger.test.js admin-light-theme.test.js receipt-hardening.test.js receipt-upload-gating.test.js premium-booking-ticket.test.js zero-booking-fee.test.js opening-date.test.js splash-audio.test.js balance-notification-lease.test.js integration-security.test.js bpi-dedicated-receipt.test.js bdopay-dedicated-receipt.test.js maya-dedicated-receipt.test.js play-manager-live-share.test.js open-play-rating.test.js owner-insights.test.js orphan-booking-holds.test.js availability-graphic-data.test.js availability-graphic.test.js manage-booking.test.js booking-reschedule-workflow.test.js reschedule-slots.test.js admin-reschedule-data.test.js admin-grouped-reschedule-data.test.js grouped-reschedule-sql.test.js grouped-reschedule-ui.test.js grouped-reschedule-email.test.js supabase/functions/booking-reschedule-notifications/index.test.js",
-    "check": "node --check payment-method-brand.js && node --check booking-balance.js && node --check host-balance-payment.js && node --check host-balance-admin.js && node --check finance-core.js && node --check open-play-rating.js && node --check owner-insights.js && node --check availability-graphic.js && node --check manage-booking.js && node --check play-manager.js && node --check player-live.js && node --check supabase-config.js && node --check create-accounts.js && node --check setup-db.js && node --check seed-demo-data.js"
+    "build": "node tools/check-site.cjs && node tools/build-site.cjs",
+    "check": "node tools/check-site.cjs",
+    "test": "node --test tenant-isolation.test.cjs reschedule-integration.test.cjs shared-booking-balance.test.js shared-blocked-date-access.test.js shared-open-play-data.test.js shared-open-play-reporting.test.js",
+    "verify:platform": "node tools/verify-platform-readonly.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.1",

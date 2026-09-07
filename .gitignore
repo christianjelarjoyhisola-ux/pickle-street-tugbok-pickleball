@@ -26,3 +26,5 @@ Thumbs.db
 .wrangler-login*.txt
 test-results/
 tmp/imagegen/
+dist/
+artifacts/

@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
+const published = require('./site-files.cjs');
 const port = Number(process.env.PORT || process.argv[2] || 8788);
 const host = process.env.HOST || '127.0.0.1';
 
@@ -25,6 +26,7 @@ function resolveRequestPath(requestUrl) {
 
   if (!candidate.startsWith(root + path.sep)) return null;
   if (!path.extname(candidate) && fs.existsSync(candidate + '.html')) candidate += '.html';
+  if (!published.includes(path.relative(root,candidate).split(path.sep).join('/'))) return null;
   return candidate;
 }
 
@@ -65,7 +67,7 @@ const server = http.createServer((request, response) => {
 });
 
 server.listen(port, host, () => {
-  console.log(`Paddle Rage local server: http://${host}:${port}/?localData=1`);
+  console.log(`Pickle Street Tugbok: http://${host}:${port}/`);
 });
 
 function shutdown() {

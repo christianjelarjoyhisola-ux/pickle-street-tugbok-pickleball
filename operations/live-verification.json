@@ -1,0 +1,58 @@
+{
+  "checkedAt": "2026-09-07T02:14:35.114Z",
+  "project": "neqvrwtofiolcuxewdze",
+  "tenant": {
+    "id": "f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a",
+    "name": "Pickle Street Tugbok",
+    "slug": "pickle-street-tugbok",
+    "contact": {},
+    "tagline": null,
+    "branding": {},
+    "timezone": "Asia/Manila",
+    "displayName": "Pickle Street Tugbok",
+    "facebookUrl": null,
+    "contactPhone": null,
+    "publicConfig": {
+      "publicBookingEnabled": false
+    },
+    "eventBookingEnabled": false
+  },
+  "readiness": {
+    "setupActive": false,
+    "blockingReasons": [
+      "TENANT_SETUP_REQUIRED",
+      "COURT_PRICING_MISSING",
+      "PLATFORM_BILLING_MISSING",
+      "PAYMENT_METHOD_MISSING",
+      "REMITTANCE_DESTINATION_MISSING",
+      "REFUND_RESCHEDULE_POLICY_MISSING",
+      "BOOKING_EMAIL_MISSING"
+    ],
+    "emailConfigured": false,
+    "openPlayEnabled": false,
+    "domainConfigured": true,
+    "policyConfigured": false,
+    "billingConfigured": false,
+    "paymentConfigured": false,
+    "publicBookingEnabled": false,
+    "remittanceConfigured": false,
+    "openPlayServerCapable": true,
+    "courtPricingConfigured": false,
+    "openPlayBlockingReasons": [
+      "OPEN_PLAY_NOT_REQUESTED",
+      "TENANT_SETUP_REQUIRED",
+      "ACTIVE_COURT_MISSING",
+      "PLATFORM_BILLING_MISSING",
+      "DIGITAL_PAYMENT_METHOD_MISSING",
+      "REMITTANCE_DESTINATION_MISSING"
+    ],
+    "requestedOpenPlayEnabled": false,
+    "launchRequirementsV2Required": true,
+    "requestedPublicBookingEnabled": false,
+    "openPlayDigitalPaymentConfigured": false
+  },
+  "courtCount": 0,
+  "wrongTenantRejected": true,
+  "capabilities": {},
+  "onlyReadOperations": true
+}
