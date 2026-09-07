@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-09-07T05:34:48.350Z",
+  "checkedAt": "2026-09-07T05:57:42.601Z",
   "origin": "https://picklestreet.pages.dev",
   "pages": [
     {
@@ -24,15 +24,12 @@
   "domainConfigured": true,
   "wrongTenantRejected": true,
   "publicBookingEnabled": false,
-  "courtCount": 0,
+  "courtCount": 3,
   "blockingReasons": [
     "TENANT_SETUP_REQUIRED",
-    "COURT_PRICING_MISSING",
     "PLATFORM_BILLING_MISSING",
-    "PAYMENT_METHOD_MISSING",
     "REMITTANCE_DESTINATION_MISSING",
-    "REFUND_RESCHEDULE_POLICY_MISSING",
-    "BOOKING_EMAIL_MISSING"
+    "REFUND_RESCHEDULE_POLICY_MISSING"
   ],
   "onlyReadOperations": true
 }

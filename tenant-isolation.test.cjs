@@ -101,6 +101,52 @@ test('generic legacy writes are disabled',async()=>{
   await assert.rejects(c.checkedFetch(API+'/rest/v1/bookings',{method:'POST',body:'{}'}),/Direct table access/);
 });
 
+test('fee saves preserve configured state and confirm the server amount without depending on public bootstrap',async()=>{
+  for (const [method,field,mode,amount] of [
+    ['saveTenantPlatformBilling','platformBilling','fixed_per_hour',12.5],
+    ['saveTenantOpenPlayServiceFee','openPlayServiceFee','fixed_per_player',7.25],
+  ]) {
+    const settings={tenant:{id:TENANT,slug:SLUG},[field]:{feeMode:mode,feeAmount:amount,isConfigured:true}};
+    const {context:c,calls}=boot({scope:'manager',response:{ok:true,settings},rpc:async()=>{throw Error('Public bootstrap unavailable');}});
+    const saved=await c.DB[method]({feeMode:mode,feeAmount:amount});
+    const fee=saved[field==='platformBilling'?'billing':field];
+    assert.equal(fee.feeAmount,amount);assert.equal(fee.isConfigured,true);
+    const body=JSON.parse(calls.find(call=>call.kind==='fetch').init.body);
+    assert.equal(body.tenantSlug,SLUG);assert.equal(body.patch[field].feeAmount,amount);
+    assert.equal(Object.keys(body.patch).length,1);
+    assert.equal(calls.some(call=>call.kind==='rpc'),false);
+    const loaded=await c.DB.getTenantActivationSettings();
+    assert.equal(loaded[field==='platformBilling'?'billing':field].feeAmount,amount);
+    for(const badFee of [{feeMode:mode,feeAmount:0,isConfigured:false},{feeMode:mode,feeAmount:amount+1,isConfigured:true}]) {
+      const bad=boot({scope:'manager',response:{ok:true,settings:{...settings,[field]:badFee}}}).context;
+      await assert.rejects(bad.DB[method]({feeMode:mode,feeAmount:amount}),/did not confirm/);
+    }
+  }
+});
+
+test('an unconfigured zero Open Play fee stays unconfigured',async()=>{
+  const {context:c}=boot({scope:'manager',response:{ok:true,settings:{openPlayServiceFee:{feeAmount:0,isConfigured:false}}}});
+  assert.equal((await c.DB.getTenantActivationSettings()).openPlayServiceFee.isConfigured,false);
+});
+
+test('fee forms show persistent validation, pending, success, and server error feedback',async()=>{
+  const source=fs.readFileSync('admin.html','utf8');
+  const start=source.indexOf('async function saveMaintRate()');
+  const end=source.indexOf('let _chartBookings',start);
+  const elements=Object.fromEntries(['maintRateInput','saveMaintRateBtn','maintRateSaveStatus','maintRateSummary','openPlayServiceFeeInput','saveOpenPlayServiceFeeBtn','openPlayFeeSaveStatus'].map(id=>[id,{value:'',textContent:'',disabled:false,focus(){}}]));
+  let mode='';let resolveSave;let fail=false;let called=0;
+  const context={console,window:{PB_PLATFORM_V1:true},sess:{role:'owner'},Auth:{can:()=>true},$:id=>elements[id],document:{querySelector:()=>mode?{value:mode}:null},toast(){},
+    DB:{saveTenantPlatformBilling:async()=>{called++;if(fail)throw Error('Session expired. Sign in again.');await new Promise(resolve=>{resolveSave=resolve;});return {billing:{feeAmount:12.5,isConfigured:true}};},saveTenantOpenPlayServiceFee:async()=>({openPlayServiceFee:{feeAmount:7.25,isConfigured:true}})},
+    renderMaintRateSettings:async()=>{},renderOpenPlayServiceFeeSettings:async()=>{},renderPlatformActivationSettings:async(_,options)=>assert.equal(options.preserveInputs,true),renderIntegrationStatus:async()=>{},_platformActivation:null};
+  vm.createContext(context);vm.runInContext(source.slice(start,end),context);
+  elements.maintRateInput.value='12.50';await context.saveMaintRate();assert.match(elements.maintRateSaveStatus.textContent,/Choose a charging method/);assert.equal(called,0);
+  mode='per_hour';const saving=context.saveMaintRate();assert.equal(elements.saveMaintRateBtn.disabled,true);assert.match(elements.maintRateSaveStatus.textContent,/Saving/);
+  await context.saveMaintRate();assert.equal(called,1);resolveSave();await saving;
+  assert.equal(elements.saveMaintRateBtn.disabled,false);assert.match(elements.maintRateSaveStatus.textContent,/Saved:.*12.50/);
+  fail=true;await context.saveMaintRate();assert.match(elements.maintRateSaveStatus.textContent,/Session expired/);assert.equal(elements.saveMaintRateBtn.disabled,false);
+  elements.openPlayServiceFeeInput.value='7.25';await context.saveOpenPlayServiceFee();assert.match(elements.openPlayFeeSaveStatus.textContent,/Saved:.*7.25/);
+});
+
 test('customer booking activation stays closed until a real security widget is configured',async()=>{
   const {context:c}=boot({hostname:'pickle-street-tugbok.boothsandbeyondoffic.chatgpt.site',scope:'manager',bootstrap:{readiness:{publicBookingEnabled:true}}});
   await c.DB.getResolvedTenantId();assert.equal(c.PB_PUBLIC_BOOKING_ENABLED,false);

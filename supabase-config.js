@@ -1204,6 +1204,7 @@ function _pbNormalizeTenantActivationSettings(value) {
     billing: billing ? {
       feeMode: String(billing.feeMode || ''),
       feeAmount: Number(billing.feeAmount),
+      isConfigured: billing.isConfigured === true,
     } : null,
     openPlayServiceFee: openPlayServiceFee ? {
       feeMode: String(openPlayServiceFee.feeMode || openPlayServiceFee.mode || 'fixed_per_player'),
@@ -1214,8 +1215,9 @@ function _pbNormalizeTenantActivationSettings(value) {
         openPlayServiceFee.service_fee_per_person ??
         0
       ),
-      isConfigured: openPlayServiceFee.isConfigured === true ||
-        openPlayServiceFee.configured === true ||
+      isConfigured: typeof openPlayServiceFee.isConfigured === 'boolean'
+        ? openPlayServiceFee.isConfigured
+        : openPlayServiceFee.configured === true ||
         Number.isFinite(Number(
           openPlayServiceFee.feeAmount ??
           openPlayServiceFee.amount ??
@@ -3538,9 +3540,13 @@ window.DB = {
       { preferDirect: true }
     );
     if (!result?.ok || !result.settings) throw new Error('The booking fee was not saved.');
+    const saved = _pbNormalizeTenantActivationSettings(result.settings);
+    if (saved.billing?.feeMode !== mode || saved.billing?.feeAmount !== amount || !saved.billing?.isConfigured) {
+      throw new Error('The server did not confirm the requested booking fee. Reload the settings and try again.');
+    }
+    _pbCaptureBusinessRevision(result.settings);
     _pbClearFastCache(['settings', 'platformBootstrap']);
-    await _pbPlatformBootstrap();
-    return _pbNormalizeTenantActivationSettings(result.settings);
+    return saved;
   },
 
   async saveTenantOpenPlayServiceFee({ feeAmount }) {
@@ -3580,9 +3586,13 @@ window.DB = {
           { preferDirect: true }
         );
         if (!result?.ok || !result.settings) throw new Error('The Open Play service fee was not saved.');
+        const saved = _pbNormalizeTenantActivationSettings(result.settings);
+        if (saved.openPlayServiceFee?.feeAmount !== amount || !saved.openPlayServiceFee?.isConfigured) {
+          throw new Error('The server did not confirm the requested Open Play service fee. Reload the settings and try again.');
+        }
+        _pbCaptureBusinessRevision(result.settings);
         _pbClearFastCache(['settings', 'platformBootstrap']);
-        await _pbPlatformBootstrap();
-        return _pbNormalizeTenantActivationSettings(result.settings);
+        return saved;
       } catch (error) {
         if (_pbIsUnsupportedSettingsPatchError(error)) {
           unsupportedPatchError = error;

@@ -3529,9 +3529,10 @@ tr:hover td { background: var(--bg2); }
               <label class="fl" id="maintRateLabel">Booking Fee Amount (₱)</label>
               <input type="number" class="fi" id="maintRateInput" min="0" step="0.5" placeholder="Enter amount" />
             </div>
-            <button class="btn btn-s btn-sm" type="button" onclick="saveMaintRate()">Save Rate</button>
+            <button class="btn btn-s btn-sm" id="saveMaintRateBtn" type="button" onclick="saveMaintRate()">Save Rate</button>
           </div>
           <div class="platform-fee-summary" id="maintRateSummary" hidden></div>
+          <div id="maintRateSaveStatus" role="status" aria-live="polite"></div>
         </div>
 
         <div class="panel platform-fee-panel" id="platformOpenPlayServiceFeePanel" data-perm="owner_only">
@@ -3548,6 +3549,7 @@ tr:hover td { background: var(--bg2); }
             <button class="btn btn-s btn-sm" id="saveOpenPlayServiceFeeBtn" type="button" onclick="saveOpenPlayServiceFee()">Save Fee</button>
           </div>
           <div class="platform-fee-summary" id="openPlayServiceFeeSummary" hidden></div>
+          <div id="openPlayFeeSaveStatus" role="status" aria-live="polite"></div>
           <div class="platform-fee-note">Example: ₱50 Open Play price + ₱10 service fee = ₱60 total due per player.</div>
         </div>
       </div>
@@ -7802,10 +7804,18 @@ async function renderDash(){
 
 async function saveMaintRate() {
   if (!sess || !Auth.can('owner_only', sess.role)) { toast('Only the System Owner can edit fees.', 'err'); return; }
-  const val = parseFloat($('maintRateInput').value);
-  if (isNaN(val) || val < 0) { toast('Please enter a valid rate (0 or more).', 'err'); return; }
+  const button = $('saveMaintRateBtn');
+  if (button?.disabled) return;
+  const status = $('maintRateSaveStatus');
+  const report = message => { if (status) status.textContent = message; };
+  const raw = $('maintRateInput').value.trim();
+  const val = Math.round(Number(raw) * 100) / 100;
+  if (!raw || !Number.isFinite(val) || val < 0 || val > 1000000) { report('Enter a valid booking fee between ₱0 and ₱1,000,000.'); return; }
   const feeType = document.querySelector('input[name="feeType"]:checked')?.value || '';
-  if (!['per_hour','flat'].includes(feeType)) { toast('Choose a booking-fee charging method.', 'err'); return; }
+  if (!['per_hour','flat'].includes(feeType)) { report('Choose a charging method above, then save the booking fee.'); return; }
+  const original = button?.textContent || 'Save Rate';
+  if (button) { button.disabled = true; button.textContent = 'Saving...'; }
+  report('Saving booking fee...');
   try {
     let savedActivation = null;
     if (window.PB_PLATFORM_V1) {
@@ -7818,7 +7828,9 @@ async function saveMaintRate() {
       await DB.saveSetting('fee_type', feeType);
     }
     if (savedActivation) {
-      await renderPlatformActivationSettings(savedActivation);
+      _platformActivation = savedActivation;
+      await renderMaintRateSettings(savedActivation);
+      await renderPlatformActivationSettings(savedActivation, { preserveInputs: true });
       renderIntegrationStatus().catch(() => {});
     }
     const sum = $('maintRateSummary');
@@ -7829,10 +7841,14 @@ async function saveMaintRate() {
         : 'per booked hour per confirmed booking transaction';
       sum.innerHTML = `🛠️ Booking fee: <strong style="color:var(--green)">₱${val.toFixed(2)}</strong> — ${typeLabel}.`;
     }
+    report(`Saved: ₱${val.toFixed(2)} ${feeType === 'flat' ? 'per transaction' : 'per booked hour'}.`);
     toast(`Booking fee set to ₱${val.toFixed(2)} (${feeType === 'flat' ? 'per transaction' : 'per booked hour'}).`);
   } catch(e) {
     console.error('saveMaintRate error:', e);
-    toast('Failed to save rate.', 'err');
+    report(e?.message || 'Failed to save booking fee. Try again.');
+    toast(e?.message || 'Failed to save rate.', 'err');
+  } finally {
+    if (button) { button.disabled = false; button.textContent = original; }
   }
 }
 // ─────────────────────────────────────────────────────────────
@@ -7841,9 +7857,12 @@ async function saveOpenPlayServiceFee() {
   if (!sess || !Auth.can('owner_only', sess.role)) { toast('Only the System Owner can edit this fee.', 'err'); return; }
   const input = $('openPlayServiceFeeInput');
   const button = $('saveOpenPlayServiceFeeBtn');
-  if (!input) return;
+  if (!input || button?.disabled) return;
+  const status = $('openPlayFeeSaveStatus');
+  const report = message => { if (status) status.textContent = message; };
   const val = parseFloat(input.value);
   if (!Number.isFinite(val) || val < 0 || val > 100000) {
+    report('Enter a valid Open Play service fee between ₱0 and ₱100,000.');
     toast('Please enter a valid Open Play service fee (0 or more).', 'err');
     input.focus();
     return;
@@ -7851,14 +7870,18 @@ async function saveOpenPlayServiceFee() {
   const feeAmount = Math.round(val * 100) / 100;
   const original = button?.textContent || 'Save Fee';
   if (button) { button.disabled = true; button.textContent = 'Saving...'; }
+  report('Saving Open Play service fee...');
   try {
     const savedActivation = await DB.saveTenantOpenPlayServiceFee({ feeAmount });
     if (savedActivation) _platformActivation = savedActivation;
     await renderOpenPlayServiceFeeSettings(savedActivation);
+    if (savedActivation) await renderPlatformActivationSettings(savedActivation, { preserveInputs: true });
     renderIntegrationStatus().catch(() => {});
+    report(`Saved: ₱${feeAmount.toFixed(2)} per player.`);
     toast(`Open Play service fee set to PHP ${feeAmount.toFixed(2)} per player.`);
   } catch(e) {
     console.error('saveOpenPlayServiceFee error:', e);
+    report(e?.message || 'Failed to save Open Play service fee. Try again.');
     toast(e?.message || 'Failed to save Open Play service fee.', 'err');
   } finally {
     if (button) { button.disabled = false; button.textContent = original; }
@@ -12450,7 +12473,7 @@ function platformActivationReadinessChecks(activation) {
   ];
 }
 
-async function renderPlatformActivationSettings(activation = null) {
+async function renderPlatformActivationSettings(activation = null, { preserveInputs = false } = {}) {
   const panel = $('platformTenantSettingsPanel');
   if (!panel || !window.PB_PLATFORM_V1) return;
   panel.style.display = '';
@@ -12462,10 +12485,12 @@ async function renderPlatformActivationSettings(activation = null) {
   if ($('platformBillingPanel')) $('platformBillingPanel').style.display = canManageBilling ? '' : 'none';
   if ($('platformOpenPlayServiceFeePanel')) $('platformOpenPlayServiceFeePanel').style.display = canManageOwnerFees ? '' : 'none';
   $('platformPublicBookingRequested').checked = _platformActivation.tenant?.publicBookingRequested === true;
-  $('platformEmailEnabled').checked = _platformActivation.tenant?.emailEnabled === true;
-  $('platformReplyToEmail').value = _platformActivation.tenant?.replyToEmail || '';
-  const methods = platformActivationPaymentMethods(_platformActivation.paymentMethods);
-  renderPlatformPaymentMethods(methods);
+  if (!preserveInputs) {
+    $('platformEmailEnabled').checked = _platformActivation.tenant?.emailEnabled === true;
+    $('platformReplyToEmail').value = _platformActivation.tenant?.replyToEmail || '';
+    const methods = platformActivationPaymentMethods(_platformActivation.paymentMethods);
+    renderPlatformPaymentMethods(methods);
+  }
 
   const checks = platformActivationReadinessChecks(_platformActivation);
   const list = $('platformBookingReadinessList');
