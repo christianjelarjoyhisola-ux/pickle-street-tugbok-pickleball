@@ -7412,6 +7412,9 @@ async function startAdminRealtime(){
   const rerender=()=>{
     clearTimeout(_admRtDebounce);
     _admRtDebounce=setTimeout(async ()=>{
+      // Payment saves update their own controls. Realtime events must not replace
+      // unsaved drafts after focus moves from an input to a Save button.
+      if (_curSection === 'payments') return;
       // Never clobber a form the admin is actively editing (e.g. payment settings).
       const ae=document.activeElement;
       if(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;

@@ -129,6 +129,18 @@ test('an unconfigured zero Open Play fee stays unconfigured',async()=>{
   assert.equal((await c.DB.getTenantActivationSettings()).openPlayServiceFee.isConfigured,false);
 });
 
+test('realtime changes cannot reset payment drafts when focus moves to a save button',async()=>{
+  const source=fs.readFileSync('admin.html','utf8');
+  const start=source.indexOf('async function startAdminRealtime()');
+  const end=source.indexOf('\n}',start)+2;
+  let event;let refresh;let renders=0;
+  const channel={on(_kind,_filter,callback){event=callback;return this;},subscribe(){}};
+  const c={window:{},clearTimeout(){},setTimeout(callback){refresh=callback;},document:{activeElement:{tagName:'BUTTON'},querySelector:()=>null},DB:{getResolvedTenantId:async()=>TENANT},_supabase:{channel:()=>channel},_admRtDebounce:null,_curSection:'payments',SECTION_LOADERS:{payments:async()=>{renders++;},bookings:async()=>{renders++;}}};
+  vm.createContext(c);vm.runInContext(source.slice(start,end),c);
+  await c.startAdminRealtime();event();await refresh();assert.equal(renders,0);
+  c._curSection='bookings';event();await refresh();assert.equal(renders,1);
+});
+
 test('fee forms show persistent validation, pending, success, and server error feedback',async()=>{
   const source=fs.readFileSync('admin.html','utf8');
   const start=source.indexOf('async function saveMaintRate()');
