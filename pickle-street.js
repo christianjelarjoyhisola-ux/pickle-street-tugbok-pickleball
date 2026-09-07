@@ -1,5 +1,51 @@
 (function enhancePickleStreet() {
   'use strict';
+  function showWelcome() {
+    const welcome = document.getElementById('psWelcome');
+    if (!welcome || typeof welcome.showModal !== 'function') return;
+    const seenKey = 'picklestreet_welcome_seen_v1';
+    // Private links and returning checkout always take priority over the introduction.
+    if (location.hash || location.search) return;
+    try {
+      if (sessionStorage.getItem(seenKey) === '1') return;
+      if (window.readPlatformRecovery?.() || window.readPlatformPendingDraft?.() ||
+          window.readPlatformStatusAccess?.() || window.readGuestBookingResume?.() ||
+          window.OpenPlayPublic?.hasRecovery?.()) return;
+    } catch (_) { return; }
+    const activeFlow = () => document.querySelector('.bk-modal-overlay.active,.overlay.show,.modal-bg.show,dialog[open]:not(#psWelcome)');
+    if (activeFlow()) return;
+    let observer;
+    const finish = (focusCourts = false) => {
+      if (!welcome.open) return;
+      observer?.disconnect();
+      try { sessionStorage.setItem(seenKey, '1'); } catch (_) {}
+      document.documentElement.classList.remove('ps-welcome-open');
+      welcome.close();
+      if (focusCourts && !activeFlow()) {
+        const heading = document.getElementById('courtsHeading');
+        if (heading) {
+          heading.setAttribute('tabindex', '-1');
+          heading.focus({preventScroll:true});
+          heading.addEventListener('blur', () => heading.removeAttribute('tabindex'), {once:true});
+        }
+      }
+    };
+    welcome.querySelectorAll('[data-welcome-dismiss]').forEach(button => button.addEventListener('click', () => finish(true)));
+    welcome.querySelectorAll('[data-welcome-link]').forEach(link => link.addEventListener('click', () => finish(false)));
+    welcome.addEventListener('keydown', event => event.stopPropagation());
+    welcome.addEventListener('cancel', event => { event.preventDefault(); finish(true); });
+    welcome.addEventListener('close', () => {
+      observer?.disconnect();
+      document.documentElement.classList.remove('ps-welcome-open');
+    });
+    observer = new MutationObserver(() => { if (activeFlow()) finish(false); });
+    try {
+      welcome.showModal();
+      document.documentElement.classList.add('ps-welcome-open');
+      observer.observe(document.body, {subtree:true,childList:true,attributes:true,attributeFilter:['class','open']});
+    } catch (_) { observer.disconnect(); }
+    window.addEventListener('hashchange', () => finish(false), {once:true});
+  }
   function ready() {
     const splash = document.getElementById('splashScreen');
     if (splash) { splash.style.display='none'; splash.classList.add('dismissed'); splash.inert=true; }
@@ -13,6 +59,7 @@
     document.querySelectorAll('.bg-grid,.bg-glow').forEach(el=>el.hidden=true);
     const scope=document.documentElement.dataset.pbDataScope;
     if(scope==='public') {
+      showWelcome();
       const grid=document.getElementById('courtsGrid');
       if(grid) {
         const watch = new MutationObserver(()=>{

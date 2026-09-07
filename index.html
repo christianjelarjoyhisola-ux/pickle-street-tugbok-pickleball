@@ -3517,10 +3517,38 @@ body.dark #splashScreen {
 
 </style>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="pickle-street.css?v=20260908-routes2">
+<link rel="stylesheet" href="pickle-street.css?v=20260908-welcome">
 <meta name="robots" content="noindex,nofollow">
 </head>
 <body class="light">
+
+<dialog class="ps-welcome" id="psWelcome" aria-labelledby="psWelcomeTitle" aria-describedby="psWelcomeLead">
+  <div class="ps-welcome-scene" aria-hidden="true">
+    <img src="assets/pickle-street-courts.jpg" alt="" width="1920" height="1080" fetchpriority="high">
+  </div>
+  <div class="ps-welcome-shell">
+    <div class="ps-welcome-top">
+      <div class="ps-welcome-brand">
+        <img src="logopickle.jpg" alt="Pickle Street Tugbok logo" width="58" height="72">
+        <div>Pickle Street<span>TUGBOK, DAVAO CITY</span></div>
+      </div>
+      <button class="ps-welcome-skip" type="button" data-welcome-dismiss>Skip intro <span aria-hidden="true">↗</span></button>
+    </div>
+    <div class="ps-welcome-copy">
+      <p class="ps-welcome-eyebrow"><span aria-hidden="true"></span> WELCOME TO YOUR NEIGHBORHOOD COURT</p>
+      <h1 id="psWelcomeTitle" tabindex="-1" autofocus>A little court time.<br><em>A better day.</em></h1>
+      <p id="psWelcomeLead">Fresh air, good rallies, your favorite people. Find your next game at Pickle Street.</p>
+      <div class="ps-welcome-actions">
+        <button class="ps-welcome-enter" type="button" data-welcome-dismiss>Find your court <span aria-hidden="true">↗</span></button>
+        <a href="booking-management.html" data-welcome-link>Manage a booking <span aria-hidden="true">→</span></a>
+      </div>
+    </div>
+    <div class="ps-welcome-bottom">
+      <p>COUNTRYSIDE FEEL.<span>URBAN ACCESS.</span></p>
+      <div><span>Outdoor courts</span><span class="ps-welcome-dot" aria-hidden="true">·</span><span>Good company</span><a href="login.html" data-welcome-link>Staff login ↗</a></div>
+    </div>
+  </div>
+</dialog>
 
 <div class="toasts" id="toasts"></div>
 
@@ -3652,7 +3680,6 @@ body.dark #splashScreen {
   </div>
 </nav>
 
-<header class="venue-intro"><div class="venue-intro-copy"><span class="venue-eyebrow">PICKLEBALL / TUGBOK, DAVAO CITY</span><h1>A little court time.<br><em>A better day.</em></h1><p>Fresh air, good rallies, your favorite people.<br>Find your next game at Pickle Street.</p><div class="venue-intro-meta"><span>Outdoor courts</span><span>Easy online booking</span></div></div><div class="venue-photo"><img src="assets/pickle-street-courts.jpg" alt="Blue and green outdoor pickleball courts at Pickle Street Tugbok" width="1920" height="1080"><span>WELCOME TO YOUR NEIGHBORHOOD COURT</span></div></header>
 <!-- COURTS -->
 <div class="sec" id="courts" style="padding-top:24px">
   <div class="sec-hd">
@@ -12276,6 +12303,6 @@ async function expireStaleVerifyingBookings() {
   </div>
   <button class="btn btn-p btn-sm" id="mobileBookBtn" onclick="proceedToBook()">Book Now →</button>
 </div>
-<script src="pickle-street.js?v=2"></script>
+<script src="pickle-street.js?v=20260908-welcome"></script>
 </body>
 </html>

@@ -96,4 +96,78 @@ input,select,textarea {font-size:1rem!important}
 
 .ps-nav-button{font:600 .9rem DM Sans,sans-serif;background:none;border:0;color:var(--text);cursor:pointer;padding:10px}.cc{background:var(--card)!important;border:1px solid var(--border)!important;border-radius:18px!important;box-shadow:0 5px 22px rgba(25,54,66,.045)!important;overflow:hidden}.cc-mobile-name,.cc-times-title{font-family:Manrope,sans-serif!important;font-weight:750;letter-spacing:-.02em!important}.cc-photo{background-color:#dce6e9!important}.cc-times{background:var(--card)!important}.booking-mode-btn{box-shadow:none!important;border-color:var(--border)!important}.booking-mode-btn.active{background:#e9f2ee!important;color:#255c4a!important}.developer-promo-dialog,.bg-grid,.bg-glow{display:none!important}.ps-staff-link{white-space:nowrap}.empty h3{font-size:1.4rem;margin-bottom:8px}.empty p{font-size:1rem;line-height:1.6;margin-bottom:20px}@media(max-width:620px){.ps-staff-link{display:none}.nav .sw-wrap{display:none}}
 :where([hidden]) { display: none !important; }
+/* A short welcome, with the working booking surface directly behind it. */
+html.ps-welcome-open {overflow:hidden}
+#courts.sec {padding-top:32px!important;scroll-margin-top:100px}
+.ps-welcome {position:fixed;inset:0;margin:0;width:100%;height:100dvh;max-width:none;max-height:none;padding:0;border:0;background:#102b38;color:#f5faf8;overflow:auto;overscroll-behavior:contain;color-scheme:dark}
+.ps-welcome::backdrop {background:#102b38}
+.ps-welcome-scene {position:absolute;inset:0;overflow:hidden;pointer-events:none}
+.ps-welcome-scene img {width:100%;height:100%;object-fit:cover;object-position:66% center;filter:saturate(.78)}
+.ps-welcome-scene::after {content:'';position:absolute;inset:0;background:linear-gradient(90deg,rgba(7,29,41,.96) 0%,rgba(9,36,49,.86) 30%,rgba(11,37,45,.38) 68%,rgba(11,37,45,.08)),linear-gradient(0deg,rgba(5,25,32,.83),transparent 38%,transparent 72%,rgba(5,25,32,.45))}
+.ps-welcome-shell {position:relative;z-index:1;display:grid;grid-template-rows:auto 1fr auto;min-height:100%;max-width:1600px;margin:auto;padding:36px 64px 30px;box-sizing:border-box}
+.ps-welcome-top {display:flex;align-items:center;justify-content:space-between;gap:24px}
+.ps-welcome-brand {display:flex;align-items:center;gap:16px}
+.ps-welcome-brand img {width:58px;height:72px;object-fit:contain;background:#fff;padding:3px;border-radius:8px;box-sizing:border-box}
+.ps-welcome-brand>div {font:800 22px/1.15 Manrope,sans-serif;letter-spacing:-.04em}
+.ps-welcome-brand>div>span {display:block;margin-top:9px;font:500 12px/1.4 'DM Sans',sans-serif;letter-spacing:.18em;color:#bed0d5}
+.ps-welcome-skip {display:flex;gap:18px;align-items:center;min-height:46px;border:1px solid #c1d2d54d;border-radius:999px;padding:10px 18px;background:#102e3b66;color:#f1f6f5;font-size:14px;cursor:pointer;backdrop-filter:blur(8px)}
+.ps-welcome-skip:hover {background:#214a57}
+.ps-welcome-copy {padding:70px 0 82px;align-self:center;max-width:780px}
+.ps-welcome-eyebrow {display:flex;align-items:center;gap:12px;margin:0 0 28px;color:#c2d9dc;font-size:12px;line-height:1.7;font-weight:600;letter-spacing:.17em}
+.ps-welcome-eyebrow>span {width:27px;height:1px;background:#9bceb8;flex:0 0 auto}
+.ps-welcome h1 {font:600 clamp(3.6rem,5.7vw,6rem)/1.08 Manrope,sans-serif!important;letter-spacing:-.06em!important;margin:0 0 28px;color:#f5faf8}
+.ps-welcome h1 em {font-style:normal;color:#a9d8c2}
+#psWelcomeTitle:focus {outline:none}
+.ps-welcome #psWelcomeLead {max-width:470px;margin:0;color:#d0dfe0;font-size:18px;line-height:1.7}
+.ps-welcome-actions {display:flex;align-items:center;flex-wrap:wrap;gap:30px;margin-top:40px}
+.ps-welcome-enter {display:flex;justify-content:space-between;align-items:center;gap:44px;min-height:62px;padding:17px 24px;background:#a9d8c2;color:#123c33;border:1px solid #c1e4d4;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 10px 38px #071d2933;transition:background .2s,transform .2s}
+.ps-welcome-enter>span {font-size:25px;line-height:1}
+.ps-welcome-enter:hover {background:#c1e4d4;transform:translateY(-2px)}
+.ps-welcome-actions>a {display:flex;align-items:center;gap:14px;min-height:44px;color:#edf5f4;font-size:15px;text-decoration:none;border-bottom:1px solid #d0dfe066}
+.ps-welcome-actions>a:hover {border-color:#a9d8c2;color:#a9d8c2}
+.ps-welcome-bottom {display:flex;align-items:center;justify-content:space-between;gap:24px;border-top:1px solid #d0dfe033;padding-top:23px}
+.ps-welcome-bottom>p {margin:0;font-size:12px;letter-spacing:.16em;line-height:1.7;color:#dde9e7}
+.ps-welcome-bottom>p>span {margin-left:8px;color:#a9d8c2}
+.ps-welcome-bottom>div {display:flex;align-items:center;flex-wrap:wrap;gap:12px;font-size:14px;color:#cfddde}
+.ps-welcome-dot {color:#a9d8c2}
+.ps-welcome-bottom a {display:inline-flex;align-items:center;min-height:44px;margin-left:18px;color:#cfddde;text-decoration:none;font-size:14px}
+.ps-welcome a:focus-visible,.ps-welcome button:focus-visible {outline:3px solid #c7ecdf;outline-offset:6px}
+.ps-welcome[open] .ps-welcome-copy {animation:ps-welcome-arrive .7s ease-out both}
+.ps-welcome[open] .ps-welcome-scene img {animation:ps-welcome-photo 1.6s ease-out both}
+@keyframes ps-welcome-arrive {from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes ps-welcome-photo {from{transform:scale(1.025)}to{transform:scale(1)}}
+@media(max-width:900px) {
+  .ps-welcome-shell {padding:28px 32px 24px}
+  .ps-welcome-copy {padding:64px 0;max-width:650px}
+  .ps-welcome h1 {font-size:clamp(3.2rem,7.6vw,4.8rem)!important}
+  .ps-welcome-bottom {align-items:flex-start;flex-direction:column;gap:12px}
+  .ps-welcome-bottom>div {width:100%}
+  .ps-welcome-bottom a {margin-left:auto}
+}
+@media(max-width:600px) {
+  #courts.sec {padding-top:24px!important}
+  .ps-welcome-shell {padding:22px 24px 18px;min-height:100svh}
+  .ps-welcome-scene img {object-position:62% center}
+  .ps-welcome-scene::after {background:linear-gradient(180deg,rgba(9,33,43,.57),rgba(8,31,41,.68) 28%,rgba(8,31,41,.95) 76%,#0b2935)}
+  .ps-welcome-top {gap:12px}
+  .ps-welcome-brand {gap:11px;min-width:0}
+  .ps-welcome-brand img {width:43px;height:54px}
+  .ps-welcome-brand>div {font-size:18px;min-width:0}
+  .ps-welcome-brand>div>span {font-size:12px;letter-spacing:.07em;margin-top:6px}
+  .ps-welcome-skip {padding:9px 12px;font-size:14px;gap:8px;min-height:44px;flex-shrink:0}
+  .ps-welcome-copy {padding:64px 0 45px}
+  .ps-welcome-eyebrow {font-size:12px;letter-spacing:.13em;gap:8px;margin-bottom:22px}
+  .ps-welcome-eyebrow>span {width:16px}
+  .ps-welcome h1 {font-size:clamp(2.65rem,11.4vw,4rem)!important;line-height:1.12!important;letter-spacing:-.055em!important;margin-bottom:22px}
+  .ps-welcome #psWelcomeLead {font-size:16px;line-height:1.65}
+  .ps-welcome-actions {gap:16px;margin-top:29px;align-items:flex-start;flex-direction:column}
+  .ps-welcome-enter {width:100%;min-height:58px;padding:15px 20px}
+  .ps-welcome-actions>a {min-height:44px;font-size:14px}
+  .ps-welcome-bottom {padding-top:17px;gap:10px}
+  .ps-welcome-bottom>p {font-size:12px;letter-spacing:.13em}
+  .ps-welcome-bottom>p>span {margin-left:5px}
+  .ps-welcome-bottom>div {font-size:12px;gap:8px}
+  .ps-welcome-bottom a {font-size:12px}
+}
+@media(prefers-reduced-motion:reduce) {.ps-welcome[open] .ps-welcome-copy,.ps-welcome[open] .ps-welcome-scene img {animation:none}}
 .ps-receipt-dialog{width:min(560px,calc(100% - 32px));max-height:90dvh;padding:28px;border:1px solid #b8c9d0;border-radius:20px;background:#f5f8fa;color:#162f3a;box-shadow:0 24px 80px #102f4255;font:16px/1.5 'DM Sans',sans-serif}.ps-receipt-dialog::backdrop{background:#071e35aa}.ps-receipt-dialog h2{font:800 24px/1.2 Manrope,sans-serif;margin:0 0 16px}.ps-receipt-dialog label{display:grid;gap:7px;margin:18px 0;font-weight:700}.ps-receipt-dialog input,.ps-receipt-dialog select{width:100%;box-sizing:border-box;padding:12px;border:1px solid #aebec5;border-radius:9px;background:white;color:#142f3a;font:inherit}.ps-receipt-actions{display:flex;gap:12px;justify-content:flex-end;margin-top:20px}.ps-receipt-message{font-weight:700}.ps-receipt-hold{padding:12px;background:#e3ecf1;border-radius:10px}.ps-receipt-hold:empty{display:none}
