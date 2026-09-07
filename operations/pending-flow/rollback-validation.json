@@ -1,0 +1,55 @@
+{
+  "checkedAt": "2026-09-07T07:27:40.270Z",
+  "migrationHash": "92ceac860b20e0a25d913a3fdc6fbc9906f1f5f429d1ee1dba59f58327b8c6cb",
+  "rolledBack": true,
+  "result": [
+    {
+      "checks": [
+        {
+          "name": "Changed receiving-account settings require a new check",
+          "passed": true
+        },
+        {
+          "name": "Corrected proof keeps history, ignores stale OCR and auto-confirms",
+          "passed": true
+        },
+        {
+          "name": "Corrected verified payment rechecks and restores available time",
+          "passed": true
+        },
+        {
+          "name": "Hold expiry releases court and preserves pending payment",
+          "passed": true
+        },
+        {
+          "name": "Idempotent upload recovery and retry rate limit",
+          "passed": true
+        },
+        {
+          "name": "OCR error persists pending proof without extending court hold",
+          "passed": true
+        },
+        {
+          "name": "Rejected, cancelled and manual approval transitions blocked",
+          "passed": true
+        },
+        {
+          "name": "Reused receipt file stays pending",
+          "passed": true
+        },
+        {
+          "name": "Settled original payments do not block later reschedule restoration",
+          "passed": true
+        },
+        {
+          "name": "Taken court remains pending with no partial rehold",
+          "passed": true
+        },
+        {
+          "name": "Unknown booking and unprivileged service calls denied",
+          "passed": true
+        }
+      ]
+    }
+  ]
+}

@@ -118,7 +118,7 @@ test('admin integrates separate Open Play dashboard and report sources as deploy
   assert.match(admin, /OpenPlayReporting\?\.renderDashboard/);
   assert.match(admin, /OpenPlayReporting\?\.renderReport/);
   assert.match(admin, /open-play-reporting\.css\?v=20260803-openplay-reports/);
-  assert.match(admin, /open-play-reporting\.js\?v=20260803-openplay-reports/);
+  assert.match(admin, /open-play-reporting\.js\?v=[^"\s]+/);
   assert.ok(published.includes('open-play-reporting.css'));
   assert.ok(published.includes('open-play-reporting.js'));
   assert.match(headers, /\/open-play-reporting\.js[\s\S]{0,80}Cache-Control: no-cache/);

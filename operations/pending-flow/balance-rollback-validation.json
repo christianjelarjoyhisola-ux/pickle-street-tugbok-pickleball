@@ -1,0 +1,39 @@
+{
+  "checkedAt": "2026-09-07T07:54:56.554Z",
+  "migrationHash": "9ea40de5fb9c778dcb0d488e0458d160229420a85f63c1c951360f43d1647ccb",
+  "rolledBack": true,
+  "result": [
+    {
+      "checks": [
+        {
+          "name": "Conflicting new reservation leaves extra payment pending and original intact",
+          "passed": true
+        },
+        {
+          "name": "Expired proposed time frees the court and preserves original reservation",
+          "passed": true
+        },
+        {
+          "name": "No manual rejection or approval; original booking remains usable",
+          "passed": true
+        },
+        {
+          "name": "OCR failure keeps original paid booking and finite proposed hold",
+          "passed": true
+        },
+        {
+          "name": "Replaced receipt history prevents reuse for a different balance",
+          "passed": true
+        },
+        {
+          "name": "Stale attempts and changed receiving accounts cannot approve",
+          "passed": true
+        },
+        {
+          "name": "Verified retry atomically changes schedule and settles exact extra amount",
+          "passed": true
+        }
+      ]
+    }
+  ]
+}

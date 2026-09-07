@@ -1,0 +1,230 @@
+import { createClient } from "@supabase/supabase-js";
+import { errorResponse,jsonResponse,noContentResponse,readJsonObject,RequestError } from "../_shared/http.ts";
+import { parseBookingAccessToken,verifyBookingAccessToken } from "../_shared/booking-access.ts";
+import { resolveTenantForRequest } from "../_shared/tenant.ts";
+import { detectReceiptText,inspectReceiptImage,parseReceiptObjectPath,RECEIPT_BUCKET,MAX_RECEIPT_BYTES,sha256Hex } from "../_shared/receipt-verification.ts";
+import { originalBookingStatus } from "./status.ts";
+import { originalBalanceStatus } from "./balance-status.ts";
+import { verifyByMethod,publicPendingReason } from "./parsers.ts";
+import { deliverEmail } from "../_shared/reschedule-booking.ts";
+import { sendMailerooEmail } from "../_shared/maileroo.ts";
+import { createSupabaseRescheduleBookingStore } from "./reschedule-store.ts";
+
+export const TENANT_ID="f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a";
+export const TENANT_SLUG="pickle-street-tugbok";
+type Obj=Record<string,any>;
+const obj=(value:unknown):Obj=>value && typeof value==='object' && !Array.isArray(value)?value as Obj:{};
+const env=(name:string)=>{const value=Deno.env.get(name)?.trim();if(!value)throw Error('Required service configuration unavailable');return value;};
+const dbClient=()=>createClient(env('SUPABASE_URL'),env('SUPABASE_SERVICE_ROLE_KEY'),{auth:{persistSession:false,autoRefreshToken:false}});
+type DB=ReturnType<typeof dbClient>;
+function reference(value:unknown):string{const s=String(value||'').trim().toUpperCase();if(!/^[A-Z0-9][A-Z0-9-]{5,39}$/.test(s))throw new RequestError(400,'BOOKING_REFERENCE_INVALID','Enter a valid booking reference.');return s;}
+function uuid(value:unknown):string{const s=String(value||'').trim().toLowerCase();if(!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(s))throw new RequestError(400,'REQUEST_ID_INVALID','Refresh the booking and try again.');return s;}
+function fail(code:string,message:string,status=409):never{throw new RequestError(status,code,message);}
+async function operator(db:DB,authorization:string|null):Promise<string>{
+  const token=/^Bearer (\S+)$/.exec(authorization||'')?.[1];if(!token)fail('AUTHENTICATION_REQUIRED','Sign in to retry receipt verification.',401);
+  const {data,error}=await db.auth.getUser(token!);const userId=data.user?.id;if(error||!userId)fail('AUTHENTICATION_REQUIRED','Sign in to retry receipt verification.',401);
+  const [membership,owner]=await Promise.all([
+    db.from('tenant_memberships').select('id').eq('tenant_id',TENANT_ID).eq('user_id',userId!).eq('status','active').in('role',['owner','admin','staff']).maybeSingle(),
+    db.from('platform_profiles').select('user_id').eq('user_id',userId!).eq('is_platform_owner',true).maybeSingle(),
+  ]);
+  if(membership.error||owner.error)fail('AUTHORIZATION_UNAVAILABLE','Staff access could not be verified.',503);
+  if(!membership.data&&!owner.data)fail('TENANT_ACCESS_DENIED','This account cannot manage Pickle Street receipts.',403);
+  return userId!;
+}
+async function bookingAccess(db:DB,ref:string,tokenValue:unknown,balanceId:string|null=null):Promise<Obj>{
+  const token=parseBookingAccessToken(tokenValue);
+  const {data:booking,error}=await db.from('bookings').select('id,reference,status,payment_status,metadata').eq('tenant_id',TENANT_ID).eq('reference',ref).single();
+  if(error||!booking)fail('BOOKING_ACCESS_DENIED','The private booking access is invalid.',401);
+  const access=balanceId
+    ? await db.from('booking_balance_requests').select('token_hash').eq('tenant_id',TENANT_ID).eq('booking_id',booking!.id).eq('id',balanceId).single()
+    : await db.from('booking_access_tokens').select('token_hash').eq('tenant_id',TENANT_ID).eq('booking_id',booking!.id).gt('expires_at',new Date().toISOString()).single();
+  if(access.error||!access.data)fail('BOOKING_ACCESS_DENIED','The private booking access is invalid or expired.',401);
+  await verifyBookingAccessToken({token,expectedHash:access.data!.token_hash});return booking!;
+}
+async function balanceStatusResponse(request:Request,db:DB,body:Obj,origin:string):Promise<Response>{
+  const balanceId=uuid(body.balanceRequestId);
+  const original=await originalBalanceStatus(new Request(request.url,{method:'POST',headers:request.headers,body:JSON.stringify({tenantSlug:TENANT_SLUG,balanceRequestId:balanceId,balanceToken:body.balanceToken})}));
+  if(!original.ok)return original;
+  const result=await original.json();
+  const fresh=await db.from('booking_balance_requests').select('id,booking_id,status,request_type,request_details,deadline_at').eq('tenant_id',TENANT_ID).eq('id',balanceId).single();
+  if(fresh.error||!fresh.data)fail('STATUS_UNAVAILABLE','The additional payment status could not be refreshed.',503);
+  const swept=await db.rpc('expire_picklestreet_balance_receipt_holds',{p_booking_id:fresh.data!.booking_id});
+  if(swept.error)fail('STATUS_UNAVAILABLE','Court availability could not be refreshed. The payment remains pending.',503);
+  const [job,receipt,session,slots]=await Promise.all([
+    db.from('picklestreet_balance_receipt_jobs').select('balance_request_id').eq('tenant_id',TENANT_ID).eq('balance_request_id',balanceId).maybeSingle(),
+    db.from('receipt_verifications').select('status,flags').eq('tenant_id',TENANT_ID).eq('balance_request_id',balanceId).order('created_at',{ascending:false}).limit(1).maybeSingle(),
+    db.from('payment_sessions').select('provider_payload').eq('tenant_id',TENANT_ID).eq('booking_id',fresh.data!.booking_id).eq('provider','manual_balance_receipt').contains('provider_payload',{balanceRequestId:balanceId}).order('created_at',{ascending:false}).limit(1).maybeSingle(),
+    db.from('booking_slots').select('status,hold_expires_at,balance_request_id').eq('tenant_id',TENANT_ID).eq('booking_id',fresh.data!.booking_id),
+  ]);
+  if(job.error||receipt.error||session.error||slots.error)fail('STATUS_UNAVAILABLE','The additional payment status could not be refreshed.',503);
+  const balance=fresh.data!;
+  const flow=!!job.data;
+  const pending=flow && !!receipt.data && ['pending','manual_review'].includes(receipt.data.status) && balance.status!=='settled';
+  const relevant=(slots.data||[]).filter(s=>balance.request_type==='reschedule_adjustment'?s.balance_request_id===balanceId:!s.balance_request_id);
+  const held=relevant.length>0 && relevant.every(s=>s.status==='confirmed'||(s.status==='held'&&new Date(s.hold_expires_at).getTime()>Date.now()));
+  result.balance={...result.balance,status:balance.status==='settled'?'settled':pending?'payment_review':result.balance.status,
+    receiptFlow:flow?'picklestreet_pending_balance_v1':null,receiptPending:pending,canSubmitReceipt:pending||(!receipt.data&&balance.status==='awaiting_payment'&&new Date(balance.deadline_at).getTime()>Date.now()),
+    reservationHeld:held,reservationStatus:balance.status,deadlineAt:balance.deadline_at,
+    paymentMethod:obj(session.data?.provider_payload).paymentMethod||'',submittedReference:obj(session.data?.provider_payload).submittedReference||'',
+    publicReason:pending?publicPendingReason(receipt.data?.flags||[],''):'',
+  };
+  return jsonResponse(result,200,origin);
+}
+async function statusResponse(request:Request,db:DB,body:Obj,origin:string):Promise<Response>{
+  const original=await originalBookingStatus(new Request(request.url,{method:'POST',headers:request.headers,body:JSON.stringify({tenantSlug:TENANT_SLUG,bookingReference:body.bookingReference,bookingToken:body.bookingToken})}));
+  if(!original.ok)return original;
+  const result=await original.json();
+  const {data:booking,error}=await db.from('bookings').select('id,metadata,status,payment_status,expires_at,payment_sessions(provider_payload,created_at),receipt_verifications(id,status,flags,created_at,balance_request_id),booking_slots(status,hold_expires_at,balance_request_id)').eq('tenant_id',TENANT_ID).eq('reference',reference(body.bookingReference)).single();
+  if(error||!booking)fail('STATUS_UNAVAILABLE','Booking status could not be refreshed.',503);
+  const metadata=obj(booking!.metadata);
+  const receipt=[...(booking!.receipt_verifications||[])].filter(r=>!r.balance_request_id).sort((a,b)=>b.created_at.localeCompare(a.created_at))[0];
+  const session=[...(booking!.payment_sessions||[])].sort((a,b)=>b.created_at.localeCompare(a.created_at))[0];
+  const flow=metadata.receiptFlow || null;
+  const pending=!!receipt && ['payment_review','expired','pending_payment'].includes(booking!.status) && booking!.payment_status==='pending';
+  const slots=(booking!.booking_slots||[]).filter(s=>!s.balance_request_id);
+  const held=slots.length>0&&slots.every(s=>s.status==='confirmed'||(s.status==='held'&&new Date(s.hold_expires_at).getTime()>Date.now()));
+  const flags=receipt?.flags||[];
+  result.booking={...result.booking,receiptFlow:flow,receiptPending:pending,reservationHeld:held,reservationStatus:booking!.status,
+    status:pending?'payment_review':result.booking.status,
+    canSubmitReceipt:pending && !!flow && ['manual_review','pending'].includes(receipt?.status),
+    paymentMethod:obj(session?.provider_payload).paymentMethod||'',submittedReference:obj(session?.provider_payload).submittedReference||'',
+    publicReason:pending?publicPendingReason(flags,String(metadata.receiptPendingReason||'')):'',
+  };
+  return jsonResponse(result,200,origin);
+}
+async function readImage(request:Request):Promise<{bytes:Uint8Array;type:string;extension:string}>{
+  const limit=MAX_RECEIPT_BYTES+128*1024;
+  if(Number(request.headers.get('content-length')||0)>limit)fail('RECEIPT_TOO_LARGE','Use a receipt image under 8 MB.',413);
+  const reader=request.body?.getReader();if(!reader)fail('RECEIPT_REQUIRED','Choose a receipt image.',400);
+  const chunks:Uint8Array[]=[];let size=0;
+  while(true){const part=await reader!.read();if(part.done)break;size+=part.value.byteLength;if(size>limit){await reader!.cancel();fail('RECEIPT_TOO_LARGE','Use a receipt image under 8 MB.',413);}chunks.push(part.value);}
+  const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
+  const form=await new Response(bytes,{headers:{'Content-Type':request.headers.get('content-type')||''}}).formData();
+  const file=form.get('receiptFile');if(!(file instanceof File)||file.size===0||file.size>MAX_RECEIPT_BYTES)fail('RECEIPT_REQUIRED','Choose a receipt image under 8 MB.',400);
+  const type=file.type.toLowerCase();const extension=({'image/jpeg':'jpg','image/png':'png','image/webp':'webp'} as Obj)[type];
+  if(!extension)fail('IMAGE_TYPE_UNSUPPORTED','Use a JPEG, PNG, or WebP receipt.',415);
+  return {bytes:new Uint8Array(await file.arrayBuffer()),type,extension};
+}
+async function verificationResult(db:DB,job:Obj,bytes:Uint8Array,type:string,finishRpc='finish_picklestreet_receipt_attempt'):Promise<Obj>{
+  let extracted:unknown=null,flags:string[]=[],paymentReference:string|null=null,confidence:number|null=null,autoApprove=false,errorCode:string|null=null,receiverSnapshot:Obj|null=null;
+  try {
+    const method=await db.from('tenant_payment_methods').select('account_name,account_reference').eq('tenant_id',TENANT_ID).eq('method_code',job.paymentMethod).eq('is_active',true).maybeSingle();
+    if(method.error||!method.data)fail('PAYMENT_METHOD_UNAVAILABLE','Receiving-account settings need attention.');
+    receiverSnapshot={method:job.paymentMethod,name:method.data!.account_name,account:method.data!.account_reference};
+    const tenant=await db.from('tenants').select('public_config').eq('id',TENANT_ID).single();if(tenant.error)throw Error('Settings unavailable');
+    const config=obj(tenant.data?.public_config);
+    const image=inspectReceiptImage(bytes,parseReceiptObjectPath(job.storagePath),type,type);
+    const vision=await detectReceiptText({bytes,apiKey:env('GOOGLE_VISION_API_KEY')});
+    const result=verifyByMethod({vision,image,expectedAmount:Number(job.expectedAmount),currency:job.currency,payment:{paymentMethod:job.paymentMethod,submittedReference:job.submittedReference,receiverName:method.data!.account_name,receiverReference:method.data!.account_reference,autoApprovalEnabled:config.bookingApprovalMode!=='manual'&&(job.paymentMethod==='gcash'||(Array.isArray(config.receiptAutoApprovalMethods)&&config.receiptAutoApprovalMethods.includes(job.paymentMethod)))},timing:{bookingStartedAt:job.bookingStartedAt,tenantTimezone:job.tenantTimezone}});
+    extracted=result.extractedData;flags=result.flags;paymentReference=result.paymentReference;confidence=result.extractedData.confidence.effective;autoApprove=result.autoApprove;
+  } catch(error){errorCode=error instanceof RequestError?error.code.toLowerCase():'verifier_unavailable';flags=['verification_unavailable'];}
+  const finished=await db.rpc(finishRpc,{p_attempt_id:job.attemptId,p_lease_token:job.leaseToken,p_extracted_data:extracted,p_flags:flags,p_payment_reference:paymentReference,p_confidence:confidence,p_auto_approve:autoApprove,p_error_code:errorCode,p_receiver_snapshot:receiverSnapshot});
+  if(finished.error||!finished.data)fail('VERIFICATION_PENDING','Your receipt is saved. Verification has not completed; check booking status before retrying.',503);
+  return obj(finished.data);
+}
+async function sendConfirmation(db:DB,result:Obj):Promise<void>{
+  if(result.balanceRequestId && !(result.status==='auto_approved'&&result.balanceStatus==='settled'))return;
+  if(result.bookingStatus!=='confirmed'||result.paymentStatus!=='paid')return;
+  try {
+    if(result.requestType==='reschedule_adjustment'){
+      if(!result.rescheduleEventId)return;
+      const store=createSupabaseRescheduleBookingStore({db,supabaseUrl:env('SUPABASE_URL'),anonKey:env('SUPABASE_ANON_KEY'),bookingAccessTokenSecret:env('BOOKING_ACCESS_TOKEN_SECRET')});
+      const delivered=await deliverEmail({store,tenantId:TENANT_ID,eventId:result.rescheduleEventId,forceResend:false,sender:{async send(message){return await sendMailerooEmail({apiKey:env('MAILEROO_API_KEY'),fromAddress:env('MAILEROO_FROM_EMAIL'),fromName:message.fromName,replyTo:message.replyTo,replyToName:message.replyToName,to:message.to,toName:message.toName,subject:message.subject,html:message.html,plainText:message.plainText,referenceId:message.referenceId,tags:message.tags});}}});
+      result.confirmationEmail=delivered.status;return;
+    }
+    const r=await fetch(env('SUPABASE_URL')+'/functions/v1/send-booking-email',{method:'POST',headers:{'Content-Type':'application/json','x-internal-secret':env('EDGE_INTERNAL_SECRET')},body:JSON.stringify({tenantSlug:TENANT_SLUG,bookingReference:result.bookingReference,emailKind:'booking_confirmed'}),signal:AbortSignal.timeout(15000)});
+    const sent=await r.json().catch(()=>({}));result.confirmationEmail=r.ok&&sent.ok===true?'sent':'pending';
+  }catch(_){result.confirmationEmail='pending';}
+}
+export async function handleRequest(request:Request):Promise<Response>{
+  let origin:string|undefined;
+  try {
+    if(!['POST','OPTIONS'].includes(request.method))return errorResponse(405,'METHOD_NOT_ALLOWED','Use POST.',origin);
+    if(request.headers.has('x-internal-secret'))fail('INTERNAL_CREDENTIAL_DENIED','Internal credentials are not accepted here.',403);
+    const url=new URL(request.url);
+    const slug=url.searchParams.get('tenantSlug')||request.headers.get('x-tenant-slug');
+    if(slug!==TENANT_SLUG)fail('TENANT_ACCESS_DENIED','This endpoint serves Pickle Street only.',403);
+    const db=dbClient();const context=await resolveTenantForRequest(db,slug,request.headers.get('origin'));
+    if(context.tenantId!==TENANT_ID)fail('TENANT_ACCESS_DENIED','The venue identity could not be verified.',403);
+    origin=context.origin;if(request.method==='OPTIONS')return noContentResponse(origin);
+    const isJson=request.headers.get('content-type')?.toLowerCase().startsWith('application/json');
+    const body=isJson?await readJsonObject(request,4096):{};
+    if(body.tenantSlug && body.tenantSlug!==TENANT_SLUG)fail('TENANT_ACCESS_DENIED','The venue identity could not be verified.',403);
+    if(body.action==='status')return await statusResponse(request,db,body,origin);
+    if(body.action==='balance_status')return await balanceStatusResponse(request,db,body,origin);
+    const action=isJson?String(body.action||''):'upload';
+    if(!['retry','upload'].includes(action))fail('ACTION_INVALID','This receipt action is unavailable.',400);
+    const balanceValue=isJson?body.balanceRequestId:request.headers.get('x-balance-request');
+    const balanceId=balanceValue?uuid(balanceValue):null;
+    const finishRpc=balanceId?'finish_picklestreet_balance_receipt_attempt':'finish_picklestreet_receipt_attempt';
+    const attemptsTable=balanceId?'picklestreet_balance_receipt_attempts':'picklestreet_receipt_attempts';
+    const jobsTable=balanceId?'picklestreet_balance_receipt_jobs':'picklestreet_receipt_jobs';
+    const scopeColumn=balanceId?'balance_request_id':'booking_id';
+    const ref=reference(isJson?body.bookingReference:request.headers.get('x-booking-reference'));
+    const key=uuid(isJson?body.idempotencyKey:request.headers.get('x-idempotency-key'));
+    let actor:string|null=null,booking:Obj;
+    if(action==='retry'){
+      actor=await operator(db,request.headers.get('authorization'));
+      const result=await db.from('bookings').select('id').eq('tenant_id',TENANT_ID).eq('reference',ref).single();
+      if(result.error||!result.data)fail('BOOKING_NOT_FOUND','The booking was not found.',404);booking=result.data!;
+    }else booking=await bookingAccess(db,ref,request.headers.get('x-booking-token'),balanceId);
+    const scopeId=balanceId||booking.id;
+    const previous=await db.from(attemptsTable).select('id').eq('tenant_id',TENANT_ID).eq(scopeColumn,scopeId).eq('idempotency_key',key).maybeSingle();
+    if(previous.error)fail('VERIFIER_UNAVAILABLE','Receipt checks are unavailable. Please try again shortly.',503);
+    if(!previous.data){
+      const recent=await db.from(attemptsTable).select('id',{count:'exact',head:true}).eq('tenant_id',TENANT_ID).eq(scopeColumn,scopeId).neq('action','legacy_snapshot').gt('created_at',new Date(Date.now()-30000).toISOString());
+      const lease=await db.from(jobsTable).select('lease_until').eq('tenant_id',TENANT_ID).eq(scopeColumn,scopeId).maybeSingle();
+      if(recent.error||lease.error)fail('VERIFIER_UNAVAILABLE','Receipt checks are unavailable. Please try again shortly.',503);
+      if((recent.count||0)>0 || (lease.data?.lease_until && new Date(lease.data.lease_until).getTime()>Date.now()))fail('RETRY_LATER','A receipt check was just attempted. Wait a minute and refresh before retrying.',429);
+    }
+    let bytes:Uint8Array|undefined,type='',storagePath:string|null=null,fileSha:string|null=null,method:string|null=null,submitted:string|null=null;
+    if(action==='upload'){
+      method=String(request.headers.get('x-payment-method')||'').trim().toLowerCase();
+      if(!['gcash','maya','bdo','bdo_pay','bdopay','bpi','gotyme','pnb'].includes(method))fail('PAYMENT_METHOD_UNAVAILABLE','Choose an available payment method.',400);
+      submitted=String(request.headers.get('x-payment-reference')||'').trim().toUpperCase();
+      if(!/^[A-Z0-9][A-Z0-9 -]{5,63}$/.test(submitted))fail('PAYMENT_REFERENCE_INVALID','Enter the transaction reference from your receipt.',400);
+      const image=await readImage(request);bytes=image.bytes;type=image.type;
+      storagePath=`${TENANT_ID}/receipts/${booking.id}/${key}.${image.extension}`;
+      inspectReceiptImage(bytes,parseReceiptObjectPath(storagePath),type,type);
+      fileSha=await sha256Hex(bytes);
+      const upload=await db.storage.from(RECEIPT_BUCKET).upload(storagePath,bytes,{contentType:type,upsert:false});
+      if(upload.error){
+        const existing=await db.storage.from(RECEIPT_BUCKET).download(storagePath);
+        if(existing.error||!existing.data||await sha256Hex(new Uint8Array(await existing.data.arrayBuffer()))!==fileSha)fail('UPLOAD_FAILED','The receipt could not be saved. Try again with the same image.',503);
+      }
+    }
+    const claimed=await db.rpc(balanceId?'begin_picklestreet_balance_receipt_attempt':'begin_picklestreet_receipt_attempt',{p_booking_id:booking.id,...(balanceId?{p_balance_request_id:balanceId}:{}),p_action:action,p_idempotency_key:key,p_storage_path:storagePath,p_file_sha256:fileSha,p_payment_method:method,p_submitted_reference:submitted,p_actor_user_id:actor});
+    if(claimed.error||!claimed.data){
+      const message=claimed.error?.message||'';
+      if(/rate|cooldown|too_many|busy|progress/i.test(message))fail('RETRY_LATER','A receipt check is already running or was just attempted. Wait a minute and refresh before retrying.',429);
+      fail('RECEIPT_PENDING','This receipt cannot be changed right now. Refresh the booking to see its current status.',409);
+    }
+    const job=obj(claimed.data);
+    if(job.busy)fail('RETRY_LATER','A receipt check is running. Wait a minute and refresh before retrying.',429);
+    const passed=(result:Obj)=>balanceId?result.status==='auto_approved'&&result.balanceStatus==='settled':result.bookingStatus==='confirmed'&&result.paymentStatus==='paid';
+    const successMessage=balanceId?'Your additional payment is verified. The booking update is complete.':'All payment checks passed. Your booking is confirmed.';
+    if(!job.claimed){const result=obj(job.result || job);await sendConfirmation(db,result);return jsonResponse({ok:true,...result,publicReason:passed(result)?successMessage:publicPendingReason(result.flags||[],result.errorCode||'verification_processing')},200,origin);}
+    if(!bytes){
+      const downloaded=await db.storage.from(RECEIPT_BUCKET).download(job.storagePath);
+      if(downloaded.error||!downloaded.data){
+        const finished=await db.rpc(finishRpc,{p_attempt_id:job.attemptId,p_lease_token:job.leaseToken,p_flags:['receipt_object_unavailable'],p_error_code:'receipt_object_unavailable'});
+        if(finished.error)fail('VERIFICATION_PENDING','The receipt remains pending. Its image could not be loaded.',503);
+        return jsonResponse({ok:true,...obj(finished.data),publicReason:'Pending — the receipt image could not be loaded. Please upload it again.'},200,origin);
+      }
+      bytes=new Uint8Array(await downloaded.data.arrayBuffer());type=downloaded.data.type;
+      if(await sha256Hex(bytes)!==job.fileSha256){
+        const finished=await db.rpc(finishRpc,{p_attempt_id:job.attemptId,p_lease_token:job.leaseToken,p_error_code:'receipt_file_changed'});
+        if(finished.error)fail('VERIFICATION_PENDING','The stored image could not be verified. Your receipt remains pending.',503);
+        return jsonResponse({ok:true,...obj(finished.data),publicReason:'Pending — the stored receipt could not be verified. Please upload the original image again.'},200,origin);
+      }
+    }
+    const result=await verificationResult(db,job,bytes,type,finishRpc);
+    await sendConfirmation(db,result);
+    return jsonResponse({ok:true,...result,publicReason:passed(result)?successMessage:publicPendingReason(result.flags||[],result.errorCode||'')},200,origin);
+  }catch(error){
+    if(error instanceof RequestError)return errorResponse(error.status,error.code,error.message,origin);
+    console.error('Pickle Street receipt service error',{type:error instanceof Error?error.name:'unknown'});
+    return errorResponse(503,'RECEIPT_SERVICE_UNAVAILABLE','The receipt service is unavailable. Your booking has not been rejected. Check its status before retrying.',origin);
+  }
+}
+if(import.meta.main)Deno.serve(handleRequest);

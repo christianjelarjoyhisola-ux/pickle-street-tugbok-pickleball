@@ -1,0 +1,7 @@
+{
+  "nodeModulesDir": "auto",
+  "imports": {
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.49.8",
+    "@js-temporal/polyfill": "npm:@js-temporal/polyfill@0.5.1"
+  }
+}

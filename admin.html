@@ -2654,7 +2654,7 @@ tr:hover td { background: var(--bg2); }
 
 </style>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="pickle-street.css?v=20260907-audit">
+<link rel="stylesheet" href="pickle-street.css?v=20260907-pending2">
 <meta name="robots" content="noindex,nofollow">
 </head>
 <body class="admin-booting" data-theme="light">
@@ -3004,7 +3004,7 @@ tr:hover td { background: var(--bg2); }
       <div class="pr-panel">
         <div class="pr-panel-head">
           <div class="pr-panel-title">
-            <h3>Manual Payment Review</h3>
+            <h3>Receipt Verification</h3>
             <div id="prQueueMeta">Showing payments that need attention</div>
           </div>
           <div class="pr-filter-bar">
@@ -3946,9 +3946,11 @@ tr:hover td { background: var(--bg2); }
       </div>
     </div>
     <div class="m-foot">
-      <button class="btn btn-d" onclick="rejectPayment()">❌ Not Received</button>
+      <button class="btn btn-d" id="vmRejectPaymentBtn" onclick="rejectPayment()">❌ Not Received</button>
       <button class="btn btn-g" id="vmShortPaymentBtn" hidden onclick="markPaymentShort()">Request Balance</button>
-      <button class="btn btn-p" onclick="verifyAndConfirm()">✅ Received — Confirm</button>
+      <button class="btn btn-p" id="vmManualConfirmBtn" onclick="verifyAndConfirm()">✅ Received — Confirm</button>
+      <button class="btn btn-g" id="vmPendingCloseBtn" hidden onclick="closeVerifyModal()">Close</button>
+      <button class="btn btn-p" id="vmRetryReceiptBtn" hidden onclick="retryAutomaticReceipt()">Retry verification</button>
     </div>
   </div>
 </div>
@@ -4315,6 +4317,7 @@ function isDashboardActiveBooking(b) {
   return isDashboardReportBooking(b) && !isCancelledBooking(b);
 }
 function bookingHoldsAdminSlot(b) {
+  if (b?.receiptPending && b.reservationHeld === false) return false;
   if (!b || isCancelledBooking(b)) return false;
   if (String(b.status || '').toLowerCase() !== 'verifying') return true;
   const created = b.createdAt || b.created_at;
@@ -4673,7 +4676,7 @@ const RECEIPT_FLAG_LABELS = {
   AMOUNT_REVIEW:'Amount needs owner review',
   DATE_UNREADABLE:'Date unreadable', TIME_UNREADABLE:'Time unreadable', NUMBER_UNREADABLE:'Receiver number unreadable',
   BDO_PAY_UNREADABLE:'BDO Pay/InstaPay unreadable', MAYA_UNREADABLE:'Maya unreadable', BPI_UNREADABLE:'BPI success unreadable', BPI_CONFIRMATION_UNREADABLE:'BPI confirmation unreadable', BPI_TRANSACTION_UNREADABLE:'BPI transaction ref unreadable', INSTAPAY_QRPH_UNREADABLE:'InstaPay/QRPh unreadable', GXI_DESTINATION_UNREADABLE:'GXI/GCash destination unreadable', RECEIVER_NAME_UNREADABLE:'Receiver name unreadable',
-  manual_review_required:'Manual review required', amount_not_detected:'Amount not detected',
+  manual_review_required:'Automatic checks pending', amount_not_detected:'Amount not detected',
   amount_mismatch:'Amount does not match', payment_reference_not_detected:'Reference not detected',
   payment_reference_mismatch:'Reference does not match', payment_method_unverified:'GCash receipt not verified',
   automatic_method_unsupported:'Automatic check not supported for this method',
@@ -4682,6 +4685,16 @@ const RECEIPT_FLAG_LABELS = {
   ocr_confidence_unavailable:'Vision confidence not provided',
   receipt_date_not_detected:'Receipt date not detected', receipt_time_not_detected:'Receipt time not detected',
   receipt_time_before_booking:'Receipt predates the booking', payment_window_expired:'Paid outside the 10-minute window',
+  transaction_not_successful:'Completed transfer not verified',
+  payment_receiver_name_unverified:'Recipient name could not be verified',
+  payment_principal_unverified:'Transferred amount could not be verified',
+  automatic_method_disabled:'Automatic checks are not enabled for this method',
+  currency_unverified:'Currency could not be verified',
+  verification_unavailable:'Verification could not finish — retry available',
+  receipt_object_unavailable:'Receipt image unavailable — corrected upload needed',
+  duplicate_receipt_file:'Receipt image already in use',
+  duplicate_payment_reference:'Transaction reference already in use',
+  receiver_configuration_changed:'Receiving account changed — retry verification',
 };
 function receiptReasonText(flags){
   if (!flags || !flags.length) return 'No specific reason saved';
@@ -4737,6 +4750,7 @@ function receiptBadge(b){
   };
   let [c,bg,lbl] = map[s] || ['#888','var(--input)',s];
   if (s === 'rejected') lbl = displayFlags.length ? `Rejected: ${reason}` : 'Flagged earlier — review manually';
+  if (window.PBReceiptPending?.receiptPending(b)) lbl = 'Pending'+(displayFlags.length ? ': '+reason : ' verification');
   return `<div class="receipt-badge" style="color:${c};background:${bg}">${esc(lbl)}</div>`;
 }
 function duplicatePaymentRefBadge(b){
@@ -5453,6 +5467,7 @@ function canRescheduleBooking(b) {
   return Number.isFinite(end.getTime()) && end.getTime() > Date.now();
 }
 function canRestoreCancelledBooking(b) {
+  if (window.PBReceiptPending?.automatic(b)) return false;
   if (!b || b.archivedAt || String(b.status || '').toLowerCase() !== 'cancelled') return false;
   if (String(b.paymentStatus || '').toLowerCase() !== 'paid') return false;
   const role = String(sess?.role || '').toLowerCase();
@@ -5462,7 +5477,7 @@ function bookingActionsHtml(b, canDelete){
   const grouped = Array.isArray(b.items) && b.items.length > 1;
   const actionRef = b.primaryRef || b.ref;
   if (window.PB_PLATFORM_V1) {
-    const canCancel = !['cancelled', 'forfeited', 'completed'].includes(String(b.status || '').toLowerCase());
+    const canCancel = !window.PBReceiptPending?.automatic(b) && !['cancelled', 'forfeited', 'completed'].includes(String(b.status || '').toLowerCase());
   const canArchive = canDelete && ['cancelled', 'forfeited', 'completed'].includes(String(b.status || '').toLowerCase());
     return `${bookingDetailsButton(b)}
       ${weatherRefundActionButton(b)}
@@ -7787,8 +7802,10 @@ async function renderDash(){
   $('dMost').textContent=most?most[0]:'—';
   const receivedTotals={};
   activeTxns.forEach(b=>{
+    const paid=Number(window.BookingBalance?.paidAmount?.(b)||0);
+    if(paid<=0)return;
     const key=receivedAccountKey(b);
-    receivedTotals[key]=(receivedTotals[key]||0)+Number(b.total||0);
+    receivedTotals[key]=(receivedTotals[key]||0)+paid;
   });
   forfeitedTxns.forEach(b=>{
     const key=receivedAccountKey(b);
@@ -8419,6 +8436,7 @@ function receivedAccountLabel(b) {
 }
 
 function bookingReviewStatus(b) {
+  if (window.PBReceiptPending?.balancePending(b) || window.PBReceiptPending?.pending(b)) return 'pending';
   if (b.receiptStatus === 'manual_review') return 'manual_review';
   if (b.receiptStatus === 'short_payment') return 'balance_due';
   if (b.receiptStatus === 'rejected' || b.paymentStatus === 'rejected') return 'rejected';
@@ -8485,6 +8503,10 @@ function paymentReviewRow(item) {
 }
 
 async function renderPaymentReview() {
+  if (window.PBReceiptPending?.enabled()) {
+    $('prRejected')?.closest('.pr-stat')?.setAttribute('hidden','');
+    document.querySelectorAll('#prStatus option[value="rejected"], #prStatus option[value="manual_review"]').forEach(el=>el.hidden=true);
+  }
   const bookings = await DB.getBookings();
   const bookingItems = groupBookings(bookings.filter(b => b.email !== 'reserve@hold.internal' && isDigitalPayment(b.paymentMethod)))
     .map(b => ({
@@ -8989,6 +9011,7 @@ function setVerifyPaymentSaving(saving) {
 }
 
 function canIssueShortPayment(b) {
+  if (window.PBReceiptPending?.automatic(b)) return false;
   const role = String(sess?.membershipRole || sess?.role || '').toLowerCase();
   return window.PB_PLATFORM_V1 &&
     ['owner', 'court_owner'].includes(role) &&
@@ -9052,6 +9075,14 @@ async function openVerifyModal(ref, { returnFocus = null } = {}) {
   if (openSeq !== _verifyModalOpenSeq) return;
   $('verifyModal').dataset.refs = JSON.stringify(b.refs || [ref]);
   $('verifyModal').dataset.total = String(Number(b.total || 0));
+  const automaticOnly = window.PBReceiptPending?.automatic(b) === true;
+  if ($('vmRejectPaymentBtn')) $('vmRejectPaymentBtn').hidden = automaticOnly;
+  if ($('vmManualConfirmBtn')) $('vmManualConfirmBtn').hidden = automaticOnly;
+  if ($('vmPendingCloseBtn')) $('vmPendingCloseBtn').hidden = !automaticOnly;
+  if ($('vmRetryReceiptBtn')) {
+    $('vmRetryReceiptBtn').hidden = !automaticOnly;
+    $('vmRetryReceiptBtn').disabled = _verifyPaymentSaving || !window.PBReceiptPending?.receiptRetryTarget(b);
+  }
   const shortAllowed = canIssueShortPayment(b);
   const shortPanel = $('vmShortPaymentPanel');
   const shortButton = $('vmShortPaymentBtn');
@@ -9136,11 +9167,12 @@ async function vmPopulateReceipt(b){
   let [c,bg,lbl] = map[s] || map.none;
   if (s === 'rejected') lbl = displayFlags.length ? `Rejected: ${receiptReasonText(displayFlags)}` : 'Flagged earlier — details parsed correctly; review manually';
   if (s === 'manual_review' && displayFlags.length) lbl = `Needs review: ${receiptReasonText(displayFlags)}`;
+  if (window.PBReceiptPending?.receiptPending(b)) lbl = 'Pending — '+(displayFlags.length ? receiptReasonText(displayFlags) : 'automatic checks are not complete');
   if (st) { st.style.color = c; st.style.background = bg; st.textContent = lbl; }
   $('vmReceiptFlags').innerHTML = receiptFlagChips(displayFlags);
   const detailBox = $('vmReceiptDetails');
   if (detailBox) {
-    detailBox.innerHTML = receiptDetailsHtml(b);
+    detailBox.innerHTML = receiptDetailsHtml(b) + (window.PBReceiptPending?.receiptPending(b) ? `<p>${esc(window.PBReceiptPending.receiptReason(b))}</p><p>${esc(window.PBReceiptPending.receiptHold(b))}</p><p>The customer can upload corrected proof from their private ${b.receiptBalanceRequestId ? 'balance payment' : 'booking'} link. Retry runs the payment checks again; it does not override them.</p>` : '');
     detailBox.style.display = '';
   }
   if (b.receiptImageUrl) {
@@ -9164,6 +9196,7 @@ async function verifyAndConfirm() {
   setVerifyPaymentSaving(true);
   try {
     const bkForPay = await getBookingGroupByRef(ref);
+    if (window.PBReceiptPending?.automatic(bkForPay)) { toast('Use Retry verification. This receipt stays pending until all automatic checks pass.', 'inf'); return; }
     if (isDigitalPayment(bkForPay?.paymentMethod) && !bkForPay?.receiptImageUrl) {
       toast('Cannot confirm: no receipt image is attached to this digital payment.', 'err');
       return;
@@ -9224,10 +9257,33 @@ async function rejectPayment() {
   finally { setVerifyPaymentSaving(false); }
 }
 
+const _receiptRetryKeys = new Map();
+async function retryAutomaticReceipt() {
+  const ref = $('verifyModal')?.dataset.ref;
+  if (!ref || _verifyPaymentSaving) return;
+  setVerifyPaymentSaving(true);
+  try {
+    const booking = await getBookingGroupByRef(ref);
+    const target = window.PBReceiptPending?.receiptRetryTarget(booking);
+    if (!target) { toast('This receipt has no pending automatic check to retry.', 'inf'); return; }
+    const key = [ref,target.balanceRequestId || 'booking',target.verificationId].join(':');
+    if (!_receiptRetryKeys.has(key)) _receiptRetryKeys.set(key, window.crypto.randomUUID());
+    const result = await DB.retryPaymentReceipt(ref, _receiptRetryKeys.get(key), target.balanceRequestId);
+    _receiptRetryKeys.delete(key);
+    const confirmed = target.balanceRequestId ? result.balanceStatus === 'settled' : result.bookingStatus === 'confirmed';
+    toast(result.publicReason || (confirmed ? 'All checks passed. Payment confirmed.' : 'Verification completed. This receipt remains pending.'), confirmed ? 'ok' : 'inf');
+    closeVerifyModal();
+    await Promise.allSettled([renderBookings(), renderDash(), _curSection === 'payreview' ? renderPaymentReview() : Promise.resolve()]);
+  } catch (error) {
+    toast(error.message || 'Verification is unavailable. The receipt stays pending.', 'err');
+  } finally { setVerifyPaymentSaving(false); }
+}
+
 async function performRejectPayment() {
   const ref = $('verifyModal').dataset.ref;
   if (!ref) return;
   const current = await getBookingGroupByRef(ref);
+  if (window.PBReceiptPending?.automatic(current)) { toast('Receipt problems stay pending. Ask for corrected proof or retry verification.', 'inf'); return; }
   const balanceProof = !!current?.receiptBalanceRequestId;
   const reason = prompt('Enter the reason for rejecting this payment receipt (3–1000 characters):');
   if (reason === null) return;
@@ -14713,8 +14769,8 @@ async function checkAgreementGate(session) {
 </script>
 
 <script src="supabase.min.js"></script>
-<script src="tenant-config.js?v=20260801-openplay-fee-backend-contract"></script>
-<script src="supabase-config.js?v=20260801-openplay-fee-backend-contract"></script>
+<script src="tenant-config.js?v=20260907-pending2"></script>
+<script src="supabase-config.js?v=20260907-pending2"></script><script src="receipt-pending.js?v=20260907-pending2"></script>
 <script src="open-play-data.js?v=20260803-openplay-reports"></script>
 <script src="open-play-admin.js?v=20260907-audit"></script>
 <script src="open-play-reporting.js?v=20260907-audit"></script>

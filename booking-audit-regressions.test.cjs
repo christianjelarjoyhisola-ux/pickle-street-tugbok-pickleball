@@ -49,7 +49,7 @@ test('clearing the reschedule date invalidates a pending availability response',
 
 function receiptHarness(getReceiptSignedUrl) {
   const $ = elements();
-  const context = { $, DB: { getReceiptSignedUrl }, _vmReceiptLoadSeq: 0,
+  const context = { $, window:{}, DB: { getReceiptSignedUrl }, _vmReceiptLoadSeq: 0,
     receiptFlagsForDisplay: () => [], receiptFlagChips: () => '', receiptDetailsHtml: () => '',
     receiptReasonText: () => '', _verifyModalOpenSeq: 0 };
   vm.runInNewContext(extract(admin, 'vmPopulateReceipt'), context);
@@ -166,7 +166,7 @@ function rejectionHarness(reason, { readFails = false } = {}) {
   $('verifyModal').dataset.ref = 'PS-TEST';
   const writes = [], messages = [];
   let confirmations = 0;
-  const context = { $, _verifyPaymentSaving: false, _curSection: 'bookings',
+  const context = { $, window:{}, _verifyPaymentSaving: false, _curSection: 'bookings',
     document: { querySelectorAll: () => [$('approveButton'), $('rejectButton')] },
     getBookingGroupByRef: async () => {
       if (readFails) throw new Error('Booking reload unavailable');

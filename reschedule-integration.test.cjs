@@ -11,7 +11,7 @@ test('reschedule deadlines must be today in Manila, future, and before play',()=
   assert.equal(context.isValidReschedulePaymentDeadline(new Date('2026-09-07T18:00:00+08:00'),'2026-09-07T17:00:00+08:00',now),false);
 });
 test('expired and cancelled adjustments explain that the original confirmed schedule remains',()=>{
-  const context={fmt:n=>'PHP '+n,balanceDeadlineLabel:()=> 'today'};
+  const context={fmt:n=>'PHP '+n,balanceDeadlineLabel:()=> 'today',automaticBalanceReceiptFlow:()=>false};
   vm.runInNewContext(extract(fs.readFileSync('index.html','utf8'),'balanceStatusCopy'),context);
   for(const status of ['expired','cancelled'])assert.match(context.balanceStatusCopy({requestType:'reschedule_adjustment',status})[1],/original confirmed schedule was kept/i);
   assert.match(context.balanceStatusCopy({requestType:'reschedule_adjustment',status:'payment_review'})[1],/original schedule remains confirmed/i);

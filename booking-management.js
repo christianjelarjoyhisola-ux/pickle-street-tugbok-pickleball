@@ -20,16 +20,18 @@
   function detail(label,value){const group=document.createElement('div');const dt=document.createElement('dt');dt.textContent=label;const dd=document.createElement('dd');dd.textContent=value||'—';group.append(dt,dd);return group;}
   function render(booking,access){
     const result=$('bookingResult');result.replaceChildren();result.hidden=false;
-    const status=document.createElement('span');status.className='ps-status';status.textContent=String(booking.status||'Pending').replaceAll('_',' ');
+    const status=document.createElement('span');status.className='ps-status';status.textContent=window.PBReceiptPending?.label(booking) || String(booking.status||'Pending').replaceAll('_',' ');
     const ref=document.createElement('p');ref.className='ps-booking-reference';ref.textContent=booking.reference||access.reference;
     const grid=document.createElement('dl');grid.className='ps-detail-grid';
     const date=booking.startsAt?new Date(booking.startsAt):null;
     grid.append(detail('Court',booking.courtName),detail('Date & time',date && Number.isFinite(date.getTime())?new Intl.DateTimeFormat('en-PH',{timeZone:'Asia/Manila',dateStyle:'medium',timeStyle:'short'}).format(date):booking.bookingDate),detail('Booking total',money(booking.totalAmount)),detail('Payment',String(booking.paymentStatus||'unpaid').replaceAll('_',' ')));
     const actions=document.createElement('div');actions.className='ps-result-actions';
+    if(booking.canSubmitReceipt===true){const correction=document.createElement('button');correction.className='btn btn-p';correction.textContent='Upload corrected receipt';correction.addEventListener('click',()=>window.PBReceiptPending.openUpload(access,booking,()=>lookup(access)));actions.append(correction);}
     const resume=document.createElement('a');resume.className='btn btn-p';resume.textContent='Open booking & payment';resume.href='index.html#resume='+encodeURIComponent(JSON.stringify(access));actions.append(resume);
     const refresh=document.createElement('button');refresh.className='btn btn-g';refresh.textContent='Refresh status';refresh.addEventListener('click',()=>lookup(access));actions.append(refresh);
     const note=document.createElement('p');note.className='ps-help';note.textContent='For a schedule change, contact the venue. The court manager will check availability and any payment adjustment before changing your booking.';
-    result.append(status,ref,grid,actions,note);
+    const paymentNote=document.createElement('p');paymentNote.className='ps-help';paymentNote.textContent=[window.PBReceiptPending?.reason(booking),window.PBReceiptPending?.hold(booking)].filter(Boolean).join(' ');
+    result.append(status,ref,grid,paymentNote,actions,note);
   }
   async function lookup(access){
     const request=++generation;const button=$('lookupButton');button.disabled=true;$('lookupMessage').className='';$('lookupMessage').textContent='Checking your booking…';$('bookingResult').hidden=true;

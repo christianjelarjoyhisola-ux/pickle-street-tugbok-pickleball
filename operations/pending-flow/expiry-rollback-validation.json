@@ -1,0 +1,11 @@
+{
+  "checkedAt": "2026-09-07T07:57:21.706Z",
+  "migrationHash": "3b6a33b54b4d2ecfba328d7d7ad6a52a368d74903a1b4d9c4d5347665e4ad4d3",
+  "rolledBack": true,
+  "result": [
+    {
+      "check": "Target-only expiry job configured; scheduler wrapper private",
+      "passed": true
+    }
+  ]
+}

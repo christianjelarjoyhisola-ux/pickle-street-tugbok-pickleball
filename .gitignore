@@ -28,3 +28,5 @@ test-results/
 tmp/imagegen/
 dist/
 artifacts/
+operations/pending-flow/deployed/
+operations/pending-flow/backend/supabase/.temp/

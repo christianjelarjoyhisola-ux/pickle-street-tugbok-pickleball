@@ -900,7 +900,11 @@ function _pbPlatformBookingToLegacy(row, courtMap, timeZone) {
     for (let index = 0; index < duration; index++) slots.push((fallbackStart + index) % 24);
   }
   const rawStatus = row.status;
-  const status = {
+  const receiptFlow = metadata.receiptFlow || null;
+  const receiptPending = !!receiptFlow && ['pending','for_verification'].includes(row.payment_status || row.paymentStatus) && ['pending_payment','payment_review','expired'].includes(rawStatus);
+  const reservationSlots = bookingSlots.filter(slot => !(slot.balance_request_id || slot.balanceRequestId));
+  const reservationHeld = reservationSlots.length > 0 && reservationSlots.every(slot => slot.status === 'confirmed' || (slot.status === 'held' && new Date(slot.hold_expires_at || slot.holdExpiresAt).getTime() > Date.now()));
+  const status = receiptPending ? 'pending' : {
     pending_payment: 'verifying',
     payment_review: 'pending',
     confirmed: 'confirmed',
@@ -1029,9 +1033,22 @@ function _pbPlatformBookingToLegacy(row, courtMap, timeZone) {
     receiptVerifiedAt: receipt?.reviewed_at || receipt?.verified_at || null,
     receiptExpectedAmount: receipt?.expected_amount == null ? null : Number(receipt.expected_amount),
     receiptBalanceRequestId: receipt?.balance_request_id || null,
+    receiptFlow,
+    receiptPending,
+    reservationHeld,
+    pendingReason: metadata.receiptPendingReason || null,
     balanceRequestId: balanceRequest?.id || null,
     balanceRequestType: balanceRequest?.request_type || balanceRequest?.requestType || null,
     balanceRequestStatus: balanceRequest?.status || null,
+    balanceReceiptFlow: String(metadata.balanceReceiptRequestId || '') === String(balanceRequest?.id || '') ? metadata.balanceReceiptFlow || null : null,
+    balancePendingReason: balanceRequest?.request_details?.receiptPendingReason || balanceRequest?.requestDetails?.receiptPendingReason || null,
+    balanceReservationHeld: balanceRequest ? (() => {
+      const adjustment = (balanceRequest.request_type || balanceRequest.requestType) === 'reschedule_adjustment';
+      const scoped = bookingSlots.filter(slot => adjustment
+        ? String(slot.balance_request_id || slot.balanceRequestId || '') === String(balanceRequest.id)
+        : !(slot.balance_request_id || slot.balanceRequestId));
+      return scoped.length > 0 && scoped.every(slot => slot.status === 'confirmed' || (slot.status === 'held' && new Date(slot.hold_expires_at || slot.holdExpiresAt).getTime() > Date.now()));
+    })() : null,
     balanceAcceptedAmount: balanceRequest ? Number(balanceRequest.accepted_amount ?? balanceRequest.acceptedAmount ?? 0) : null,
     remainingBalance: balanceRequest ? Number(balanceRequest.remaining_amount ?? balanceRequest.remainingAmount ?? 0) : null,
     balanceDeadlineAt: balanceRequest?.deadline_at || balanceRequest?.deadlineAt || null,
@@ -1508,7 +1525,7 @@ async function _invokePaymentSessionFallback(payload) {
 
 async function _invokeEdgeFunction(name, payload = {}, { allowFailure = false, preferDirect = false } = {}) {
   const endpoint = String(name).split('?')[0];
-  const guestEndpoint = ['create-booking','booking-status','cancel-booking','balance-payment-status','player-rain-report'].includes(endpoint);
+  const guestEndpoint = ['create-booking','booking-status','cancel-booking','balance-payment-status','player-rain-report'].includes(endpoint) || (endpoint === 'picklestreet-receipts' && ['status','balance_status'].includes(payload.action));
   if (PB_PLATFORM_V1 && payload.tenantSlug !== PB_TENANT_SLUG) throw new Error('A venue-scoped request is required.');
   if (guestEndpoint) preferDirect = true;
   let data = null;
@@ -1753,6 +1770,7 @@ function rowToDeletedBookingArchive(r) {
 const PB_RESERVATION_HOLD_MINUTES = 15;
 
 function bookingHoldsSlotForConflict(b) {
+  if (b?.receiptPending && b.reservationHeld === false) return false;
   if (!b || b.status === 'cancelled' || b.status === 'forfeited') return false;
   if (b.status !== 'verifying') return true;
 
@@ -2801,6 +2819,9 @@ window.DB = {
       if (!booking?.id) throw new Error('Booking not found or no longer accessible.');
       const nextStatus = String(updates?.status || '').toLowerCase();
       const nextPayment = String(updates?.paymentStatus || '').toLowerCase();
+      if (window.PBReceiptPending?.automatic(booking) && (nextStatus || nextPayment)) {
+        throw new Error('This receipt uses automatic verification. Keep it pending and use Retry verification; payment decisions cannot be overridden.');
+      }
       const decision = ['confirmed', 'paid'].includes(nextStatus) || ['paid', 'downpayment_paid'].includes(nextPayment)
         ? 'approve'
         : ['rejected'].includes(nextStatus) || nextPayment === 'rejected'
@@ -3779,6 +3800,7 @@ window.DB = {
     paymentMethod,
     paymentReference = '',
     receiptFile,
+    idempotencyKey = '',
   }) {
     if (!PB_PLATFORM_V1) throw new Error('The tenant receipt service is not enabled.');
     if (!receiptFile) throw new Error('Receipt screenshot is required.');
@@ -3788,10 +3810,12 @@ window.DB = {
       throw new Error('Use a JPEG, PNG, or WebP receipt image.');
     }
     const backendPaymentMethod = window.PB_PAYMENT_METHOD_CODES?.[paymentMethod] || paymentMethod;
+    const automaticFlow = window.PB_TENANT_CONFIG?.receiptReviewMode === 'auto_pending' && PB_TENANT_SLUG === 'pickle-street-tugbok';
+    const endpoint = automaticFlow ? 'picklestreet-receipts' : 'submit-payment-receipt';
     const form = new FormData();
     form.append('receiptFile', imageFile, imageFile.name || 'receipt.jpg');
     const response = await _pbFetchWithTimeout(
-      `${SUPABASE_URL.replace(/\/+$/, '')}/functions/v1/submit-payment-receipt?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      `${SUPABASE_URL.replace(/\/+$/, '')}/functions/v1/${endpoint}?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
       {
         method: 'POST',
         headers: {
@@ -3801,6 +3825,7 @@ window.DB = {
           'X-Booking-Token': String(bookingToken || ''),
           ...(balanceRequestId ? { 'X-Balance-Request': String(balanceRequestId) } : {}),
           'X-Payment-Method': String(backendPaymentMethod || ''),
+          ...(automaticFlow ? {'X-Idempotency-Key': idempotencyKey || window.crypto.randomUUID()} : {}),
           ...(paymentReference ? { 'X-Payment-Reference': String(paymentReference) } : {}),
         },
         body: form,
@@ -3822,9 +3847,10 @@ window.DB = {
   async getPublicBalancePaymentStatus({ balanceRequestId, balanceToken }) {
     if (!PB_PLATFORM_V1) throw new Error('The tenant balance-payment service is not enabled.');
     const result = await _invokeEdgeFunction(
-      `balance-payment-status?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      `${window.PB_TENANT_CONFIG?.receiptReviewMode === 'auto_pending' && PB_TENANT_SLUG === 'pickle-street-tugbok' ? 'picklestreet-receipts' : 'balance-payment-status'}?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
       {
         tenantSlug: PB_TENANT_SLUG,
+        ...(window.PB_TENANT_CONFIG?.receiptReviewMode === 'auto_pending' && PB_TENANT_SLUG === 'pickle-street-tugbok' ? {action:'balance_status'} : {}),
         balanceRequestId: String(balanceRequestId || ''),
         balanceToken: String(balanceToken || ''),
       },
@@ -3843,6 +3869,7 @@ window.DB = {
     paymentMethod,
     paymentReference = '',
     receiptFile,
+    idempotencyKey = '',
   }) {
     return this.submitPublicPaymentReceipt({
       bookingReference,
@@ -3851,6 +3878,7 @@ window.DB = {
       paymentMethod,
       paymentReference,
       receiptFile,
+      idempotencyKey,
     });
   },
 
@@ -3979,8 +4007,9 @@ window.DB = {
   async getPublicBookingStatus({ bookingReference, bookingToken }) {
     if (!PB_PLATFORM_V1) throw new Error('The tenant booking-status service is not enabled.');
     const result = await _invokeEdgeFunction(
-      `booking-status?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      `${window.PB_TENANT_CONFIG?.receiptReviewMode === 'auto_pending' && PB_TENANT_SLUG === 'pickle-street-tugbok' ? 'picklestreet-receipts' : 'booking-status'}?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
       {
+        ...(window.PB_TENANT_CONFIG?.receiptReviewMode === 'auto_pending' ? {action:'status'} : {}),
         tenantSlug: PB_TENANT_SLUG,
         bookingReference: String(bookingReference || ''),
         bookingToken: String(bookingToken || ''),
@@ -3992,6 +4021,17 @@ window.DB = {
       throw new Error(result?.message || result?.error || 'Booking status is unavailable.');
     }
     return booking;
+  },
+
+  async retryPaymentReceipt(bookingReference, idempotencyKey, balanceRequestId = '') {
+    if (!PB_PLATFORM_V1 || PB_TENANT_SLUG !== 'pickle-street-tugbok' || window.PB_TENANT_CONFIG?.receiptReviewMode !== 'auto_pending') throw new Error('Automatic receipt retry is unavailable.');
+    const result = await _invokeEdgeFunction(`picklestreet-receipts?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`, {
+      action:'retry',tenantSlug:PB_TENANT_SLUG,bookingReference:String(bookingReference || '').toUpperCase(),idempotencyKey:idempotencyKey || window.crypto.randomUUID(),
+      ...(balanceRequestId ? {balanceRequestId:String(balanceRequestId)} : {}),
+    }, {preferDirect:true});
+    if (!result?.ok) throw new Error(result?.message || 'Verification could not be retried. The receipt stays pending.');
+    _pbClearFastCache(['bookings','platformAvailability']);
+    return result;
   },
 
   async cancelPublicBookingHold({ bookingReference, bookingToken }) {

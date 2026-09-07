@@ -3488,7 +3488,7 @@ body.dark #splashScreen {
 }
 </style>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="pickle-street.css?v=2">
+<link rel="stylesheet" href="pickle-street.css?v=20260907-pending2">
 <meta name="robots" content="noindex,nofollow">
 </head>
 <body class="light">
@@ -4859,11 +4859,11 @@ function readPlatformRecovery() {
   const persistedKey = platformTenantStorageKey(PLATFORM_RECOVERY_KEY_BASE);
   const persisted = readPlatformJson(localStorage, persistedKey);
   const access = session || persisted || readPlatformRecoveryFragment();
-  const accessExpiry = new Date(access?.accessExpiresAt || access?.expiresAt || '').getTime();
+  const accessExpiry = new Date(access?.accessExpiresAt || '').getTime();
   const persistedAge = Date.now() - new Date(access?.persistedAt || '').getTime();
   if (!access?.reference || !access?.bookingToken || !platformRecordMatchesTenant(access) ||
       (Number.isFinite(accessExpiry) && accessExpiry <= Date.now()) ||
-      (!Number.isFinite(accessExpiry) && (!Number.isFinite(persistedAge) || persistedAge >= 24 * 60 * 60 * 1000))) {
+      (!Number.isFinite(accessExpiry) && Number.isFinite(persistedAge) && persistedAge >= 30 * 24 * 60 * 60 * 1000)) {
     if (persisted) removePlatformStorage(localStorage, persistedKey);
     if (readPlatformRecoveryFragment()) clearPlatformRecoveryFragment();
     return null;
@@ -10202,7 +10202,7 @@ async function submitPlatformBooking() {
       paymentReference,
       receiptFile: _receiptFile,
     });
-    const automaticallyApproved = result.status === 'auto_approved';
+    const automaticallyApproved = result.bookingStatus === 'confirmed' && result.paymentStatus === 'paid';
     const item = activeBookingItems()[0] || {};
     const server = access.booking || {};
     const booking = {
@@ -10225,7 +10225,7 @@ async function submitPlatformBooking() {
         flags: result.flags || [],
         message: result.publicReason || (automaticallyApproved
           ? 'Payment verified automatically. Your booking is confirmed.'
-          : 'Your full-payment receipt is awaiting staff review.'),
+          : 'Your receipt is saved. Automatic payment verification is pending.'),
       },
     };
     savePlatformStatusAccess(access);
@@ -10638,7 +10638,7 @@ function showInvoice(b) {
   const set = (id, value) => { const el = $(id); if (el) el.textContent = value; };
   const isConfirmed = b.status === 'confirmed';
   const receiptStatus = b._receiptResult?.status || b.receiptStatus || '';
-  const isRejected = b.status === 'cancelled' || b.paymentStatus === 'rejected' || receiptStatus === 'rejected';
+  const isRejected = b.status === 'cancelled' || (window.PB_TENANT_CONFIG?.receiptReviewMode !== 'auto_pending' && (b.paymentStatus === 'rejected' || receiptStatus === 'rejected'));
   const isDigitalPay = isDigitalPayMethod(b.paymentMethod);
   const eventBooking = b.bookingType === 'event';
   const isFullPay = b.downpayment >= b.total;
@@ -10655,7 +10655,7 @@ function showInvoice(b) {
   if (heroEl && isRejected) heroEl.classList.add('inv-hero--rejected');
 
   set('iTitle', isRejected ? 'Receipt Rejected' : isConfirmed ? (eventBooking ? 'Event Confirmed!' : 'Booking Confirmed!') : (eventBooking ? 'Event Booking Received!' : 'Booking Received!'));
-  set('iHeroSub', isRejected ? 'Your receipt could not be verified. Please make a new booking.' : isConfirmed ? (eventBooking ? 'Your fully paid event reservation is confirmed.' : 'Your court is confirmed. See you on the court!') : isDigitalPay ? 'Full payment received for review. We will confirm after verification.' : 'Your request is received. Staff will confirm after payment.');
+  set('iHeroSub', isRejected ? 'This booking is cancelled. Contact the venue if you already paid.' : isConfirmed ? (eventBooking ? 'Your fully paid event reservation is confirmed.' : 'Your court is confirmed. See you on the court!') : isDigitalPay ? 'Receipt saved. Your booking stays pending until all payment checks pass.' : 'Your request is received. Staff will confirm after payment.');
   const statusEl = $('iStatus');
   if (statusEl) {
     statusEl.textContent = isRejected ? 'Receipt Rejected' : isConfirmed ? 'Confirmed' : isDigitalPay ? 'Pending Verification' : 'Pending Confirmation';
@@ -10692,7 +10692,7 @@ function showInvoice(b) {
   const invoiceDownLabel = b.hostBooking ? 'Reservation Payment Due' : 'Required Payment Due';
   set('iDownLabel', isFullPay ? 'Full Payment' : invoiceDownLabel);
   set('iDownNote', isRejected ? 'Receipt verification failed. The slot has been released.' :
-    isFullPay ? 'Fully paid. No balance due on arrival.' :
+    isFullPay && isConfirmed ? 'Fully paid. No balance due on arrival.' :
     hostDeadline ? `Your remaining balance is due by ${window.BookingBalance.formatDeadline(hostDeadline)}.` :
     b.gcashRef ? `${payLabel} ref submitted. Owner will verify shortly.` :
     (paymentReceiver(b.paymentMethod).instructions || 'Follow the configured payment instructions.'));
@@ -10702,7 +10702,7 @@ function showInvoice(b) {
     const flags = b._receiptResult.flags || [];
     const noteEl = $('iDownNote');
 
-    if (s === 'rejected') {
+    if (s === 'rejected' && window.PB_TENANT_CONFIG?.receiptReviewMode !== 'auto_pending') {
       // Red hero
       if (heroEl) heroEl.classList.add('inv-hero--rejected');
       if (checkIconEl) checkIconEl.textContent = '✕';
@@ -10716,24 +10716,24 @@ function showInvoice(b) {
         const flagText = flags.length ? ' Reason: ' + flags.map(f => f.replace(/_/g,' ')).join(', ') + '.' : '';
         noteEl.textContent = `❌ Your booking has been cancelled. Please make a new booking and upload a valid ${payLabel} receipt.` + flagText;
       }
-    } else if (s === 'auto_approved') {
+    } else if (s === 'auto_approved' && isConfirmed) {
       if (heroEl) heroEl.classList.add('inv-hero--approved');
       set('iTitle', 'Payment Verified!');
-      set('iHeroSub', 'Your receipt is verified — your slot is being confirmed.');
+      set('iHeroSub', 'Your payment passed verification and your court booking is confirmed.');
       if (statusEl) {
         statusEl.textContent = '✅ Payment Verified';
         statusEl.className = 'inv-status-bdg inv-status-confirmed';
       }
       if (noteEl) noteEl.textContent = hostDeadline && !isFullPay
         ? `Payment verified. Your remaining balance is due by ${window.BookingBalance.formatDeadline(hostDeadline)}.`
-        : 'Payment auto-verified from your receipt! Your slot is being confirmed.';
+        : 'Payment verified. Your court booking is confirmed.';
     } else {
       // manual_review
       if (statusEl) {
         statusEl.textContent = '🕓 Pending Verification';
         statusEl.className = 'inv-status-bdg inv-status-review';
       }
-      if (noteEl) noteEl.textContent = '🕓 Receipt received — the owner will verify your payment shortly.';
+      if (noteEl) noteEl.textContent = b._receiptResult.message || 'Receipt saved. Your booking remains pending until all automatic checks pass.';
     }
   }
 
@@ -10749,8 +10749,8 @@ function showInvoice(b) {
       ['Booking confirmed', 'done'],
     ] : isDigitalPay ? [
       ['Booking submitted', 'done'],
-      ['Payment review', 'active'],
-      ['Admin confirmation', 'pending'],
+      ['Automatic payment checks', 'active'],
+      ['Booking confirmation', 'pending'],
     ] : [
       ['Booking submitted', 'done'],
       ['Follow payment instructions', 'active'],
@@ -10774,7 +10774,7 @@ function showInvoice(b) {
     ] : b.gcashRef ? [
       ['Keep this booking reference for status updates.', '1'],
       [`Your ${esc(payLabel)} ref # has been submitted for verification.`, '2'],
-      ['You\'ll receive a confirmation once the owner verifies payment.', '3'],
+      ['You\'ll receive confirmation after all payment and availability checks pass.', '3'],
     ] : b.paymentMethod === 'cash' ? [
       ['Keep this booking reference for status updates.', '1'],
       [paymentReceiver('cash').instructions ? esc(paymentReceiver('cash').instructions) : 'Follow the configured payment instructions.', '2'],
@@ -11211,10 +11211,11 @@ async function restorePlatformBookingHold({ openModal = false, silent = false } 
 }
 
 function publicBookingStatusCopy(booking) {
+  if (window.PBReceiptPending?.pending(booking)) return 'Pending — '+window.PBReceiptPending.reason(booking)+' '+window.PBReceiptPending.hold(booking);
   const status = String(booking?.status || '').toLowerCase();
   const payment = String(booking?.paymentStatus || '').toLowerCase();
   if (status === 'confirmed' || payment === 'paid') return 'Confirmed — your payment was approved.';
-  if (status === 'payment_review' || payment === 'pending') return 'Payment receipt received — awaiting staff review.';
+  if (status === 'payment_review' || payment === 'pending') return 'Pending — receipt saved; automatic verification has not completed.';
   if (status === 'expired') return 'Expired — the payment window ended before approval.';
   if (status === 'cancelled' || payment === 'rejected') return `Not confirmed — please contact ${PUBLIC_BUSINESS_NAME || 'the venue'} if you already paid.`;
   return 'Booking is being processed.';
@@ -11354,6 +11355,13 @@ function renderPublicBookingStatus(reference, booking) {
     $('courts')?.before(bar);
   }
   $('platformBookingStatusText').textContent = `Booking ${reference}: ${publicBookingStatusCopy(booking)}`;
+  let correction = $('platformCorrectReceipt');
+  if (!correction) {
+    correction = document.createElement('button');correction.id='platformCorrectReceipt';correction.type='button';correction.className='btn btn-p btn-sm';
+    correction.textContent='Upload corrected receipt';bar.append(correction);
+  }
+  correction.hidden = booking?.canSubmitReceipt !== true;
+  correction.onclick = () => window.PBReceiptPending?.openUpload(readPlatformStatusAccess(), booking, () => startSavedPlatformBookingPolling());
   const rainRefund = $('platformWeatherRefundStatus');
   if (rainRefund) {
     const copy = publicWeatherRefundCopy(booking) || publicPlayerRainClaimCopy(booking);
@@ -11471,9 +11479,26 @@ function balanceDeadlineLabel(value) {
   }).format(deadline);
 }
 
+function automaticBalanceReceiptFlow() {
+  return window.PB_PLATFORM_V1 && window.PBReceiptPending?.enabled() === true;
+}
+
+function balanceCanSubmitReceipt(balance) {
+  return automaticBalanceReceiptFlow()
+    ? balance?.canSubmitReceipt === true && ['awaiting_payment','payment_review'].includes(balance?.status)
+    : balance?.status === 'awaiting_payment';
+}
+
 function balanceStatusCopy(balance) {
   const status = String(balance?.status || '');
   const adjustment = balance?.requestType === 'reschedule_adjustment';
+  if (automaticBalanceReceiptFlow() && ['awaiting_payment','payment_review'].includes(status)) {
+    const saved = !!balance.receipt;
+    const reason = balance.publicReason || (saved ? 'Receipt saved. All automatic checks must pass before confirmation.' : 'Submit proof of the exact remaining payment.');
+    const schedule = adjustment ? ' Your original confirmed schedule remains in place until the additional payment and requested new time are confirmed.' : '';
+    const hold = balance.reservationHeld === false ? (adjustment ? ' The requested new-time hold has ended; availability will be checked again.' : ' The court hold has ended; availability will be checked again before confirmation.') : '';
+    return ['', 'Pending — ' + reason + schedule + hold];
+  }
   if (status === 'settled') return ['success', adjustment
     ? 'Additional payment confirmed. Your requested new schedule is finalized.'
     : 'Payment complete. Your booking is confirmed.'];
@@ -11497,7 +11522,7 @@ function balanceMethodDetailHtml(method) {
       <strong>${esc(method.displayName || method.code || 'Payment')}</strong>
       ${receiver ? `<div>${esc(receiver)}</div>` : ''}
       ${method.instructions ? `<div style="margin-top:5px">${esc(method.instructions)}</div>` : ''}
-      <div style="margin-top:7px;font-weight:800;color:var(--text)">Pay exactly ${fmt(Number(_balancePaymentState?.remainingAmount || 0))}.</div>
+      <div style="margin-top:7px;font-weight:800;color:var(--text)">${automaticBalanceReceiptFlow() && _balancePaymentState?.receipt ? 'Receipt must show exactly' : 'Pay exactly'} ${fmt(Number(_balancePaymentState?.remainingAmount || 0))}.</div>
     </div>
     ${method.qrImageUrl ? `<img class="balance-method-qr" src="${esc(method.qrImageUrl)}" alt="${esc(method.displayName || 'Payment')} QR code">` : ''}
   `;
@@ -11516,7 +11541,8 @@ function renderBalancePayment(balance) {
   const actions = $('balancePayActions');
   if (!body || !actions) return;
   const [statusClass, statusText] = balanceStatusCopy(balance);
-  const active = balance.status === 'awaiting_payment';
+  const active = balanceCanSubmitReceipt(balance);
+  const correction = automaticBalanceReceiptFlow() && !!balance.receipt;
   const adjustment = balance.requestType === 'reschedule_adjustment';
   body.closest('.balance-pay-card')?.classList.toggle('has-form', active);
   if ($('balancePayTitle')) $('balancePayTitle').textContent = adjustment
@@ -11537,7 +11563,7 @@ function renderBalancePayment(balance) {
     </div>
     ${active ? `
       <div class="balance-pay-section">
-        <h3 class="balance-pay-step"><span class="balance-step-number">1</span><span>Send the exact ${adjustment?'additional':'remaining'} amount</span></h3>
+        <h3 class="balance-pay-step"><span class="balance-step-number">1</span><span>${correction ? 'Choose the method used for your payment' : `Send the exact ${adjustment?'additional':'remaining'} amount`}</span></h3>
         <label class="fl" for="balancePayMethod">Payment method</label>
         <select class="fi" id="balancePayMethod" onchange="updateBalancePaymentMethod()">
           ${methods.map(method => `<option value="${esc(method.code)}">${esc(method.displayName || method.code)}</option>`).join('')}
@@ -11545,7 +11571,8 @@ function renderBalancePayment(balance) {
         <div class="balance-method-detail" id="balancePayMethodDetail"></div>
       </div>
       <div class="balance-pay-section">
-        <h3 class="balance-pay-step"><span class="balance-step-number">2</span><span>Submit the new receipt</span></h3>
+        <h3 class="balance-pay-step"><span class="balance-step-number">2</span><span>${correction ? 'Upload corrected proof of your existing payment' : 'Submit the new receipt'}</span></h3>
+        ${automaticBalanceReceiptFlow() ? '<p>Do not pay again because verification is pending. Upload a clear receipt of the payment you already made.</p>' : ''}
         <div class="fg" style="margin:0 0 10px">
           <label class="fl" for="balancePayReference">Payment reference number</label>
           <input class="fi" id="balancePayReference" type="text" maxlength="64" autocomplete="off" placeholder="Enter the reference shown on the new receipt">
@@ -11560,11 +11587,17 @@ function renderBalancePayment(balance) {
   `;
   actions.innerHTML = active
     ? `<button class="btn btn-g" type="button" onclick="closeBalancePayment()">Close</button>
-       <button class="btn btn-p" id="balancePaySubmit" type="button" onclick="submitBalanceReceipt()">Submit ${adjustment?'additional':'balance'} payment</button>`
+       <button class="btn btn-p" id="balancePaySubmit" type="button" onclick="submitBalanceReceipt()">${correction ? 'Submit corrected receipt' : `Submit ${adjustment?'additional':'balance'} payment`}</button>
+       ${automaticBalanceReceiptFlow() ? '<button class="btn btn-g" type="button" onclick="refreshBalancePayment()">Check status</button>' : ''}`
     : `<button class="btn btn-g" type="button" onclick="closeBalancePayment()">Close</button>
        ${balance.status === 'payment_review' ? `<button class="btn btn-p" type="button" onclick="refreshBalancePayment()">Check status</button>` : ''}`;
   actions.hidden = false;
-  if (active) updateBalancePaymentMethod();
+  if (active) {
+    const method = $('balancePayMethod');
+    if (method && methods.some(item => item.code === balance.paymentMethod)) method.value = balance.paymentMethod;
+    if ($('balancePayReference')) $('balancePayReference').value = balance.submittedReference || '';
+    updateBalancePaymentMethod();
+  }
   if (balance.status === 'settled') {
     const clean = new URL(location.href);
     clean.hash = '';
@@ -11572,7 +11605,12 @@ function renderBalancePayment(balance) {
   }
 }
 
+let _balanceReceiptSaving = false;
+let _balanceReceiptAttempt = null;
+
 function setBalanceReceiptFile(file) {
+  if (_balanceReceiptSaving) return;
+  _balanceReceiptAttempt = null;
   if (_balanceReceiptPreviewUrl) URL.revokeObjectURL(_balanceReceiptPreviewUrl);
   _balanceReceiptPreviewUrl = '';
   _balanceReceiptFile = file || null;
@@ -11591,8 +11629,9 @@ function setBalanceReceiptFile(file) {
 }
 
 async function refreshBalancePayment() {
-  if (!_balancePaymentAccess) return;
+  if (!_balancePaymentAccess || _balanceReceiptSaving) return;
   try {
+    setBalanceReceiptFile(null);
     const balance = await DB.getPublicBalancePaymentStatus(_balancePaymentAccess);
     renderBalancePayment(balance);
   } catch (error) {
@@ -11601,6 +11640,58 @@ async function refreshBalancePayment() {
 }
 
 async function submitBalanceReceipt() {
+  if (!automaticBalanceReceiptFlow()) return submitBalanceReceiptLegacy();
+  if (_balanceReceiptSaving || !_balancePaymentAccess || !balanceCanSubmitReceipt(_balancePaymentState)) return;
+  const paymentReference = String($('balancePayReference')?.value || '').trim();
+  const method = $('balancePayMethod')?.value || '';
+  const file = _balanceReceiptFile;
+  if (paymentReference.length < 6 || !file || !method) {
+    toast('Choose a method, enter the receipt reference and attach the receipt image.', 'err');
+    return;
+  }
+  const access = {..._balancePaymentAccess};
+  const snapshot = _balancePaymentState;
+  const fingerprint = JSON.stringify([access.balanceRequestId, method, paymentReference]);
+  if (!_balanceReceiptAttempt || _balanceReceiptAttempt.fingerprint !== fingerprint || _balanceReceiptAttempt.file !== file) {
+    _balanceReceiptAttempt = {fingerprint, file, key:window.crypto.randomUUID()};
+  }
+  _balanceReceiptSaving = true;
+  const controls = [...document.querySelectorAll('#balancePayBody input, #balancePayBody select, #balancePayActions button')];
+  controls.forEach(control => { control.disabled = true; });
+  try {
+    const result = await DB.submitPublicBalanceReceipt({
+      bookingReference:snapshot.bookingReference, balanceRequestId:access.balanceRequestId,
+      balanceToken:access.balanceToken, paymentMethod:method, paymentReference,
+      receiptFile:file, idempotencyKey:_balanceReceiptAttempt.key,
+    });
+    _balanceReceiptAttempt = null;
+    if (_balanceReceiptPreviewUrl) URL.revokeObjectURL(_balanceReceiptPreviewUrl);
+    _balanceReceiptPreviewUrl = ''; _balanceReceiptFile = null;
+    // An original reschedule booking is already paid/confirmed. Only the
+    // balance request's committed state can confirm its additional payment.
+    const settled = automaticBalanceReceiptFlow() ? result.balanceStatus === 'settled' : result.status === 'auto_approved';
+    const next = await DB.getPublicBalancePaymentStatus(access).catch(() => ({
+      ...snapshot, status:settled ? 'settled' : 'payment_review',
+      canSubmitReceipt:!settled && snapshot.canSubmitReceipt === true,
+      publicReason:result.publicReason || 'Receipt saved. Verification remains pending.',
+      reservationHeld:result.reservationHeld ?? snapshot.reservationHeld,
+      receipt:{status:result.status,verificationId:result.verificationId},
+      submittedReference:paymentReference,paymentMethod:method,
+    }));
+    renderBalancePayment(next);
+    const success = next.status === 'settled';
+    toast(next.publicReason || result.publicReason || (success ? (snapshot.requestType === 'reschedule_adjustment' ? 'Additional payment confirmed. Your new schedule is finalized.' : 'Balance payment confirmed.') : 'Receipt saved. Verification remains pending; do not pay again.'), success ? 'ok' : 'inf');
+  } catch (error) {
+    // Keep the same key and file for an interrupted request. A previous
+    // receipt on this balance is not proof that this replacement was saved.
+    toast((error?.message || 'The receipt request could not be completed.') + ' Check status before retrying; your original booking has not been cancelled.', 'err');
+  } finally {
+    _balanceReceiptSaving = false;
+    controls.filter(control => document.contains(control)).forEach(control => { control.disabled = false; });
+  }
+}
+
+async function submitBalanceReceiptLegacy() {
   if (!_balancePaymentAccess || !_balancePaymentState || _balancePaymentState.status !== 'awaiting_payment') return;
   const paymentReference = String($('balancePayReference')?.value || '').trim();
   if (paymentReference.length < 5) {
@@ -11673,6 +11764,7 @@ async function openBalancePaymentFromLink() {
 }
 
 function closeBalancePayment() {
+  if (_balanceReceiptSaving) return;
   const overlay = $('balancePayOverlay');
   overlay?.classList.remove('show');
   overlay?.setAttribute('aria-hidden', 'true');
@@ -12060,8 +12152,8 @@ async function expireStaleVerifyingBookings() {
 
 </script>
 <script src="supabase.min.js"></script>
-<script src="tenant-config.js?v=20260801-openplay-fee-backend-contract"></script>
-<script src="supabase-config.js?v=20260801-openplay-fee-backend-contract"></script>
+<script src="tenant-config.js?v=20260907-pending2"></script>
+<script src="supabase-config.js?v=20260907-pending2"></script><script src="receipt-pending.js?v=20260907-pending2"></script>
 <script src="open-play-data.js?v=20260801-openplay-fee-settings"></script>
 <script src="open-play-public.js?v=20260801-openplay-fee-settings"></script>
 

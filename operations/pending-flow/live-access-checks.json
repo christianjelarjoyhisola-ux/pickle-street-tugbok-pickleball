@@ -1,0 +1,55 @@
+{
+  "checkedAt": "2026-09-07T07:58:28.438Z",
+  "results": [
+    {
+      "name": "Browser preflight",
+      "status": 204,
+      "passed": true
+    },
+    {
+      "name": "Other tenant denied",
+      "status": 403,
+      "passed": true
+    },
+    {
+      "name": "Unmapped origin denied",
+      "status": 403,
+      "passed": true
+    },
+    {
+      "name": "Invalid private booking link denied",
+      "status": 401,
+      "passed": true
+    },
+    {
+      "name": "Staff retry requires sign-in",
+      "status": 401,
+      "passed": true
+    },
+    {
+      "name": "Private balance link required",
+      "status": 401,
+      "passed": true
+    },
+    {
+      "name": "Balance retry requires staff sign-in",
+      "status": 401,
+      "passed": true
+    },
+    {
+      "name": "Guest cannot call the receipt transaction",
+      "status": 401,
+      "passed": true
+    },
+    {
+      "name": "Guest cannot settle an additional payment",
+      "status": 401,
+      "passed": true
+    },
+    {
+      "name": "Guest cannot invoke scheduled cleanup",
+      "status": 401,
+      "passed": true
+    }
+  ]
+}

@@ -69,6 +69,15 @@ test('guest booking status uses anonymous authorization even when a manager is r
   const request=calls.find(call=>call.kind==='fetch');const headers=new Headers(request.init.headers);
   assert.equal(headers.get('X-Tenant-Slug'),SLUG);assert.ok(!headers.get('Authorization').includes('test-manager-token'));
   assert.equal(JSON.parse(request.init.body).tenantSlug,SLUG);
+  assert.match(request.url,/picklestreet-receipts/);assert.equal(JSON.parse(request.init.body).action,'status');
+});
+
+test('receipt retry uses staff authorization and a stable caller request id',async()=>{
+  const {context:c,calls}=boot({scope:'manager',response:{ok:true,bookingStatus:'payment_review',paymentStatus:'pending'}});
+  const result=await c.DB.retryPaymentReceipt('PS-TEST','00000000-0000-4000-8000-000000000001');
+  const request=calls.find(call=>call.kind==='fetch');assert.match(request.url,/picklestreet-receipts/);
+  assert.ok(new Headers(request.init.headers).get('Authorization').includes('test-manager-token'));
+  assert.equal(JSON.parse(request.init.body).idempotencyKey,'00000000-0000-4000-8000-000000000001');assert.equal(result.paymentStatus,'pending');
 });
 test('published manager-only RPC signatures remain usable without weakening public scope',async()=>{
   for(const scope of ['public','manager']) {
