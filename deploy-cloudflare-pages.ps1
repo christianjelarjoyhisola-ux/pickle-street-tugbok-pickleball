@@ -1,1 +1,8 @@
-throw 'Standalone deployment is disabled for this shared-platform tenant. Use the reviewed Sites release workflow.'
+$ErrorActionPreference = 'Stop'
+Push-Location -LiteralPath $PSScriptRoot
+try {
+    npm run deploy:cloudflare
+    if ($LASTEXITCODE -ne 0) { throw 'Pickle Street deployment failed.' }
+} finally {
+    Pop-Location
+}

@@ -15,14 +15,15 @@ Configure the venue inside the dashboard:
 5. Set platform billing, remittance destination, booking email preferences, and Open Play fees if needed.
 6. Complete server readiness checks and initial activation. Booking is closed until readiness passes.
 
-**Infrastructure still pending:** an origin-approved Turnstile widget must be configured in `tenant-config.js` before customer reservations can open. The current Cloudflare session was signed out. Never insert a dummy token or disable server validation. The site is initially published for the owner only.
+**Cloudflare deployment:** https://picklestreet.pages.dev is the public website. The Pages hostname is registered as this tenant's primary domain and has an approved Turnstile widget. Customer bookings remain closed until the venue setup above is completed. The earlier Sites preview remains separate and owner-private.
 
 ## Tenant boundary
 
 - Supabase project: `neqvrwtofiolcuxewdze`
 - Slug: `pickle-street-tugbok`
 - ID: `f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a`
-- Registered host: `pickle-street-tugbok.boothsandbeyondoffic.chatgpt.site`
+- Primary registered host: `picklestreet.pages.dev`
+- Previous preview host (retained): `pickle-street-tugbok.boothsandbeyondoffic.chatgpt.site`
 - Sites project: `appgprj_6a9e19f834388191bb865dd4ca9ffa10`
 
 Only this new tenant and its domain were provisioned using existing protected platform procedures. The provisioning transaction compared existing tenant, domain, and court rows before committing and rolled back on any difference. No shared schema, policies, functions, other tenant rows, or Paddle Rage remote repository were modified. `operations/live-verification.json` records the read-only bootstrap and cross-tenant rejection check.
@@ -42,6 +43,8 @@ This is **not yet a complete Paddle Rage feature port**. Its host applications, 
 ## Build and validation
 
 `npm ci --ignore-scripts`, `npm run check`, `npm test`, `npm run build`, `npm run dev`.
+
+For Cloudflare updates, run `npm run deploy:cloudflare`. The deployment script is fixed to the `picklestreet` Pages project. `operations/register-pages-domain.sql` records the tenant-only routing update; `operations/cloudflare-security.json` records the additive widget domain update, with existing domains/settings preserved. `operations/cloudflare-release-verification.json` verifies the public pages, source-file exclusions, and Supabase tenant boundary. Password recovery redirects to the exact `https://picklestreet.pages.dev/login.html` address; the shared default Site URL and existing redirect entries were preserved.
 
 `tools/site-files.cjs` is the release allowlist. Only those files enter `dist/`; no reference application, backend source, environment file, operations script, or standalone worker is served. The local server uses the same allowlist. The Sites packaging helper packages `dist/` and metadata after the exact source commit is pushed.
 

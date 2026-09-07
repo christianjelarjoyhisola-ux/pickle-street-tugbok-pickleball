@@ -1,0 +1,43 @@
+{
+  "checkedAt": "2026-09-07T05:30:48.327Z",
+  "addedHosts": [
+    "picklestreet.pages.dev"
+  ],
+  "before": {
+    "sitekey": "0x4AAAAAAD4f_jPZuqET5eVD",
+    "name": "Backyard Pickle Booking",
+    "mode": "managed",
+    "domains": [
+      "backyard-pickle-pickleball.pages.dev",
+      "bangerzone.pages.dev",
+      "dinktopia.pages.dev",
+      "picklebud.pages.dev",
+      "qdinkgarage.pages.dev",
+      "r-e-pickleball-haven.pages.dev",
+      "www.repickleballhaven.com"
+    ],
+    "clearance_level": "no_clearance",
+    "bot_fight_mode": false,
+    "ephemeral_id": false,
+    "offlabel": false
+  },
+  "after": {
+    "sitekey": "0x4AAAAAAD4f_jPZuqET5eVD",
+    "name": "Backyard Pickle Booking",
+    "mode": "managed",
+    "domains": [
+      "backyard-pickle-pickleball.pages.dev",
+      "bangerzone.pages.dev",
+      "dinktopia.pages.dev",
+      "picklebud.pages.dev",
+      "picklestreet.pages.dev",
+      "qdinkgarage.pages.dev",
+      "r-e-pickleball-haven.pages.dev",
+      "www.repickleballhaven.com"
+    ],
+    "clearance_level": "no_clearance",
+    "bot_fight_mode": false,
+    "ephemeral_id": false,
+    "offlabel": false
+  }
+}

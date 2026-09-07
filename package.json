@@ -8,7 +8,9 @@
     "build": "node tools/check-site.cjs && node tools/build-site.cjs",
     "check": "node tools/check-site.cjs",
     "test": "node --test tenant-isolation.test.cjs reschedule-integration.test.cjs shared-booking-balance.test.js shared-blocked-date-access.test.js shared-open-play-data.test.js shared-open-play-reporting.test.js",
-    "verify:platform": "node tools/verify-platform-readonly.cjs"
+    "verify:platform": "node tools/verify-platform-readonly.cjs",
+    "deploy:cloudflare": "npm run build && node tools/deploy-cloudflare.cjs",
+    "verify:cloudflare": "node tools/verify-cloudflare-release.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.1",

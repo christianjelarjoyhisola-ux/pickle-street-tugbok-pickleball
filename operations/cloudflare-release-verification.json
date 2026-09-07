@@ -1,0 +1,38 @@
+{
+  "checkedAt": "2026-09-07T05:34:48.350Z",
+  "origin": "https://picklestreet.pages.dev",
+  "pages": [
+    {
+      "route": "/",
+      "status": 200
+    },
+    {
+      "route": "/login",
+      "status": 200
+    },
+    {
+      "route": "/admin",
+      "status": 200
+    },
+    {
+      "route": "/booking-management",
+      "status": 200
+    }
+  ],
+  "privateSourceExcluded": true,
+  "tenantId": "f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a",
+  "domainConfigured": true,
+  "wrongTenantRejected": true,
+  "publicBookingEnabled": false,
+  "courtCount": 0,
+  "blockingReasons": [
+    "TENANT_SETUP_REQUIRED",
+    "COURT_PRICING_MISSING",
+    "PLATFORM_BILLING_MISSING",
+    "PAYMENT_METHOD_MISSING",
+    "REMITTANCE_DESTINATION_MISSING",
+    "REFUND_RESCHEDULE_POLICY_MISSING",
+    "BOOKING_EMAIL_MISSING"
+  ],
+  "onlyReadOperations": true
+}

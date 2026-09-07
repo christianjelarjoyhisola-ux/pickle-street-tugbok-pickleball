@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const {webcrypto} = require('node:crypto');
 const TENANT = 'f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a';
 const SLUG = 'pickle-street-tugbok';
-const HOST = 'pickle-street-tugbok.boothsandbeyondoffic.chatgpt.site';
+const HOST = 'picklestreet.pages.dev';
 const API = 'https://neqvrwtofiolcuxewdze.supabase.co';
 const storage = () => { const data = new Map(); return {getItem:k=>data.get(k)||null,setItem:(k,v)=>data.set(k,String(v)),removeItem:k=>data.delete(k)}; };
 function boot(options={}) {
@@ -102,9 +102,14 @@ test('generic legacy writes are disabled',async()=>{
 });
 
 test('customer booking activation stays closed until a real security widget is configured',async()=>{
-  const {context:c}=boot({scope:'manager',bootstrap:{readiness:{publicBookingEnabled:true}}});
+  const {context:c}=boot({hostname:'pickle-street-tugbok.boothsandbeyondoffic.chatgpt.site',scope:'manager',bootstrap:{readiness:{publicBookingEnabled:true}}});
   await c.DB.getResolvedTenantId();assert.equal(c.PB_PUBLIC_BOOKING_ENABLED,false);
   await assert.rejects(c.DB.activateTenantInitially(),/security check/);
+});
+
+test('Pages uses the approved security widget and keeps the Sites preview gated',()=>{
+  assert.equal(boot().context.PB_TENANT_CONFIG.turnstileSiteKey,'0x4AAAAAAD4f_jPZuqET5eVD');
+  assert.equal(boot({hostname:'pickle-street-tugbok.boothsandbeyondoffic.chatgpt.site'}).context.PB_TENANT_CONFIG.turnstileSiteKey,'');
 });
 
 test('higher-price rescheduling returns the held payment request without inventing a completed event',async()=>{
