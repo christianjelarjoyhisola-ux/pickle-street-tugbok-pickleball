@@ -5724,6 +5724,10 @@ async function submitPlayerRainProof() {
 }
 
 async function openPlayerRainReport(options = {}) {
+  if (window.PB_TENANT_CONFIG?.rainResolutionMode === 'reschedule_only') {
+    toast('Rain affecting your booking? Message Pickle Street Tugbok on Facebook with your booking reference to arrange a replacement schedule.', 'inf');
+    return;
+  }
   const overlay = $('playerRainOverlay');
   if (!overlay || !window.PB_PLATFORM_V1) {
     toast('Player rain reporting is temporarily unavailable. Please contact the venue.','err');
@@ -11287,6 +11291,7 @@ function publicPlayerRainClaimPollingState(booking) {
 }
 
 function publicBookingCanStartRainReport(booking) {
+  if (window.PB_TENANT_CONFIG?.rainResolutionMode === 'reschedule_only') return false;
   if (booking?.playerRainClaim || booking?.rainClaim) return true;
   if (booking?.weatherRefund) return false;
   const status = String(booking?.status || '').toLowerCase();

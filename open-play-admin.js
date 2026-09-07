@@ -54,6 +54,7 @@
   function canMount() {
     const session = currentSession();
     return global.PB_TENANT_CONFIG?.openPlayEnabled === true &&
+      global.PB_TENANT_CONFIG?.adminOpenPlayEnabled !== false &&
       global.Auth?.can?.('open_play_roster', session?.role);
   }
 

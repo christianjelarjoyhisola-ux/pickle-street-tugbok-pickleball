@@ -2654,7 +2654,7 @@ tr:hover td { background: var(--bg2); }
 
 </style>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="pickle-street.css?v=2">
+<link rel="stylesheet" href="pickle-street.css?v=20260907-audit">
 <meta name="robots" content="noindex,nofollow">
 </head>
 <body class="admin-booting" data-theme="light">
@@ -4540,8 +4540,8 @@ async function getBookingGroupByRef(ref) {
 async function updateBookingGroupByRef(ref, updates) {
   const group = await getBookingGroupByRef(ref);
   if (!group) throw new Error('Booking not found.');
-  await Promise.all((group.allItems || group.items).map(b => DB.updateBooking(b.ref, updates)));
-  return group;
+  const reviewResults = await Promise.all((group.allItems || group.items).map(b => DB.updateBooking(b.ref, updates)));
+  return { ...group, reviewResults };
 }
 async function deleteBookingGroupByRef(ref) {
   const group = await getBookingGroupByRef(ref);
@@ -5365,6 +5365,7 @@ function canReviewWeatherRefund() {
   return ['owner','court_owner'].includes(role) || ['owner','admin'].includes(membershipRole);
 }
 function canOpenWeatherRefund(booking) {
+  if (window.PB_TENANT_CONFIG?.rainResolutionMode === 'reschedule_only') return false;
   if (!window.PB_PLATFORM_V1 || typeof DB.getWeatherRefund !== 'function') return false;
   if (!booking) return false;
   if (booking.playerRainClaim) return true;
@@ -7025,6 +7026,10 @@ function refreshWeatherRefundViews() {
 }
 
 async function openWeatherRefundModal(ref, { returnToBookingDetails = false } = {}) {
+  if (window.PB_TENANT_CONFIG?.rainResolutionMode === 'reschedule_only') {
+    toast('Pickle Street handles rain through rescheduling. Contact venue staff to arrange the affected court time.', 'inf');
+    return;
+  }
   if (!window.PB_PLATFORM_V1 || typeof DB.getWeatherRefund !== 'function') {
     toast('The protected rain refund service is not available yet.', 'err');
     return;
@@ -8974,6 +8979,14 @@ async function restoreCancelledBooking(ref) {
 }
 
 let _verifyModalLastFocus = null;
+let _vmReceiptLoadSeq = 0;
+let _verifyModalOpenSeq = 0;
+let _verifyPaymentSaving = false;
+
+function setVerifyPaymentSaving(saving) {
+  _verifyPaymentSaving = saving;
+  document.querySelectorAll('#verifyModal .m-foot button').forEach(button => { button.disabled = saving; });
+}
 
 function canIssueShortPayment(b) {
   const role = String(sess?.membershipRole || sess?.role || '').toLowerCase();
@@ -9014,8 +9027,11 @@ function updateVmShortBalance() {
 }
 
 async function openVerifyModal(ref, { returnFocus = null } = {}) {
+  if (_verifyPaymentSaving) return;
+  const openSeq = ++_verifyModalOpenSeq;
   _verifyModalLastFocus = returnFocus || document.activeElement;
   const b = await getBookingGroupByRef(ref);
+  if (openSeq !== _verifyModalOpenSeq) return;
   if (!b) { toast('Booking not found.', 'err'); return; }
   $('vmMethod').textContent = paymentMethodLabel(b.paymentMethod);
   $('vmGcashRef').textContent = b.gcashRef || '—';
@@ -9031,8 +9047,9 @@ async function openVerifyModal(ref, { returnFocus = null } = {}) {
     breakdown.style.display = b.isGroup ? '' : 'none';
     breakdown.innerHTML = b.isGroup ? bookingGroupBreakdownHtml(b.items) : '';
   }
-  await vmPopulateReceipt(b);
   $('verifyModal').dataset.ref = ref;
+  await vmPopulateReceipt(b);
+  if (openSeq !== _verifyModalOpenSeq) return;
   $('verifyModal').dataset.refs = JSON.stringify(b.refs || [ref]);
   $('verifyModal').dataset.total = String(Number(b.total || 0));
   const shortAllowed = canIssueShortPayment(b);
@@ -9059,6 +9076,8 @@ async function openVerifyModal(ref, { returnFocus = null } = {}) {
 }
 
 function closeVerifyModal({ restoreFocus = true } = {}) {
+  ++_verifyModalOpenSeq;
+  ++_vmReceiptLoadSeq;
   const overlay = $('verifyModal');
   if (!overlay) return;
   overlay.classList.remove('show');
@@ -9096,6 +9115,11 @@ function verifyPaymentModalKeydown(event) {
 }
 
 async function vmPopulateReceipt(b){
+  const seq = ++_vmReceiptLoadSeq;
+  const link = $('vmReceiptLink'), img = $('vmReceiptImg'), noImg = $('vmReceiptNoImg');
+  if (img) { img.removeAttribute('src'); img.style.display = 'none'; }
+  if (link) { link.removeAttribute('href'); link.style.display = 'none'; }
+  if (noImg) { noImg.style.display = 'none'; noImg.textContent = 'No receipt image attached.'; }
   const wrap = $('vmReceiptWrap');
   const s = b.receiptStatus || 'none';
   const displayFlags = receiptFlagsForDisplay(b);
@@ -9119,15 +9143,14 @@ async function vmPopulateReceipt(b){
     detailBox.innerHTML = receiptDetailsHtml(b);
     detailBox.style.display = '';
   }
-  const link = $('vmReceiptLink'), img = $('vmReceiptImg'), noImg = $('vmReceiptNoImg');
-  if (link) link.style.display = 'none';
-  if (noImg) noImg.style.display = 'none';
   if (b.receiptImageUrl) {
     try {
       const url = await DB.getReceiptSignedUrl(b.ref);
-      if (img) img.src = url;
+      if (seq !== _vmReceiptLoadSeq) return;
+      if (img) { img.src = url; img.style.display = ''; }
       if (link) { link.href = url; link.style.display = ''; }
     } catch(e) {
+      if (seq !== _vmReceiptLoadSeq) return;
       if (noImg) { noImg.style.display = ''; noImg.textContent = 'Could not load receipt image.'; }
     }
   } else if (noImg) {
@@ -9137,7 +9160,8 @@ async function vmPopulateReceipt(b){
 
 async function verifyAndConfirm() {
   const ref = $('verifyModal').dataset.ref;
-  if (!ref) return;
+  if (!ref || _verifyPaymentSaving) return;
+  setVerifyPaymentSaving(true);
   try {
     const bkForPay = await getBookingGroupByRef(ref);
     if (isDigitalPayment(bkForPay?.paymentMethod) && !bkForPay?.receiptImageUrl) {
@@ -9157,23 +9181,26 @@ async function verifyAndConfirm() {
       toast('Cannot confirm: this receipt does not match the protected remaining balance.', 'err');
       return;
     }
-    await updateBookingGroupByRef(ref, { status: 'confirmed', paymentStatus: 'paid' });
+    const reviewed = await updateBookingGroupByRef(ref, { status: 'confirmed', paymentStatus: 'paid' });
 
     closeVerifyModal();
     toast('Payment verified & booking confirmed!');
-    await renderBookings();
-    if (_curSection === 'payreview') await renderPaymentReview();
-    renderDash();
+    if (reviewed?.reviewResults?.some(result => result?.confirmationEmail === 'failed')) {
+      toast('Booking confirmed, but its email was not sent. Use Resend Confirmation Email.', 'err');
+    }
+    await Promise.allSettled([renderBookings(), _curSection === 'payreview' ? renderPaymentReview() : Promise.resolve(), renderDash()]);
 
     Promise.resolve(getBookingGroupByRef(ref)).then(async bk => {
       if (!bk) return;
       await Promise.all([
-        sendBookingConfirmationNotice(bk),
+        window.PB_PLATFORM_V1 ? Promise.resolve() : sendBookingConfirmationNotice(bk),
         notifyBookingUpdateSafe(bk, 'payment_verified', 'Payment marked received by admin.'),
       ]);
     }).catch(() => {});
   } catch(e) {
     toast(e?.message || 'Failed to confirm booking.', 'err');
+  } finally {
+    setVerifyPaymentSaving(false);
   }
 }
 
@@ -9190,22 +9217,34 @@ async function resendConfirmationEmail(ref) {
 }
 
 async function rejectPayment() {
+  if (_verifyPaymentSaving) return;
+  setVerifyPaymentSaving(true);
+  try { await performRejectPayment(); }
+  catch (error) { toast(error?.message || 'Could not load this booking. Please retry.', 'err'); }
+  finally { setVerifyPaymentSaving(false); }
+}
+
+async function performRejectPayment() {
   const ref = $('verifyModal').dataset.ref;
   if (!ref) return;
   const current = await getBookingGroupByRef(ref);
   const balanceProof = !!current?.receiptBalanceRequestId;
+  const reason = prompt('Enter the reason for rejecting this payment receipt (3–1000 characters):');
+  if (reason === null) return;
+  if (reason.trim().length < 3 || reason.trim().length > 1000) {
+    toast('Enter a rejection reason between 3 and 1000 characters.', 'err');
+    return;
+  }
   if (!confirm(balanceProof
     ? `Reject this balance receipt for ${ref}? The player can retry before the same deadline.`
     : `Cancel booking ${ref}? This cannot be undone.`)) return;
   try {
-    await updateBookingGroupByRef(ref, { status: 'cancelled', paymentStatus: 'rejected' });
+    await updateBookingGroupByRef(ref, { status: 'cancelled', paymentStatus: 'rejected', reviewNote: reason.trim() });
     closeVerifyModal();
     toast(balanceProof
-      ? 'Balance receipt rejected. The booking remains pending until the deadline.'
+      ? 'Balance receipt rejected. The customer can submit replacement proof before the existing deadline; the original booking status is unchanged.'
       : 'Booking cancelled — payment not verified.', 'err');
-    await renderBookings();
-    if (_curSection === 'payreview') await renderPaymentReview();
-    renderDash();
+    await Promise.allSettled([renderBookings(), _curSection === 'payreview' ? renderPaymentReview() : Promise.resolve(), renderDash()]);
     notifyBookingUpdateSafe(ref, 'payment_rejected', 'Payment marked not received by admin.');
   } catch(e) {
     toast(e?.message || (balanceProof ? 'Failed to reject the balance receipt.' : 'Failed to cancel booking.'), 'err');
@@ -9545,6 +9584,14 @@ function nbSetDp() {
 }
 
 async function markPaymentShort() {
+  if (_verifyPaymentSaving) return;
+  setVerifyPaymentSaving(true);
+  try { await performMarkPaymentShort(); }
+  catch (error) { toast(error?.message || 'Could not load this booking. Please retry.', 'err'); }
+  finally { setVerifyPaymentSaving(false); }
+}
+
+async function performMarkPaymentShort() {
   const ref = $('verifyModal')?.dataset.ref;
   if (!ref) return;
   const booking = await getBookingGroupByRef(ref);
@@ -9578,9 +9625,7 @@ async function markPaymentShort() {
       note: $('vmShortNote')?.value || 'Short payment accepted by owner.',
     });
     closeVerifyModal();
-    await renderBookings();
-    if (_curSection === 'payreview') await renderPaymentReview();
-    renderDash();
+    await Promise.allSettled([renderBookings(), _curSection === 'payreview' ? renderPaymentReview() : Promise.resolve(), renderDash()]);
     const remaining = Number(result.review?.remainingAmount || total - acceptedAmount);
     if (result.balanceEmail === 'sent') {
       toast(`Short payment recorded. ${fmt(remaining)} balance link sent to ${booking.email}.`);
@@ -10260,8 +10305,9 @@ function updateRescheduleSummary() {
   $('rsSummaryBefore').textContent = `${fmtD(booking.date)} · ${booking.startTime}-${booking.endTime}`;
   $('rsSummaryAfter').textContent = `${fmtD($('rsNewDate').value)} · ${rescheduleClockLabel(option.startTime)}-${rescheduleClockLabel(option.endTime)}`;
   const additional = Math.max(0, Number(option.additionalAmount || 0));
-  $('rsOriginalTotal').textContent = fmt(Number(option.originalTotalAmount || booking.total || 0));
-  $('rsNewTotal').textContent = fmt(Number(option.newTotalAmount || booking.total || 0));
+  const originalTotal = Number(option.originalTotalAmount ?? booking.total ?? 0);
+  $('rsOriginalTotal').textContent = fmt(originalTotal);
+  $('rsNewTotal').textContent = fmt(originalTotal + additional);
   $('rsAdditionalAmount').textContent = additional > 0 ? fmt(additional) : 'None';
   const deadlineWrap = $('rsPaymentDeadlineWrap');
   deadlineWrap.hidden = additional <= 0;
@@ -10307,7 +10353,7 @@ function renderRescheduleOptions() {
       ? `${selected ? 'Selected' : 'Available'} · ${
         Number(option.additionalAmount || 0) > 0
           ? `+${fmt(Number(option.additionalAmount))}`
-          : fmt(Number(option.newTotalAmount || 0))
+          : 'No additional payment'
       }`
       : rescheduleUnavailableReasonLabel(option.unavailableReason);
     const duration = rescheduleDurationLabel(option);
@@ -10353,7 +10399,6 @@ function applyReschedulePolicies(policies = {}, booking = null) {
 async function loadRescheduleOptions() {
   const date = $('rsNewDate')?.value;
   const ref = _rescheduleState.booking?.ref;
-  if (!date || !ref) return;
   const seq = ++_rescheduleState.previewSeq;
   _rescheduleState.options = [];
   _rescheduleState.selectedIndex = -1;
@@ -10363,6 +10408,10 @@ async function loadRescheduleOptions() {
   $('rsPaymentDeadline').value = '';
   setRescheduleError('');
   updateRescheduleSaveState();
+  if (!date || !ref) {
+    $('rsOptions').innerHTML = '<div class="reschedule-options-state">Choose a date to see available times.</div>';
+    return;
+  }
   try {
     const preview = await DB.previewBookingReschedule(ref, date);
     if (seq !== _rescheduleState.previewSeq) return;
@@ -10657,7 +10706,9 @@ function setReportPeriod(p){
 }
 
 function syncReportSourceUi() {
-  const valid = ['overview', 'bookings', 'openplay'];
+  const openPlayVisible = window.PB_TENANT_CONFIG?.adminOpenPlayEnabled !== false;
+  const valid = openPlayVisible ? ['overview', 'bookings', 'openplay'] : ['overview', 'bookings'];
+  if ($('rp-source-openplay')) $('rp-source-openplay').hidden = !openPlayVisible;
   if (!valid.includes(_rpSource)) _rpSource = 'overview';
   valid.forEach(source => {
     const button = $('rp-source-' + source);
@@ -10667,7 +10718,7 @@ function syncReportSourceUi() {
     button.setAttribute('aria-pressed', active ? 'true' : 'false');
   });
   const showBookings = _rpSource !== 'openplay';
-  const showOpenPlay = _rpSource !== 'bookings';
+  const showOpenPlay = openPlayVisible && _rpSource !== 'bookings';
   if ($('rpBookingReportContent')) $('rpBookingReportContent').hidden = !showBookings;
   if ($('openPlayReportMount')) $('openPlayReportMount').hidden = !showOpenPlay;
   if ($('rpExportBookings')) $('rpExportBookings').hidden = !showBookings;
@@ -11889,7 +11940,7 @@ async function renderMaintRateSettings(activationData = null) {
 async function renderOpenPlayServiceFeeSettings(activationData = null) {
   const panel = $('platformOpenPlayServiceFeePanel');
   if (!panel) return;
-  const canOwner = !!sess && Auth.can('owner_only', sess.role);
+  const canOwner = !!sess && Auth.can('owner_only', sess.role) && window.PB_TENANT_CONFIG?.adminOpenPlayEnabled !== false;
   panel.style.display = canOwner ? '' : 'none';
   if (!canOwner) return;
 
@@ -12486,7 +12537,7 @@ async function renderPlatformActivationSettings(activation = null, { preserveInp
   const canActivate = _platformActivation.permissions?.canActivatePublicBooking === true;
   if ($('platformFeeGrid')) $('platformFeeGrid').style.display = canManageOwnerFees ? '' : 'none';
   if ($('platformBillingPanel')) $('platformBillingPanel').style.display = canManageBilling ? '' : 'none';
-  if ($('platformOpenPlayServiceFeePanel')) $('platformOpenPlayServiceFeePanel').style.display = canManageOwnerFees ? '' : 'none';
+  if ($('platformOpenPlayServiceFeePanel')) $('platformOpenPlayServiceFeePanel').style.display = canManageOwnerFees && window.PB_TENANT_CONFIG?.adminOpenPlayEnabled !== false ? '' : 'none';
   $('platformPublicBookingRequested').checked = _platformActivation.tenant?.publicBookingRequested === true;
   if (!preserveInputs) {
     $('platformEmailEnabled').checked = _platformActivation.tenant?.emailEnabled === true;
@@ -14665,8 +14716,8 @@ async function checkAgreementGate(session) {
 <script src="tenant-config.js?v=20260801-openplay-fee-backend-contract"></script>
 <script src="supabase-config.js?v=20260801-openplay-fee-backend-contract"></script>
 <script src="open-play-data.js?v=20260803-openplay-reports"></script>
-<script src="open-play-admin.js?v=20260801-openplay-fee-settings"></script>
-<script src="open-play-reporting.js?v=20260803-openplay-reports"></script>
+<script src="open-play-admin.js?v=20260907-audit"></script>
+<script src="open-play-reporting.js?v=20260907-audit"></script>
 <script src="pickle-street.js?v=2"></script>
 </body>
 </html>

@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-09-07T05:57:42.601Z",
+  "checkedAt": "2026-09-07T06:43:39.434Z",
   "origin": "https://picklestreet.pages.dev",
   "pages": [
     {
@@ -23,13 +23,8 @@
   "tenantId": "f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a",
   "domainConfigured": true,
   "wrongTenantRejected": true,
-  "publicBookingEnabled": false,
+  "publicBookingEnabled": true,
   "courtCount": 3,
-  "blockingReasons": [
-    "TENANT_SETUP_REQUIRED",
-    "PLATFORM_BILLING_MISSING",
-    "REMITTANCE_DESTINATION_MISSING",
-    "REFUND_RESCHEDULE_POLICY_MISSING"
-  ],
+  "blockingReasons": [],
   "onlyReadOperations": true
 }

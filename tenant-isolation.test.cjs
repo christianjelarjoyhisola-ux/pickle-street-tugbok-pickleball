@@ -170,6 +170,21 @@ test('Pages uses the approved security widget and keeps the Sites preview gated'
   assert.equal(boot({hostname:'pickle-street-tugbok.boothsandbeyondoffic.chatgpt.site'}).context.PB_TENANT_CONFIG.turnstileSiteKey,'');
 });
 
+test('Open Play is hidden only in the dashboard and makes no dashboard data requests',async()=>{
+  const {context:c,calls}=boot({scope:'manager'});
+  assert.equal(c.PB_TENANT_CONFIG.adminOpenPlayEnabled,false);
+  assert.equal(c.PB_TENANT_CONFIG.openPlayEnabled,true);
+  const nodes=new Map(['openPlayDashboardMount','openPlayReportMount','rp-source-openplay','rpExportOpenPlay'].map(id=>[id,{hidden:false}]));
+  c.document.getElementById=id=>nodes.get(id);
+  vm.runInContext(fs.readFileSync('open-play-admin.js','utf8'),c);
+  vm.runInContext(fs.readFileSync('open-play-reporting.js','utf8'),c);
+  assert.equal(await c.OpenPlayAdmin.mount(),false);
+  assert.equal(c.OpenPlayReporting.mount(),false);
+  assert.equal(await c.OpenPlayReporting.renderDashboard(),false);
+  assert.equal(await c.OpenPlayReporting.renderReport(),false);
+  assert.ok([...nodes.values()].every(node=>node.hidden));assert.equal(calls.length,0);
+});
+
 test('higher-price rescheduling returns the held payment request without inventing a completed event',async()=>{
   const response={ok:true,paymentRequired:true,booking:{id:TENANT,reference:'PS-TEST',status:'confirmed',startsAt:'2026-10-01T10:00:00+08:00',endsAt:'2026-10-01T11:00:00+08:00',totalAmount:500},balanceRequest:{id:TENANT,status:'awaiting_payment',remainingAmount:200,deadlineAt:'2026-09-07T18:00:00+08:00'},price:{additionalAmount:200,newTotalAmount:700}};
   const {context:c,calls}=boot({scope:'manager',response});

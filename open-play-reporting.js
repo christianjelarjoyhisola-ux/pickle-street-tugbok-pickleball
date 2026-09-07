@@ -124,6 +124,7 @@
   }
 
   async function renderDashboard() {
+    if (global.PB_TENANT_CONFIG?.adminOpenPlayEnabled === false) return false;
     const host = byId('openPlayDashboardMount');
     if (!host) return false;
     const sequence = ++state.dashboardSequence;
@@ -351,6 +352,7 @@
   }
 
   async function renderReport(range = {}) {
+    if (global.PB_TENANT_CONFIG?.adminOpenPlayEnabled === false) return false;
     const host = byId('openPlayReportMount');
     if (!host) return false;
     const from = String(range.from || '');
@@ -503,6 +505,12 @@
   }
 
   function mount() {
+    if (global.PB_TENANT_CONFIG?.adminOpenPlayEnabled === false) {
+      ['openPlayDashboardMount', 'openPlayReportMount', 'rp-source-openplay', 'rpExportOpenPlay'].forEach(id => {
+        if (byId(id)) byId(id).hidden = true;
+      });
+      return false;
+    }
     state.mounted = Boolean(byId('openPlayDashboardMount') || byId('openPlayReportMount'));
     if (byId('openPlayDashboardMount')) byId('openPlayDashboardMount').innerHTML = dashboardShell('Open Play loads independently from court bookings.');
     if (byId('openPlayReportMount')) byId('openPlayReportMount').innerHTML = reportShell();

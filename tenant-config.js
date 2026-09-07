@@ -12,6 +12,8 @@
     schemaVersion:'multi-tenant-v1', authEnabled:true, backendEnabled:true,
     publicBookingEnabled:true, refundReschedulePolicyEnabled:true,
     eventBookingEnabled:true, openPlayEnabled:true, hostPortalEnabled:false,
+    adminOpenPlayEnabled:false,
+    rainResolutionMode:'reschedule_only',
     onboardingLocked:false,
     // The public widget is approved for this Pages origin; secrets stay server-side.
     turnstileSiteKey:currentHost==='picklestreet.pages.dev'?'0x4AAAAAAD4f_jPZuqET5eVD':'',

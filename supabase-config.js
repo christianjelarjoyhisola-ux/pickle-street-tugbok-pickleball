@@ -883,7 +883,8 @@ function _pbPlatformBookingToLegacy(row, courtMap, timeZone) {
   const startsAt = row.starts_at || row.startsAt;
   const endsAt = row.ends_at || row.endsAt;
   const slots = bookingSlots
-    .filter(slot => ['held', 'confirmed'].includes(slot.status))
+    .filter(slot => ['held', 'confirmed'].includes(slot.status) &&
+      !(slot.status === 'held' && (slot.balance_request_id || slot.balanceRequestId)))
     .map(slot => _pbZonedHour(slot.starts_at || slot.startsAt, timeZone))
     .filter(Number.isInteger)
     .sort((a, b) => a - b);
