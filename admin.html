@@ -1791,6 +1791,7 @@ tr:hover td { background: var(--bg2); }
 .verify-payment-modal .m-hd h2 { line-height: 1.15; margin: 0; }
 .verify-payment-modal .m-body { overflow-x: hidden; }
 .verify-payment-modal .receipt-detail-grid { max-width: 100%; }
+.verify-payment-modal .m-foot .btn:disabled { opacity: .45; cursor: not-allowed; }
 .short-payment-panel {
   margin-top:14px; padding:14px; border:1px solid rgba(184,126,0,.3);
   border-radius:12px; background:rgba(184,126,0,.07);
@@ -2654,7 +2655,7 @@ tr:hover td { background: var(--bg2); }
 
 </style>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="pickle-street.css?v=20260907-receipt-logo">
+<link rel="stylesheet" href="pickle-street.css?v=20260907-manual15">
 <meta name="robots" content="noindex,nofollow">
 </head>
 <body class="admin-booting" data-theme="light">
@@ -3912,8 +3913,9 @@ tr:hover td { background: var(--bg2); }
         <div style="display:flex;justify-content:space-between;padding:6px 0"><span>Payment amount</span><strong style="color:var(--yellow)" id="vmAmount">—</strong></div>
       </div>
       <div id="vmGroupBreakdown" style="display:none;margin-top:8px;font-size:.76rem;color:var(--muted)"></div>
+      <p id="vmDecisionNotice" role="status" style="font-size:.82rem;line-height:1.6;margin-top:12px" hidden></p>
       <div id="vmReceiptWrap" style="display:none;margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
-        <div style="font-size:.66rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:8px">Auto-Verification</div>
+        <div style="font-size:.66rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:8px">Receipt verification</div>
         <div id="vmReceiptStatus" style="font-size:.82rem;font-weight:700;border-radius:8px;padding:8px 10px;margin-bottom:8px"></div>
         <div id="vmReceiptFlags" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px"></div>
         <div id="vmReceiptDetails" class="receipt-detail-grid" style="display:none"></div>
@@ -3947,9 +3949,9 @@ tr:hover td { background: var(--bg2); }
       </div>
     </div>
     <div class="m-foot">
-      <button class="btn btn-d" id="vmRejectPaymentBtn" onclick="rejectPayment()">❌ Not Received</button>
+      <button class="btn btn-d" id="vmRejectPaymentBtn" onclick="rejectPayment()">Reject</button>
       <button class="btn btn-g" id="vmShortPaymentBtn" hidden onclick="markPaymentShort()">Request Balance</button>
-      <button class="btn btn-p" id="vmManualConfirmBtn" onclick="verifyAndConfirm()">✅ Received — Confirm</button>
+      <button class="btn btn-p" id="vmManualConfirmBtn" aria-describedby="vmDecisionNotice" onclick="verifyAndConfirm()">Confirm payment received</button>
       <button class="btn btn-g" id="vmPendingCloseBtn" hidden onclick="closeVerifyModal()">Close</button>
       <button class="btn btn-p" id="vmRetryReceiptBtn" hidden onclick="retryAutomaticReceipt()">Retry verification</button>
     </div>
@@ -4685,7 +4687,7 @@ const RECEIPT_FLAG_LABELS = {
   ocr_text_not_detected:'Receipt text not detected', auto_approval_eligible:'All automatic checks passed',
   ocr_confidence_unavailable:'Vision confidence not provided',
   receipt_date_not_detected:'Receipt date not detected', receipt_time_not_detected:'Receipt time not detected',
-  receipt_time_before_booking:'Receipt predates the booking', payment_window_expired:'Paid outside the 10-minute window',
+  receipt_time_before_booking:'Receipt predates the booking', payment_window_expired:'Payment time needs review',
   transaction_not_successful:'Completed transfer not verified',
   payment_receiver_name_unverified:'Recipient name could not be verified',
   payment_principal_unverified:'Transferred amount could not be verified',
@@ -4729,7 +4731,7 @@ function receiptFlagsForDisplay(b){
   const timing = ex.timing && typeof ex.timing === 'object' ? ex.timing : {};
   const age = Number(timing.ageMinutes ?? ex.receiptAgeMinutes);
   const earlyTolerance = Number(timing.earlyToleranceMinutes ?? ex.allowedPaymentEarlyToleranceMinutes ?? 2);
-  const windowMinutes = Number(timing.allowedWindowMinutes ?? ex.allowedPaymentWindowMinutes ?? 10);
+  const windowMinutes = Number(timing.allowedWindowMinutes ?? ex.allowedPaymentWindowMinutes ?? 15);
   if (Number.isFinite(age) && age >= -earlyTolerance) {
     flags = removeReceiptFlags(flags, ['TIME_FUTURE']);
   }
@@ -4745,12 +4747,14 @@ function receiptBadge(b){
   const reason = receiptReasonText(displayFlags);
   const map = {
     auto_approved: ['var(--green)','rgba(var(--green-rgb),.15)','✅ Auto-verified'],
+    approved: ['var(--green)','rgba(var(--green-rgb),.15)','Confirmed by staff'],
     manual_review: ['#b87e00','rgba(184,126,0,.15)','🕓 Review receipt'],
     short_payment: ['#b87e00','rgba(184,126,0,.15)','Balance requested'],
     rejected:      ['#e53935','rgba(229,57,53,.12)','⚠️ Receipt flagged'],
   };
   let [c,bg,lbl] = map[s] || ['#888','var(--input)',s];
   if (s === 'rejected') lbl = displayFlags.length ? `Rejected: ${reason}` : 'Flagged earlier — review manually';
+  if (s === 'rejected' && b.receiptExtracted?.review?.decision === 'rejected') lbl = 'Rejected: '+(b.receiptExtracted.review.note || 'Payment not verified by staff');
   if (window.PBReceiptPending?.receiptPending(b)) lbl = 'Pending'+(displayFlags.length ? ': '+reason : ' verification');
   return `<div class="receipt-badge" style="color:${c};background:${bg}">${esc(lbl)}</div>`;
 }
@@ -4860,13 +4864,14 @@ function receiptDetailsHtml(b){
     ['Receipt Time', receiptTimeValue(ex)],
     ['Receipt Date', receiptDetailValue(timing.receiptDate || ex.date)],
     ['Booking Started', timing.bookingStartedAt ? receiptDateTimeValue(timing.bookingStartedAt, timing.tenantTimezone) : receiptDetailValue(ex.bookingStartedAtPh12)],
-    ['Window', receiptDetailValue(windowValue)],
+    ['Recorded timing check', receiptDetailValue(windowValue)],
     ['OCR Engine', receiptOcrProviderLabel(ex.ocrProvider || ex.provider)],
     ['Receiver', receiptReceiverValue(ex, b), true],
     ...(ex.ocrFallbackReason ? [['OCR Fallback', receiptDetailValue(ex.ocrFallbackReason), true]] : []),
     ...(ex.amountReliable !== undefined ? [['Amount Parse', receiptDetailValue(amountParse), true]] : []),
     ['Reason', receiptDetailValue(reason), true],
     ['OCR Confidence', receiptDetailValue(ocrConfidence)],
+    ...(ex.review?.decision ? [['Staff decision', receiptDetailValue(ex.review.decision)], ['Review note', receiptDetailValue(ex.review.note), true]] : []),
   ];
   return rows.map(([label, value, full]) => `<div class="receipt-detail-item ${full ? 'receipt-detail-full' : ''}">
     <div class="receipt-detail-label">${label}</div>
@@ -5480,7 +5485,9 @@ function bookingActionsHtml(b, canDelete){
   if (window.PB_PLATFORM_V1) {
     const canCancel = !window.PBReceiptPending?.automatic(b) && !['cancelled', 'forfeited', 'completed'].includes(String(b.status || '').toLowerCase());
   const canArchive = canDelete && ['cancelled', 'forfeited', 'completed'].includes(String(b.status || '').toLowerCase());
+    const canReview = !!window.PBReceiptPending?.manualReviewTarget(b);
     return `${bookingDetailsButton(b)}
+      ${canReview ? `<button class="btn btn-p btn-sm" onclick="openVerifyModal('${jsArg(actionRef)}',{reviewAction:'approve'})">Confirm</button><button class="btn btn-d btn-sm" onclick="openVerifyModal('${jsArg(actionRef)}',{reviewAction:'reject'})">Reject</button>` : ''}
       ${weatherRefundActionButton(b)}
       ${canRescheduleBooking(b) ? `<button class="btn btn-sm" style="background:rgba(74,154,220,.12);color:#3f7fb7;border:1px solid rgba(74,154,220,.3);font-weight:700" onclick="openRescheduleModal('${jsArg(actionRef)}')">Reschedule</button>` : ''}
       ${b.status==='confirmed' && b.email ? `<button class="btn btn-sm" style="background:rgba(var(--green-rgb),.12);color:var(--green);border:1px solid rgba(var(--green-rgb),.3)" onclick="resendConfirmationEmail('${jsArg(actionRef)}')">Resend Email</button>` : ''}
@@ -5548,7 +5555,7 @@ function mobileBookingCard(b, canDelete){
   const dateLabel = b.dateLabel || fmtD(b.date);
   const timeLabel = b.timeLabel || `${b.startTime || ''}-${b.endTime || ''}`;
   const courtLabel = b.courtName || 'Court';
-  const deadlineState = window.BookingBalance?.deadlineState?.(b) || {};
+  const deadlineState = b.hostBooking || b.balanceRequestId ? (window.BookingBalance?.deadlineState?.(b) || {}) : {};
   const bookedOn = b.createdAt ? (() => {
     const d = new Date(b.createdAt);
     return Number.isNaN(d.getTime()) ? '--' : `${d.toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'})} ${d.toLocaleTimeString('en-PH',{hour:'numeric',minute:'2-digit',hour12:true})}`;
@@ -8506,7 +8513,7 @@ function paymentReviewRow(item) {
 async function renderPaymentReview() {
   if (window.PBReceiptPending?.enabled()) {
     $('prRejected')?.closest('.pr-stat')?.setAttribute('hidden','');
-    document.querySelectorAll('#prStatus option[value="rejected"], #prStatus option[value="manual_review"]').forEach(el=>el.hidden=true);
+    document.querySelectorAll('#prStatus option[value="manual_review"]').forEach(el=>el.hidden=true);
   }
   const bookings = await DB.getBookings();
   const bookingItems = groupBookings(bookings.filter(b => b.email !== 'reserve@hold.internal' && isDigitalPayment(b.paymentMethod)))
@@ -9005,10 +9012,16 @@ let _verifyModalLastFocus = null;
 let _vmReceiptLoadSeq = 0;
 let _verifyModalOpenSeq = 0;
 let _verifyPaymentSaving = false;
+let _verifyModalReviewContext = null;
+const _manualReceiptDecisionKeys = new Map();
 
 function setVerifyPaymentSaving(saving) {
   _verifyPaymentSaving = saving;
   document.querySelectorAll('#verifyModal .m-foot button').forEach(button => { button.disabled = saving; });
+  if (!saving && $('verifyModal')?.dataset.receiptManual === 'required') {
+    if ($('vmRejectPaymentBtn')) $('vmRejectPaymentBtn').disabled = !_verifyModalReviewContext;
+    if ($('vmManualConfirmBtn')) $('vmManualConfirmBtn').disabled = !_verifyModalReviewContext || _verifyModalReviewContext.canApprove === false;
+  }
 }
 
 function canIssueShortPayment(b) {
@@ -9050,9 +9063,10 @@ function updateVmShortBalance() {
   if ($('vmShortBalance')) $('vmShortBalance').textContent = `Remaining balance: ${fmt(remaining)}`;
 }
 
-async function openVerifyModal(ref, { returnFocus = null } = {}) {
+async function openVerifyModal(ref, { returnFocus = null, reviewAction = null } = {}) {
   if (_verifyPaymentSaving) return;
   const openSeq = ++_verifyModalOpenSeq;
+  _verifyModalReviewContext = null;
   _verifyModalLastFocus = returnFocus || document.activeElement;
   const b = await getBookingGroupByRef(ref);
   if (openSeq !== _verifyModalOpenSeq) return;
@@ -9072,13 +9086,40 @@ async function openVerifyModal(ref, { returnFocus = null } = {}) {
     breakdown.innerHTML = b.isGroup ? bookingGroupBreakdownHtml(b.items) : '';
   }
   $('verifyModal').dataset.ref = ref;
+  const manualTarget = window.PBReceiptPending?.manualReviewTarget(b);
+  let reviewSnapshot = null;
+  if (manualTarget) {
+    try { reviewSnapshot = await DB.getPendingReceiptReviewContext(manualTarget.bookingReference, manualTarget.verificationId); }
+    catch (_) { /* Show the protected review error below; receipt viewing remains available. */ }
+    if (openSeq !== _verifyModalOpenSeq) return;
+  }
   await vmPopulateReceipt(b);
   if (openSeq !== _verifyModalOpenSeq) return;
   $('verifyModal').dataset.refs = JSON.stringify(b.refs || [ref]);
   $('verifyModal').dataset.total = String(Number(b.total || 0));
   const automaticOnly = window.PBReceiptPending?.automatic(b) === true;
-  if ($('vmRejectPaymentBtn')) $('vmRejectPaymentBtn').hidden = automaticOnly;
-  if ($('vmManualConfirmBtn')) $('vmManualConfirmBtn').hidden = automaticOnly;
+  $('verifyModal').dataset.receiptManual = automaticOnly ? 'required' : '';
+  const notice = $('vmDecisionNotice');
+  if (notice) { notice.hidden = !automaticOnly; notice.textContent = 'Receipt payments have a 15-minute window from reservation. Automatic check failures stay Pending.'; }
+  if ($('vmRejectPaymentBtn')) { $('vmRejectPaymentBtn').hidden = automaticOnly && !manualTarget; $('vmRejectPaymentBtn').disabled = automaticOnly; }
+  if ($('vmManualConfirmBtn')) { $('vmManualConfirmBtn').hidden = automaticOnly && !manualTarget; $('vmManualConfirmBtn').disabled = automaticOnly; }
+  if (manualTarget) {
+    try {
+      const context = await DB.getPendingReceiptReviewContext(manualTarget.bookingReference, manualTarget.verificationId);
+      if (openSeq !== _verifyModalOpenSeq) return;
+      if (!reviewSnapshot || reviewSnapshot.attemptId !== context.attemptId) throw new Error('The receipt changed while loading. Reload its image and details before deciding.');
+      _verifyModalReviewContext = {...context, bookingReference:manualTarget.bookingReference};
+      if (notice) notice.textContent += context.balanceRequestId
+        ? ' Confirm only after checking the additional payment was received. Reject closes this additional-payment request; previously accepted payments and the original paid booking are preserved.'
+        : ' Confirm only after checking the payment was received. Reject declines this payment and releases the reservation.';
+      $('vmRejectPaymentBtn').disabled = false;
+      $('vmManualConfirmBtn').disabled = context.canApprove === false;
+      if (notice && context.approvalUnavailableReason) notice.textContent = context.approvalUnavailableReason+' '+notice.textContent;
+    } catch (error) {
+      if (openSeq !== _verifyModalOpenSeq) return;
+      if (notice) notice.textContent = error?.message || 'Receipt review is unavailable. Reload its details before deciding.';
+    }
+  }
   if ($('vmPendingCloseBtn')) $('vmPendingCloseBtn').hidden = !automaticOnly;
   if ($('vmRetryReceiptBtn')) {
     $('vmRetryReceiptBtn').hidden = !automaticOnly;
@@ -9104,12 +9145,17 @@ async function openVerifyModal(ref, { returnFocus = null } = {}) {
   overlay.inert = false;
   overlay.setAttribute('aria-hidden', 'false');
   overlay.classList.add('show');
-  requestAnimationFrame(() => overlay.querySelector('.verify-payment-modal')?.focus());
+  requestAnimationFrame(() => {
+    const actionButton = reviewAction === 'approve' ? $('vmManualConfirmBtn') : reviewAction === 'reject' ? $('vmRejectPaymentBtn') : null;
+    if (actionButton && !actionButton.hidden && !actionButton.disabled) actionButton.focus();
+    else overlay.querySelector('.verify-payment-modal')?.focus();
+  });
 }
 
 function closeVerifyModal({ restoreFocus = true } = {}) {
   ++_verifyModalOpenSeq;
   ++_vmReceiptLoadSeq;
+  _verifyModalReviewContext = null;
   const img = $('vmReceiptImg'), link = $('vmReceiptLink');
   if (img) { img.onload = null; img.onerror = null; img.removeAttribute('src'); img.style.display = 'none'; }
   if (link) { link.removeAttribute('href'); link.style.display = 'none'; }
@@ -9165,6 +9211,7 @@ async function vmPopulateReceipt(b){
   const st = $('vmReceiptStatus');
   const map = {
     auto_approved: ['var(--green)','rgba(var(--green-rgb),.12)','✅ Auto-verified — all checks passed'],
+    approved: ['var(--green)','rgba(var(--green-rgb),.12)','Payment confirmed by staff'],
     manual_review: ['#b87e00','rgba(184,126,0,.12)','🕓 Needs review — see flags below'],
     short_payment: ['#b87e00','rgba(184,126,0,.12)','Short payment accepted — balance requested'],
     rejected:      ['#e53935','rgba(229,57,53,.1)','⚠️ Flagged — review carefully before confirming'],
@@ -9172,13 +9219,14 @@ async function vmPopulateReceipt(b){
   };
   let [c,bg,lbl] = map[s] || map.none;
   if (s === 'rejected') lbl = displayFlags.length ? `Rejected: ${receiptReasonText(displayFlags)}` : 'Flagged earlier — details parsed correctly; review manually';
+  if (s === 'rejected' && b.receiptExtracted?.review?.decision === 'rejected') lbl = 'Rejected by staff: '+(b.receiptExtracted.review.note || 'Payment not verified');
   if (s === 'manual_review' && displayFlags.length) lbl = `Needs review: ${receiptReasonText(displayFlags)}`;
   if (window.PBReceiptPending?.receiptPending(b)) lbl = 'Pending — '+(displayFlags.length ? receiptReasonText(displayFlags) : 'automatic checks are not complete');
   if (st) { st.style.color = c; st.style.background = bg; st.textContent = lbl; }
   $('vmReceiptFlags').innerHTML = receiptFlagChips(displayFlags);
   const detailBox = $('vmReceiptDetails');
   if (detailBox) {
-    detailBox.innerHTML = receiptDetailsHtml(b) + (window.PBReceiptPending?.receiptPending(b) ? `<p>${esc(window.PBReceiptPending.receiptReason(b))}</p><p>${esc(window.PBReceiptPending.receiptHold(b))}</p><p>The customer can upload corrected proof from their private ${b.receiptBalanceRequestId ? 'balance payment' : 'booking'} link. Retry runs the payment checks again; it does not override them.</p>` : '');
+    detailBox.innerHTML = receiptDetailsHtml(b) + (window.PBReceiptPending?.receiptPending(b) ? `<p>${esc(window.PBReceiptPending.receiptReason(b))}</p><p>${esc(window.PBReceiptPending.receiptHold(b))}</p><p>The customer can upload corrected proof from their private ${b.receiptBalanceRequestId ? 'balance payment' : 'booking'} link. Retry runs the automatic payment checks again. Staff may confirm or reject after reviewing the payment.</p>` : '');
     detailBox.style.display = '';
   }
   if (b.receiptImageUrl) {
@@ -9238,7 +9286,7 @@ async function verifyAndConfirm() {
   setVerifyPaymentSaving(true);
   try {
     const bkForPay = await getBookingGroupByRef(ref);
-    if (window.PBReceiptPending?.automatic(bkForPay)) { toast('Use Retry verification. This receipt stays pending until all automatic checks pass.', 'inf'); return; }
+    if (window.PBReceiptPending?.automatic(bkForPay)) { await performPendingReceiptReview('approve'); return; }
     if (isDigitalPayment(bkForPay?.paymentMethod) && !bkForPay?.receiptImageUrl) {
       toast('Cannot confirm: no receipt image is attached to this digital payment.', 'err');
       return;
@@ -9277,6 +9325,39 @@ async function verifyAndConfirm() {
   } finally {
     setVerifyPaymentSaving(false);
   }
+}
+
+async function performPendingReceiptReview(decision) {
+  const context = _verifyModalReviewContext;
+  const ref = $('verifyModal')?.dataset.ref;
+  if (!context || context.bookingReference !== ref) {
+    toast('Reload the receipt details before making a decision.', 'err');
+    return;
+  }
+  if (decision === 'approve' && context.canApprove === false) { toast(context.approvalUnavailableReason || 'This court time has already started.', 'err'); return; }
+  let note = 'Payment receipt reviewed; payment confirmed as received by staff.';
+  if (decision === 'reject') {
+    const answer = prompt('Why is this payment receipt being rejected? Enter 3–1000 characters.');
+    if (answer === null) return;
+    note = answer.trim();
+    if (note.length < 3 || note.length > 1000) { toast('Enter a rejection reason between 3 and 1000 characters.', 'err'); return; }
+  }
+  const fingerprint = JSON.stringify([context.verificationId,context.attemptId,decision,note]);
+  if (!_manualReceiptDecisionKeys.has(fingerprint)) _manualReceiptDecisionKeys.set(fingerprint, window.crypto.randomUUID());
+  const result = await DB.reviewPendingReceipt({bookingReference:context.bookingReference,
+    verificationId:context.verificationId,expectedAttemptId:context.attemptId,
+    idempotencyKey:_manualReceiptDecisionKeys.get(fingerprint),decision,note});
+  const expectedStatus = decision === 'approve' ? 'approved' : 'rejected';
+  if (result.receiptStatus !== expectedStatus) throw new Error('Refresh this booking to check whether the receipt decision was saved.');
+  _manualReceiptDecisionKeys.delete(fingerprint);
+  closeVerifyModal();
+  toast(decision === 'approve'
+    ? (result.requestType === 'reschedule_adjustment' ? 'Payment confirmed. The booking has moved to the new schedule.' : 'Payment received. Booking confirmed!')
+    : (context.balanceRequestId ? 'Receipt rejected. The additional-payment request is closed; previously accepted payments are preserved.' : 'Receipt rejected. The reservation has been released.'));
+  if (decision === 'approve' && ['failed','pending'].includes(result.confirmationEmail)) {
+    toast('Payment confirmed, but its email is pending. Use Resend Email if needed.', 'inf');
+  }
+  await Promise.allSettled([renderBookings(),renderDash(),_curSection === 'payreview' ? renderPaymentReview() : Promise.resolve()]);
 }
 
 async function resendConfirmationEmail(ref) {
@@ -9325,7 +9406,7 @@ async function performRejectPayment() {
   const ref = $('verifyModal').dataset.ref;
   if (!ref) return;
   const current = await getBookingGroupByRef(ref);
-  if (window.PBReceiptPending?.automatic(current)) { toast('Receipt problems stay pending. Ask for corrected proof or retry verification.', 'inf'); return; }
+  if (window.PBReceiptPending?.automatic(current)) { await performPendingReceiptReview('reject'); return; }
   const balanceProof = !!current?.receiptBalanceRequestId;
   const reason = prompt('Enter the reason for rejecting this payment receipt (3–1000 characters):');
   if (reason === null) return;
@@ -14811,8 +14892,8 @@ async function checkAgreementGate(session) {
 </script>
 
 <script src="supabase.min.js"></script>
-<script src="tenant-config.js?v=20260907-receipt-logo"></script>
-<script src="supabase-config.js?v=20260907-receipt-logo"></script><script src="receipt-pending.js?v=20260907-receipt-logo"></script>
+<script src="tenant-config.js?v=20260907-manual15"></script>
+<script src="supabase-config.js?v=20260907-manual15"></script><script src="receipt-pending.js?v=20260907-manual15"></script>
 <script src="open-play-data.js?v=20260803-openplay-reports"></script>
 <script src="open-play-admin.js?v=20260907-audit"></script>
 <script src="open-play-reporting.js?v=20260907-audit"></script>

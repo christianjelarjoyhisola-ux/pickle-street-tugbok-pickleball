@@ -12,6 +12,17 @@
   };
   const receiptPending = b => automatic(b) && (balanceId(b) ? !!b?.receiptBalanceRequestId && b.balanceRequestId === b.receiptBalanceRequestId && balancePending(b) : pending(b));
   const receiptRetryTarget = b => !receiptPending(b) || !b?.receiptVerificationId ? null : {bookingReference:b.primaryRef || b.ref,balanceRequestId:b.receiptBalanceRequestId || '',verificationId:b.receiptVerificationId};
+  const manualReviewTarget = b => {
+    if (!enabled() || global.PB_TENANT_CONFIG?.manualReceiptReviewEnabled !== true ||
+      !['pending','manual_review'].includes(b?.receiptStatus) || !b?.receiptImageUrl || !b?.receiptVerificationId ||
+      (Array.isArray(b?.items) && b.items.length > 1)) return null;
+    // A pending additional receipt can still be rejected after the original
+    // paid booking completes. The server separately decides if approval is eligible.
+    if (b.receiptBalanceRequestId && b.balanceRequestId === b.receiptBalanceRequestId &&
+      ['awaiting_payment','payment_review','pending','expired'].includes(b.balanceRequestStatus) &&
+      (b.platformStatus || b.status) !== 'cancelled') return {bookingReference:b.primaryRef || b.ref,balanceRequestId:b.receiptBalanceRequestId,verificationId:b.receiptVerificationId};
+    return receiptRetryTarget(b);
+  };
   const receiptReason = b => b?.receiptBalanceRequestId ? (b.balancePendingReason || 'The additional payment is pending until every receipt check passes.') : reason(b);
   const receiptHold = b => b?.receiptBalanceRequestId ? (b.balanceReservationHeld === false ? (b.balanceRequestType === 'reschedule_adjustment' ? 'The requested new-time hold has ended. The original confirmed schedule remains in place; availability will be checked again before the move is confirmed.' : 'The court hold has ended. The payment remains pending; availability will be checked again before confirmation.') : '') : hold(b);
   const label = b => pending(b) ? 'Pending' : String(b?.status || 'pending').replaceAll('_',' ');
@@ -72,5 +83,5 @@
       finally {saving=false;submit.disabled=false;close.disabled=false;for(const field of [form.elements.method,form.elements.reference,form.elements.receipt])field.disabled=false;}
     });
   }
-  global.PBReceiptPending=Object.freeze({enabled,automatic,pending,label,reason,hold,balancePending,receiptPending,receiptRetryTarget,receiptReason,receiptHold,openUpload});
+  global.PBReceiptPending=Object.freeze({enabled,automatic,pending,label,reason,hold,balancePending,receiptPending,receiptRetryTarget,manualReviewTarget,receiptReason,receiptHold,openUpload});
 })(window);

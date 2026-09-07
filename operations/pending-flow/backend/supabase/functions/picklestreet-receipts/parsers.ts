@@ -1,12 +1,13 @@
 import { buildSafeReceiptExtraction } from "../_shared/receipt-verification.ts";
 type Input = Parameters<typeof buildSafeReceiptExtraction>[0];
 type Result = ReturnType<typeof buildSafeReceiptExtraction>;
+export const PICKLESTREET_PAYMENT_WINDOW_MINUTES = 15;
 
 function pending(result: Result, flag: string): Result {
   return {...result,autoApprove:false,flags:[...new Set([...result.flags.filter(f=>f!=="auto_approval_eligible"),flag])]};
 }
 function common(input:Input):Result {
-  let result=buildSafeReceiptExtraction(input);
+  let result=buildSafeReceiptExtraction({...input,timing:{...input.timing,paymentWindowMinutes:PICKLESTREET_PAYMENT_WINDOW_MINUTES}});
   if(input.payment?.autoApprovalEnabled!==true) result=pending(result,'automatic_method_disabled');
   if (/\b(?:failed|unsuccessful|pending|processing|scheduled|reversed|refunded|cancelled|canceled)\b/i.test(input.vision.text)) result=pending(result,"transaction_not_successful");
   if(input.currency!=="PHP" || /\b(?:USD|EUR|SGD|AUD|JPY)\b/.test(input.vision.text)) result=pending(result,"currency_unverified");

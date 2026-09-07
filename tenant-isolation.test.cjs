@@ -91,6 +91,20 @@ test('receipt images use the staff signer with the projected verification ID, ne
   assert.match(new Headers(signed.init.headers).get('Authorization'),/test-manager-token/);
 });
 
+test('manual receipt context and decisions use tenant-scoped staff credentials and the expected attempt',async()=>{
+ const {context:c,calls}=boot({scope:'manager',response:{ok:true,verificationId:'receipt-1',attemptId:'attempt-1',receiptStatus:'approved'}});
+ const context=await c.DB.getPendingReceiptReviewContext('PS-TEST','receipt-1');assert.equal(context.attemptId,'attempt-1');
+ await c.DB.reviewPendingReceipt({bookingReference:'PS-TEST',verificationId:'receipt-1',expectedAttemptId:'attempt-1',idempotencyKey:'key-1',decision:'approve',note:'Payment received'});
+ const requests=calls.filter(call=>call.kind==='fetch');assert.equal(requests.length,2);
+ for(const request of requests){assert.match(request.url,/picklestreet-receipts\?tenantSlug=pickle-street-tugbok/);assert.match(new Headers(request.init.headers).get('Authorization'),/test-manager-token/);}
+ const payload=JSON.parse(requests[1].init.body);assert.equal(payload.action,'review');assert.equal(payload.expectedAttemptId,'attempt-1');assert.equal(payload.idempotencyKey,'key-1');
+});
+test('manual payment decisions reject public pages and invalid reasons before network access',async()=>{
+ const {context:c,calls}=boot();await assert.rejects(c.DB.getPendingReceiptReviewContext('PS-TEST','receipt-1'),/Sign in/);
+ await assert.rejects(c.DB.reviewPendingReceipt({decision:'approve'}),/Sign in/);assert.equal(calls.length,0);
+ const staff=boot({scope:'manager'});await assert.rejects(staff.context.DB.reviewPendingReceipt({decision:'reject',note:'x'}),/rejection reason/);assert.equal(staff.calls.length,0);
+});
+
 test('receipt preview denies public pages, missing receipts and changed receipt IDs before signing', async () => {
   for(const options of [
     {scope:'public',response:{ok:true,booking:{receipt_verifications:[{id:'receipt-1',image_available:true}]}}},

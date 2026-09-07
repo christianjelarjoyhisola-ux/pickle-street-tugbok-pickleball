@@ -1,0 +1,83 @@
+{
+  "checkedAt": "2026-09-07T10:34:10.602Z",
+  "migrationHash": "373edf40d25c1aec46721bed8b3e295dc3c09181a75db99a654b616a4a143231",
+  "rolledBack": true,
+  "result": [
+    {
+      "checks": [
+        {
+          "name": "Actor, tenant lookup and service role enforced",
+          "passed": true
+        },
+        {
+          "name": "Completed paid booking cannot move and survives adjustment rejection",
+          "passed": true
+        },
+        {
+          "name": "Expired original reservation safely reclaimed",
+          "passed": true
+        },
+        {
+          "name": "Expired reschedule adjustment confirmed atomically with staff audit",
+          "passed": true
+        },
+        {
+          "name": "Expired short-payment balance confirms while preserving accepted first payment",
+          "passed": true
+        },
+        {
+          "name": "Initial and balance automatic approvals continue with automatic status",
+          "passed": true
+        },
+        {
+          "name": "Initial rejection records reason and releases reservation",
+          "passed": true
+        },
+        {
+          "name": "Late OCR fenced after explicit approval",
+          "passed": true
+        },
+        {
+          "name": "Occupied original court rolls back confirmation without partial payment",
+          "passed": true
+        },
+        {
+          "name": "Occupied proposed time keeps original booking and pending proof",
+          "passed": true
+        },
+        {
+          "name": "Old paths and fabricated transaction marker denied",
+          "passed": true
+        },
+        {
+          "name": "Released underway initial booking remains pending",
+          "passed": true
+        },
+        {
+          "name": "Replacement upload invalidates stale displayed approval",
+          "passed": true
+        },
+        {
+          "name": "Reschedule rejection closes only adjustment and fences late OCR",
+          "passed": true
+        },
+        {
+          "name": "Service-only RPC and protected audit writer",
+          "passed": true
+        },
+        {
+          "name": "Short-payment rejection releases reservation and preserves accepted first payment",
+          "passed": true
+        },
+        {
+          "name": "Staff confirmation, final audit immutability and idempotency",
+          "passed": true
+        },
+        {
+          "name": "Underway initial confirmation respects shared before-play policy",
+          "passed": true
+        }
+      ]
+    }
+  ]
+}

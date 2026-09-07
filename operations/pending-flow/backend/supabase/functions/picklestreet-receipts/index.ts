@@ -21,8 +21,8 @@ function reference(value:unknown):string{const s=String(value||'').trim().toUppe
 function uuid(value:unknown):string{const s=String(value||'').trim().toLowerCase();if(!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(s))throw new RequestError(400,'REQUEST_ID_INVALID','Refresh the booking and try again.');return s;}
 function fail(code:string,message:string,status=409):never{throw new RequestError(status,code,message);}
 async function operator(db:DB,authorization:string|null):Promise<string>{
-  const token=/^Bearer (\S+)$/.exec(authorization||'')?.[1];if(!token)fail('AUTHENTICATION_REQUIRED','Sign in to retry receipt verification.',401);
-  const {data,error}=await db.auth.getUser(token!);const userId=data.user?.id;if(error||!userId)fail('AUTHENTICATION_REQUIRED','Sign in to retry receipt verification.',401);
+  const token=/^Bearer (\S+)$/.exec(authorization||'')?.[1];if(!token)fail('AUTHENTICATION_REQUIRED','Sign in to review this receipt.',401);
+  const {data,error}=await db.auth.getUser(token!);const userId=data.user?.id;if(error||!userId)fail('AUTHENTICATION_REQUIRED','Sign in to review this receipt.',401);
   const [membership,owner]=await Promise.all([
     db.from('tenant_memberships').select('id').eq('tenant_id',TENANT_ID).eq('user_id',userId!).eq('status','active').in('role',['owner','admin','staff']).maybeSingle(),
     db.from('platform_profiles').select('user_id').eq('user_id',userId!).eq('is_platform_owner',true).maybeSingle(),
@@ -123,7 +123,7 @@ async function verificationResult(db:DB,job:Obj,bytes:Uint8Array,type:string,fin
   return obj(finished.data);
 }
 async function sendConfirmation(db:DB,result:Obj):Promise<void>{
-  if(result.balanceRequestId && !(result.status==='auto_approved'&&result.balanceStatus==='settled'))return;
+  if(result.balanceRequestId && !(['auto_approved','approved'].includes(result.status)&&result.balanceStatus==='settled'))return;
   if(result.bookingStatus!=='confirmed'||result.paymentStatus!=='paid')return;
   try {
     if(result.requestType==='reschedule_adjustment'){
@@ -136,6 +136,48 @@ async function sendConfirmation(db:DB,result:Obj):Promise<void>{
     const sent=await r.json().catch(()=>({}));result.confirmationEmail=r.ok&&sent.ok===true?'sent':'pending';
   }catch(_){result.confirmationEmail='pending';}
 }
+export async function staffReviewResponse(db:DB,body:Obj,actor:string,origin:string):Promise<Response>{
+  const verificationId=uuid(body.verificationId);
+  const bookingReference=reference(body.bookingReference);
+  const receipt=await db.from('receipt_verifications').select('id,booking_id,balance_request_id,status,storage_path')
+    .eq('tenant_id',TENANT_ID).eq('id',verificationId).maybeSingle();
+  if(receipt.error)fail('REVIEW_UNAVAILABLE','Receipt details could not be loaded. Please try again.',503);
+  if(!receipt.data)fail('RECEIPT_NOT_FOUND','The receipt is not available for this venue.',404);
+  const booking=await db.from('bookings').select('id,reference,status,payment_status,starts_at').eq('tenant_id',TENANT_ID)
+    .eq('id',receipt.data!.booking_id).eq('reference',bookingReference).maybeSingle();
+  if(booking.error||!booking.data)fail('RECEIPT_NOT_FOUND','The receipt does not match this booking.',404);
+  if(body.action==='review_context'){
+    if(!['pending','manual_review'].includes(receipt.data!.status)||!receipt.data!.storage_path)fail('RECEIPT_NOT_PENDING','This receipt is no longer awaiting review. Refresh the booking.');
+    const balanceId=receipt.data!.balance_request_id;
+    const job=await db.from(balanceId?'picklestreet_balance_receipt_jobs':'picklestreet_receipt_jobs')
+      .select('receipt_id,current_attempt_id').eq('tenant_id',TENANT_ID)
+      .eq(balanceId?'balance_request_id':'booking_id',balanceId||receipt.data!.booking_id).maybeSingle();
+    if(job.error||!job.data?.current_attempt_id||job.data.receipt_id!==verificationId)fail('REVIEW_UNAVAILABLE','Run Retry verification first, then reopen this receipt.');
+    const canApprove=booking.data!.status!=='completed' && new Date(booking.data!.starts_at).getTime()>Date.now();
+    return jsonResponse({ok:true,verificationId,attemptId:job.data.current_attempt_id,balanceRequestId:balanceId||null,
+      bookingReference,paymentWindowMinutes:15,canApprove,
+      approvalUnavailableReason:canApprove?'':'This court time has already started. The platform does not allow confirming payment after play starts.'},200,origin);
+  }
+  const decision=String(body.decision||'');
+  const note=String(body.note||'').trim();
+  if(!['approve','reject'].includes(decision)||note.length>1000||(decision==='reject'&&note.length<3))fail('REVIEW_INVALID','Choose Confirm or Reject and provide a rejection reason of 3–1000 characters.',400);
+  const reviewed=await db.rpc('review_picklestreet_pending_receipt',{
+    p_verification_id:verificationId,p_expected_attempt_id:uuid(body.expectedAttemptId),p_idempotency_key:uuid(body.idempotencyKey),
+    p_decision:decision,p_review_note:note,p_actor_user_id:actor,
+  });
+  if(reviewed.error){
+    const message=String(reviewed.error.message||'');
+    if(/stale|changed|attempt|already|pending|idempotency/i.test(message))fail('RECEIPT_CHANGED','This receipt changed or was already reviewed. Reload its details before deciding.');
+    if(/slot|court|overlap|blocked|unavailable|23P01/i.test(message+' '+reviewed.error.code))fail('COURT_UNAVAILABLE','The court time is no longer available. The payment decision was not saved.');
+    if(/started|past|time/i.test(message))fail('BOOKING_STARTED','This booking time has already started. The payment decision was not saved.');
+    if(/access|actor|auth|permission/i.test(message))fail('REVIEW_ACCESS_DENIED','This account cannot review this payment.',403);
+    fail('REVIEW_NOT_SAVED','The payment decision could not be saved. Refresh the booking and try again.');
+  }
+  const result=obj(reviewed.data);
+  if(decision==='approve')await sendConfirmation(db,result);
+  return jsonResponse({ok:true,...result},200,origin);
+}
+
 export async function handleRequest(request:Request):Promise<Response>{
   let origin:string|undefined;
   try {
@@ -152,6 +194,10 @@ export async function handleRequest(request:Request):Promise<Response>{
     if(body.tenantSlug && body.tenantSlug!==TENANT_SLUG)fail('TENANT_ACCESS_DENIED','The venue identity could not be verified.',403);
     if(body.action==='status')return await statusResponse(request,db,body,origin);
     if(body.action==='balance_status')return await balanceStatusResponse(request,db,body,origin);
+    if(body.action==='review_context'||body.action==='review'){
+      const actor=await operator(db,request.headers.get('authorization'));
+      return await staffReviewResponse(db,body,actor,origin);
+    }
     const action=isJson?String(body.action||''):'upload';
     if(!['retry','upload'].includes(action))fail('ACTION_INVALID','This receipt action is unavailable.',400);
     const balanceValue=isJson?body.balanceRequestId:request.headers.get('x-balance-request');

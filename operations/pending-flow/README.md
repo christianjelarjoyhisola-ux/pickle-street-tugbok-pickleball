@@ -2,7 +2,9 @@
 
 Live site: https://picklestreet.pages.dev/
 
-Final Pages deployment: https://f122bbbf.picklestreet.pages.dev/
+Current Pages deployment: https://386c55bc.picklestreet.pages.dev/
+
+Current staff-review update: [manual-review-release.md](manual-review-release.md).
 
 Tenant: `pickle-street-tugbok` / `f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a`
 
@@ -13,7 +15,16 @@ Supabase project: `neqvrwtofiolcuxewdze`
 Booking receipts automatically confirm only after the receiving account, amount,
 reference, currency, payment timing, image evidence and court availability pass.
 Unreadable, unsupported, duplicate, incomplete or mismatched evidence remains
-Pending. The workflow provides no manual approve/reject shortcut.
+Pending. As of the staff-review update, authenticated venue staff can explicitly
+Confirm or Reject a pending receipt after reviewing the payment. Automatic parser
+failures never reject a booking. Each staff decision is audited and committed
+atomically through the isolated Pickle Street review route.
+
+The Pickle Street receipt payment window is 15 minutes from the reservation's
+creation. The existing public booking hold is also 15 minutes. Retries use the
+original reservation time; existing saved results retain their recorded timing
+policy until rechecked. The shared parser default remains unchanged for other
+tenants. Existing platform rules prohibit confirmation after play starts.
 
 Customers can submit corrected proof from their private booking or balance link.
 Staff can retry the selected receipt. Retries rerun the parser, preserve receipt
@@ -66,9 +77,12 @@ Applied migrations:
    creates one named job, `picklestreet-balance-holds-f19f457a`, every minute. Only
    the database owner can call its wrapper. Its first observed run succeeded.
    Already released pending holds are excluded from future sweeps.
+4. `004-staff-payment-review.sql`: isolated authenticated staff decisions, immutable
+   decision audit, stale-receipt and late-parser protection, and atomic availability
+   checks for initial payments and reschedule adjustments.
 
 Migration files are accompanied by exact-hash validation and application records.
-`tools/pending-platform.cjs validate <initial|balance|expiry>` checks unapplied
+`tools/pending-platform.cjs validate <initial|balance|expiry|manual>` checks unapplied
 migrations in a rolled-back transaction. `apply` requires matching validation and
 refuses an already-installed workflow. Do not reapply an installed migration.
 
@@ -77,7 +91,7 @@ with its explicit `deno.json` import map. Platform JWT gateway checking is disab
 only for this function because the handler implements customer capability and staff
 authentication itself; private database functions remain unavailable to guests.
 
-## Verification
+## Original pending-flow verification
 
 - 83 application regression tests passed.
 - 26 synthetic receipt/parser and request-guard tests passed.

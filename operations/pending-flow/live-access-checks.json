@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-09-07T07:58:28.438Z",
+  "checkedAt": "2026-09-07T10:36:42.798Z",
   "results": [
     {
       "name": "Browser preflight",
@@ -23,6 +23,21 @@
     },
     {
       "name": "Staff retry requires sign-in",
+      "status": 401,
+      "passed": true
+    },
+    {
+      "name": "Staff review context requires sign-in",
+      "status": 401,
+      "passed": true
+    },
+    {
+      "name": "Manual approval requires sign-in",
+      "status": 401,
+      "passed": true
+    },
+    {
+      "name": "Guest cannot call manual payment review",
       "status": 401,
       "passed": true
     },

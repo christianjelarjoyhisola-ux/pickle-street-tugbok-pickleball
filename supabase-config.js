@@ -4030,6 +4030,35 @@ window.DB = {
     return booking;
   },
 
+  async getPendingReceiptReviewContext(bookingReference, verificationId) {
+    if (!PB_PLATFORM_V1 || PB_PAGE_DATA_SCOPE !== 'manager' || !window.PB_TENANT_CONFIG?.manualReceiptReviewEnabled) {
+      throw new Error('Sign in to review this receipt.');
+    }
+    const result = await _invokeEdgeFunction(`picklestreet-receipts?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`, {
+      tenantSlug:PB_TENANT_SLUG, action:'review_context', bookingReference, verificationId,
+    }, {preferDirect:true});
+    if (!result?.ok || result.verificationId !== verificationId || !result.attemptId) {
+      throw new Error(result?.message || 'The receipt changed or is no longer pending. Refresh its details.');
+    }
+    return result;
+  },
+
+  async reviewPendingReceipt({bookingReference, verificationId, expectedAttemptId, idempotencyKey, decision, note = ''}) {
+    if (!PB_PLATFORM_V1 || PB_PAGE_DATA_SCOPE !== 'manager' || !window.PB_TENANT_CONFIG?.manualReceiptReviewEnabled) {
+      throw new Error('Sign in to review this receipt.');
+    }
+    if (!['approve','reject'].includes(decision)) throw new Error('Choose Confirm or Reject.');
+    const reviewNote = String(note || '').trim();
+    if (reviewNote.length > 1000 || (decision === 'reject' && reviewNote.length < 3)) throw new Error('Enter a rejection reason between 3 and 1000 characters.');
+    if (!verificationId || !expectedAttemptId || !idempotencyKey) throw new Error('Reload receipt details before making a decision.');
+    const result = await _invokeEdgeFunction(`picklestreet-receipts?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`, {
+      tenantSlug:PB_TENANT_SLUG, action:'review', bookingReference, verificationId, expectedAttemptId, idempotencyKey, decision, note:reviewNote,
+    }, {preferDirect:true});
+    if (!result?.ok) throw new Error(result?.message || 'The receipt decision was not saved.');
+    _pbClearFastCache(['bookings','platformAvailability']);
+    return result;
+  },
+
   async retryPaymentReceipt(bookingReference, idempotencyKey, balanceRequestId = '') {
     if (!PB_PLATFORM_V1 || PB_TENANT_SLUG !== 'pickle-street-tugbok' || window.PB_TENANT_CONFIG?.receiptReviewMode !== 'auto_pending') throw new Error('Automatic receipt retry is unavailable.');
     const result = await _invokeEdgeFunction(`picklestreet-receipts?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`, {
