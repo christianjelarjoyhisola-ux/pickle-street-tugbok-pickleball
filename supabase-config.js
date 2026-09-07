@@ -1128,14 +1128,14 @@ function _pbPlatformSettingsToLegacy(bootstrap) {
   // Payment options are opt-in on the public platform. Missing destination
   // settings must never render placeholder accounts as payable methods.
   const paymentConfigs = Array.isArray(bootstrap?.paymentMethods) ? bootstrap.paymentMethods : [];
-  const supportedUiCodes = new Set(['cash', 'gcash', 'bdopay', 'maya', 'bpi', 'gotyme', 'pnb']);
+  const supportedUiCodes = new Set(['cash', 'gcash', 'bdopay', 'maya', 'bpi', 'gotyme', 'maribank', 'pnb']);
   const paymentCodeAliases = Object.create(null);
   const paymentMethodsByCode = Object.create(null);
   const ambiguousUiCodes = new Set();
   for (const method of paymentConfigs) {
     const backendCode = String(method.code || '').trim().toLowerCase();
     if (!/^[a-z][a-z0-9_-]{1,39}$/.test(backendCode)) continue;
-    const uiCode = backendCode === 'bdo' ? 'bdopay' : backendCode;
+    const uiCode = ['bdo','bdo_pay','bdopay'].includes(backendCode) ? 'bdopay' : backendCode;
     const dto = Object.freeze({
       code: backendCode,
       uiCode,
@@ -1163,9 +1163,9 @@ function _pbPlatformSettingsToLegacy(bootstrap) {
     ? Object.keys(paymentCodeAliases)
     : Array.isArray(settings['payment.public_methods'])
       ? settings['payment.public_methods'].map(value => String(value).toLowerCase())
-      : ['cash', 'gcash', 'bdopay', 'maya', 'bpi', 'gotyme', 'pnb']
+      : ['cash', 'gcash', 'bdopay', 'maya', 'bpi', 'gotyme', 'maribank', 'pnb']
         .filter(method => settings[`payment_method_${method}`] === '1');
-  for (const method of ['cash', 'gcash', 'bdopay', 'maya', 'bpi', 'gotyme', 'pnb']) {
+  for (const method of ['cash', 'gcash', 'bdopay', 'maya', 'bpi', 'gotyme', 'maribank', 'pnb']) {
     settings[`payment_method_${method}`] = publicMethods.includes(method) ? '1' : '0';
   }
   const configFor = code => paymentMethodsByCode[paymentCodeAliases[code] || code];
@@ -1250,6 +1250,11 @@ function _pbNormalizeTenantActivationSettings(value) {
           openPlayServiceFee.service_fee_per_person
         )),
     } : null,
+    receiptVerification: raw.receiptVerification && typeof raw.receiptVerification === 'object' ? {
+      gcashQrAlias: String(raw.receiptVerification.gcashQrAlias || ''),
+      gcashQrToken: String(raw.receiptVerification.gcashQrToken || ''),
+    } : null,
+    receiptVerificationRevision: Number(raw.receiptVerificationRevision || 0),
     paymentMethods: paymentMethods.map(method => ({
       code: String(method.methodCode || method.code || '').toLowerCase(),
       displayName: method.displayName || method.methodCode || method.code || '',
@@ -3502,6 +3507,16 @@ window.DB = {
       };
     }
 
+    if (PB_TENANT_SLUG === 'pickle-street-tugbok' && window.PB_TENANT_CONFIG?.sharedGcashPaymentsEnabled) {
+      if (PB_PAGE_DATA_SCOPE !== 'manager') throw new Error('Sign in to manage payment settings.');
+      const {data,error} = await _sb.rpc('get_picklestreet_payment_settings', {
+        p_tenant_slug:PB_TENANT_SLUG, p_hostname:_pbTenantHostname(),
+      });
+      if (error) throw new Error(_extractFnError(error,'Payment settings could not be loaded'));
+      _pbCaptureBusinessRevision(data);
+      return _pbNormalizeTenantActivationSettings(data);
+    }
+
     const result = await _invokeEdgeFunction(
       `tenant-activation-settings?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
       { action: 'get', tenantSlug: PB_TENANT_SLUG },
@@ -3640,9 +3655,17 @@ window.DB = {
     emailEnabled,
     replyToEmail,
     paymentMethods,
+    receiptVerification,
+    receiptVerificationRevision = 0,
   }) {
+    if (PB_PLATFORM_V1 && PB_PAGE_DATA_SCOPE !== 'manager') throw new Error('Sign in to manage payment settings.');
+    const updateEmailSettings = emailEnabled !== undefined || replyToEmail !== undefined;
     const email = String(replyToEmail || '').trim().toLowerCase();
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (updateEmailSettings && (typeof emailEnabled !== 'boolean' || replyToEmail === undefined)) {
+      throw new Error('Include both email settings when changing booking email configuration.');
+    }
+    if (updateEmailSettings && emailEnabled && !email) throw new Error('Enter a Reply-To email before enabling booking emails.');
+    if (updateEmailSettings && email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw new Error('Enter a valid Reply-To email address.');
     }
     const methods = Array.isArray(paymentMethods) ? paymentMethods : [];
@@ -3686,29 +3709,38 @@ window.DB = {
     }).filter(method => method.configured).map(({ configured, ...method }) => method);
 
     if (!PB_PLATFORM_V1) {
-      await this.saveSetting('email_reply_to', email);
-      await this.saveSetting('email_enabled', emailEnabled ? '1' : '0');
+      if (updateEmailSettings) {
+        await this.saveSetting('email_reply_to', email);
+        await this.saveSetting('email_enabled', emailEnabled ? '1' : '0');
+      }
       return;
     }
-    const { data, error } = await _sb.rpc('update_tenant_business_settings_if_current', {
+    const sharedPayments = PB_TENANT_SLUG === 'pickle-street-tugbok' && window.PB_TENANT_CONFIG?.sharedGcashPaymentsEnabled;
+    const { data, error } = await _sb.rpc(sharedPayments ? 'save_picklestreet_payment_settings' : 'update_tenant_business_settings_if_current', {
       p_expected_revision: _pbBusinessRevision,
       p_tenant_slug: PB_TENANT_SLUG,
       p_hostname: _pbTenantHostname(),
       p_patch: {
-        venue: {
+        ...(updateEmailSettings ? {venue: {
           replyToEmail: email || null,
           emailEnabled: emailEnabled === true,
-        },
+        }} : {}),
         paymentMethods: normalized,
+        ...(sharedPayments ? {receiptVerification: {
+          gcashQrAlias:String(receiptVerification?.gcashQrAlias || '').trim(),
+          gcashQrToken:String(receiptVerification?.gcashQrToken || '').trim(),
+        },receiptVerificationRevision} : {}),
       },
     });
     if (error) throw new Error(_extractFnError(error, 'Activation settings were not saved'));
     _pbClearFastCache(['settings', 'platformBootstrap']);
-    // Refresh the safe server view so the public gate changes only when the
-    // backend has independently confirmed every required setting.
-    await _pbPlatformBootstrap();
+    const savedActivation = _pbNormalizeTenantActivationSettings(data);
+    // A successful write stays successful if the separate readiness refresh fails.
+    // Keep the saved private/business revisions so a later Save is current.
+    try { await _pbPlatformBootstrap(); }
+    catch (_) { savedActivation.readinessRefreshFailed = true; }
     _pbCaptureBusinessRevision(data);
-    return _pbNormalizeTenantActivationSettings(data);
+    return savedActivation;
   },
 
   async activateTenantInitially() {

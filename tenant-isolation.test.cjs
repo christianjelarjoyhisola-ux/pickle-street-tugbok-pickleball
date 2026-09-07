@@ -16,7 +16,7 @@ function boot(options={}) {
   const state={signouts:0};
   const client={
     auth:{getSession:async()=>({data:{session:{access_token:'test-manager-token'}}}),getUser:async()=>({data:{user:{id:'f19f457a-68e2-42ea-9f8e-1f6e8ac84b3b'}}}),signOut:async()=>{state.signouts++;}},
-    rpc:async(name,args)=>{calls.push({kind:'rpc',name,args}); if(options.rpc)return options.rpc(name,args);return {data:name==='get_my_tenant_session'?account:name==='get_public_tenant_bootstrap'?bootstrap:name==='get_public_availability'?{tenantSlug:SLUG,date:args.p_date,courts:[],blockedDates:[]}:[]};},
+    rpc:async(name,args)=>{calls.push({kind:'rpc',name,args}); if(name==='get_picklestreet_payment_settings' && options.response?.settings)return {data:options.response.settings}; if(options.rpc)return options.rpc(name,args);return {data:name==='get_my_tenant_session'?account:name==='get_public_tenant_bootstrap'?bootstrap:name==='get_public_availability'?{tenantSlug:SLUG,date:args.p_date,courts:[],blockedDates:[]}:[]};},
     from:()=>{throw new Error('Direct table access is forbidden in this test.');},
     functions:{invoke:async()=>{throw new Error('Expected direct scoped request.');}},
   };
@@ -36,6 +36,31 @@ test('routing is fixed and rejects unregistered hosts',()=>{
   assert.throws(()=>boot({hostname:'another-venue.example'}),/not registered/);
   const {context:c}=boot();assert.equal(c.PB_TENANT_CONFIG.tenantSlug,SLUG);
   assert.throws(()=>{c.PB_TENANT_CONFIG.tenantSlug='other';},TypeError);
+});
+
+test('private payment settings reject public access before sending a manager request',async()=>{
+  const {context:c,calls}=boot();
+  await assert.rejects(c.DB.getTenantActivationSettings(),/Sign in/);
+  await assert.rejects(c.DB.saveTenantActivationSettings({paymentMethods:[]}),/Sign in/);
+  assert.equal(calls.length,0);
+});
+
+test('shared payment settings keep private receipt identity and both revisions on the isolated save route',async()=>{
+  const settings={tenant:{id:TENANT,slug:SLUG},tenantRevision:'2026-09-08T00:00:00Z',
+    receiptVerification:{gcashQrAlias:'TEST VENUE ALIAS',gcashQrToken:'TEST12345678'},receiptVerificationRevision:4,paymentMethods:[]};
+  const {context:c,calls}=boot({scope:'manager',rpc:async(name)=>({data:name==='get_public_tenant_bootstrap'
+    ? {tenant:{id:TENANT,slug:SLUG},courts:[],settings:{},paymentMethods:[],readiness:{publicBookingEnabled:true}}
+    : settings})});
+  const loaded=await c.DB.getTenantActivationSettings();assert.equal(loaded.receiptVerification.gcashQrAlias,'TEST VENUE ALIAS');
+  await c.DB.saveTenantActivationSettings({replyToEmail:'venue@example.test',emailEnabled:true,
+    paymentMethods:[{code:'maya',displayName:'Maya',accountName:'TEST VENUE',accountReference:'09172222222',isActive:true}],
+    receiptVerification:loaded.receiptVerification,receiptVerificationRevision:loaded.receiptVerificationRevision});
+  const save=calls.find(call=>call.name==='save_picklestreet_payment_settings');assert.ok(save);
+  assert.equal(save.args.p_tenant_slug,SLUG);assert.equal(save.args.p_hostname,HOST);
+  assert.equal(save.args.p_expected_revision,settings.tenantRevision);assert.equal(save.args.p_patch.receiptVerificationRevision,4);
+  assert.equal(save.args.p_patch.receiptVerification.gcashQrToken,'TEST12345678');
+  assert.equal(save.args.p_patch.paymentMethods[0].accountNumber,'09172222222');
+  assert.equal(calls.some(call=>call.name==='update_tenant_business_settings_if_current'),false);
 });
 test('a remembered owner visiting the public page cannot read manager bookings, courts, or settings',async()=>{
   const {context:c,calls}=boot();

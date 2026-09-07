@@ -1,0 +1,55 @@
+{
+  "checkedAt": "2026-09-07T16:48:02.772Z",
+  "migrationHash": "eed7f6001fcf037457b14b7c4ae5c0d0fc9bee296969b03640a54006cabb498a",
+  "rolledBack": true,
+  "result": [
+    {
+      "checks": [
+        {
+          "name": "All six configured source routes confirm initial payments",
+          "passed": true
+        },
+        {
+          "name": "Bank QR source routes require explicit private recipient identity",
+          "passed": true
+        },
+        {
+          "name": "Cross-provider secondary duplicates block automatic and staff approval atomically",
+          "passed": true
+        },
+        {
+          "name": "Malformed parser versions, inflated confidence and missing rail evidence fail closed",
+          "passed": true
+        },
+        {
+          "name": "Manager settings preserve switches, enforce both revisions and stay private",
+          "passed": true
+        },
+        {
+          "name": "Missing confidence, stale private identity and disabled source stay pending",
+          "passed": true
+        },
+        {
+          "name": "Other tenant settings and method rows unchanged",
+          "passed": true
+        },
+        {
+          "name": "Private configuration and internal auto-approval permissions isolated",
+          "passed": true
+        },
+        {
+          "name": "Receiving GCash identity independent of direct GCash switch",
+          "passed": true
+        },
+        {
+          "name": "Shared destination saves atomically across configured source switches",
+          "passed": true
+        },
+        {
+          "name": "Source-route reschedule settles and cross-purpose duplicates preserve original paid booking",
+          "passed": true
+        }
+      ]
+    }
+  ]
+}

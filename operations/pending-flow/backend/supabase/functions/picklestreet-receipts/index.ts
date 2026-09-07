@@ -6,6 +6,7 @@ import { detectReceiptText,inspectReceiptImage,parseReceiptObjectPath,RECEIPT_BU
 import { originalBookingStatus } from "./status.ts";
 import { originalBalanceStatus } from "./balance-status.ts";
 import { verifyByMethod,publicPendingReason } from "./parsers.ts";
+import { canonicalSourceProvider,verifySourceRoute } from "./source-routes.ts";
 import { deliverEmail } from "../_shared/reschedule-booking.ts";
 import { sendMailerooEmail } from "../_shared/maileroo.ts";
 import { createSupabaseRescheduleBookingStore } from "./reschedule-store.ts";
@@ -105,17 +106,39 @@ async function readImage(request:Request):Promise<{bytes:Uint8Array;type:string;
   if(!extension)fail('IMAGE_TYPE_UNSUPPORTED','Use a JPEG, PNG, or WebP receipt.',415);
   return {bytes:new Uint8Array(await file.arrayBuffer()),type,extension};
 }
+export async function paymentReceiptContext(db:DB,paymentMethod:string):Promise<Obj>{
+  const source=await db.from('tenant_payment_methods').select('account_name,account_reference').eq('tenant_id',TENANT_ID).eq('method_code',paymentMethod).eq('is_active',true).maybeSingle();
+  if(source.error||!source.data)fail('PAYMENT_METHOD_UNAVAILABLE','The selected payment method is no longer available.');
+  const tenant=await db.from('tenants').select('public_config').eq('id',TENANT_ID).single();
+  if(tenant.error||!tenant.data)fail('PAYMENT_SETTINGS_UNAVAILABLE','Payment settings could not be checked.',503);
+  const config=obj(tenant.data.public_config),provider=canonicalSourceProvider(paymentMethod);
+  if(!provider)return {source:source.data,receiver:source.data,config,route:null,
+    snapshot:{method:paymentMethod,name:source.data.account_name,account:source.data.account_reference}};
+  const [destination,privateSettings]=await Promise.all([
+    db.from('tenant_payment_methods').select('account_name,account_reference').eq('tenant_id',TENANT_ID).eq('method_code','gcash').maybeSingle(),
+    db.from('picklestreet_receipt_route_settings').select('gcash_qr_alias,gcash_qr_token,revision').eq('tenant_id',TENANT_ID).maybeSingle(),
+  ]);
+  if(destination.error||privateSettings.error||!destination.data)fail('PAYMENT_SETTINGS_UNAVAILABLE','The shared GCash recipient could not be checked.',503);
+  if(source.data.account_name!==destination.data.account_name||source.data.account_reference!==destination.data.account_reference)
+    fail('PAYMENT_DESTINATION_CHANGED','The receiving account changed. Staff needs to review this receipt.');
+  const receiver=destination.data,settings=privateSettings.data;
+  return {source:source.data,receiver,config,route:{tenantId:TENANT_ID,tenantSlug:TENANT_SLUG,
+    sourceProvider:provider,destinationProvider:'gcash',destinationMethodCode:'gcash',enabled:true,
+    autoApprovalEnabled:config.bookingApprovalMode!=='manual',gcashQrAlias:settings?.gcash_qr_alias||'',gcashQrToken:settings?.gcash_qr_token||''},
+    snapshot:{method:paymentMethod,name:receiver.account_name,account:receiver.account_reference,destinationMethod:'gcash',verificationSettingsRevision:Number(settings?.revision||0)}};
+}
+
 async function verificationResult(db:DB,job:Obj,bytes:Uint8Array,type:string,finishRpc='finish_picklestreet_receipt_attempt'):Promise<Obj>{
   let extracted:unknown=null,flags:string[]=[],paymentReference:string|null=null,confidence:number|null=null,autoApprove=false,errorCode:string|null=null,receiverSnapshot:Obj|null=null;
   try {
-    const method=await db.from('tenant_payment_methods').select('account_name,account_reference').eq('tenant_id',TENANT_ID).eq('method_code',job.paymentMethod).eq('is_active',true).maybeSingle();
-    if(method.error||!method.data)fail('PAYMENT_METHOD_UNAVAILABLE','Receiving-account settings need attention.');
-    receiverSnapshot={method:job.paymentMethod,name:method.data!.account_name,account:method.data!.account_reference};
-    const tenant=await db.from('tenants').select('public_config').eq('id',TENANT_ID).single();if(tenant.error)throw Error('Settings unavailable');
-    const config=obj(tenant.data?.public_config);
+    const context=await paymentReceiptContext(db,job.paymentMethod);
+    receiverSnapshot=context.snapshot;
     const image=inspectReceiptImage(bytes,parseReceiptObjectPath(job.storagePath),type,type);
     const vision=await detectReceiptText({bytes,apiKey:env('GOOGLE_VISION_API_KEY')});
-    const result=verifyByMethod({vision,image,expectedAmount:Number(job.expectedAmount),currency:job.currency,payment:{paymentMethod:job.paymentMethod,submittedReference:job.submittedReference,receiverName:method.data!.account_name,receiverReference:method.data!.account_reference,autoApprovalEnabled:config.bookingApprovalMode!=='manual'&&(job.paymentMethod==='gcash'||(Array.isArray(config.receiptAutoApprovalMethods)&&config.receiptAutoApprovalMethods.includes(job.paymentMethod)))},timing:{bookingStartedAt:job.bookingStartedAt,tenantTimezone:job.tenantTimezone}});
+    const input={vision,image,expectedAmount:Number(job.expectedAmount),currency:job.currency,
+      payment:{paymentMethod:job.paymentMethod,submittedReference:job.submittedReference,receiverName:context.receiver.account_name,receiverReference:context.receiver.account_reference,autoApprovalEnabled:context.config.bookingApprovalMode!=='manual'},
+      timing:{bookingStartedAt:job.bookingStartedAt,tenantTimezone:job.tenantTimezone}};
+    const result=context.route ? verifySourceRoute({...input,route:context.route}) : verifyByMethod(input);
     extracted=result.extractedData;flags=result.flags;paymentReference=result.paymentReference;confidence=result.extractedData.confidence.effective;autoApprove=result.autoApprove;
   } catch(error){errorCode=error instanceof RequestError?error.code.toLowerCase():'verifier_unavailable';flags=['verification_unavailable'];}
   const finished=await db.rpc(finishRpc,{p_attempt_id:job.attemptId,p_lease_token:job.leaseToken,p_extracted_data:extracted,p_flags:flags,p_payment_reference:paymentReference,p_confidence:confidence,p_auto_approve:autoApprove,p_error_code:errorCode,p_receiver_snapshot:receiverSnapshot});

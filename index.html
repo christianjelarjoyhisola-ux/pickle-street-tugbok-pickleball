@@ -21,6 +21,9 @@
 <link rel="icon" type="image/jpeg" href="logopickle.jpg" />
 <link rel="preload" as="image" href="logopickle.jpg" fetchpriority="high" />
 <link rel="preload" as="image" href="assets/pickle-street-courts.jpg" fetchpriority="high" />
+<link rel="stylesheet" href="payment-method-brand.css?v=20260908-source-methods" />
+<script src="payment-method-brand.js?v=20260908-source-methods"></script>
+<script src="payment-source-ui.js?v=20260908-source-methods"></script>
 <script src="booking-balance.js?v=20260907-pickle-street"></script>
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;family=League+Spartan:wght@600;700;800&amp;display=swap" rel="stylesheet" />
@@ -3490,9 +3493,31 @@ body.dark #splashScreen {
   .player-rain-actions .btn { flex-basis:100%; white-space:normal; text-align:center; }
   .player-rain-summary { grid-template-columns:1fr; }
 }
+/* Restored checkout introduction, scoped to an actual court hold. */
+#bookModal .bk-modal { position:relative; }
+.booking-intro {
+  position:absolute;inset:0;z-index:20;display:grid;place-items:center;padding:24px;
+  background:rgba(8,16,13,.74);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);
+  opacity:0;visibility:hidden;pointer-events:none;transition:opacity .18s ease;
+}
+.booking-intro[aria-hidden="false"] { opacity:1;visibility:visible;pointer-events:auto; }
+.booking-intro-card {
+  width:min(100%,390px);padding:26px 22px 24px;text-align:center;background:var(--card);
+  border:1px solid rgba(var(--ac),.42);border-radius:18px;box-shadow:0 24px 70px rgba(0,0,0,.5);
+}
+.booking-intro-kicker { margin-bottom:7px;color:var(--accent);font-size:.72rem;font-weight:800;letter-spacing:1px;text-transform:uppercase; }
+.booking-intro-title { font-size:1.45rem;font-weight:900;line-height:1.15;color:var(--text); }
+.booking-intro-timer { margin:12px 0 10px;color:#b87e00;font-size:clamp(2.65rem,12vw,4rem);font-weight:900;font-variant-numeric:tabular-nums;letter-spacing:1px;line-height:1; }
+.booking-intro-copy { margin:0 auto;max-width:330px;color:var(--muted);font-size:.84rem;line-height:1.55; }
+#bookModal.booking-intro-active .wiz-steps,
+#bookModal.booking-intro-active .bk-modal-body,
+#bookModal.booking-intro-active .bk-modal-ft { filter:blur(5px);opacity:.42;pointer-events:none;user-select:none; }
+.booking-countdown-announcer { position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0; }
+@media (prefers-reduced-motion:reduce) { .booking-intro { transition:none; } }
+
 </style>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="pickle-street.css?v=20260907-manual15">
+<link rel="stylesheet" href="pickle-street.css?v=20260908-routes2">
 <meta name="robots" content="noindex,nofollow">
 </head>
 <body class="light">
@@ -3736,6 +3761,17 @@ body.dark #splashScreen {
       <span class="scd-timer" id="scdTimerBig">15:00</span>
     </div>
 
+    <div class="booking-intro" id="bookingIntro" aria-hidden="true" inert>
+      <div class="booking-intro-card" id="bookingIntroCard" tabindex="-1" role="group" aria-labelledby="bookingIntroTitle" aria-describedby="bookingIntroCopy">
+        <div class="booking-intro-kicker">15-minute payment window</div>
+        <div class="booking-intro-title" id="bookingIntroTitle">Complete payment before the timer ends</div>
+        <div class="booking-intro-timer" id="bookingIntroTimer">--:--</div>
+        <p class="booking-intro-copy" id="bookingIntroCopy">This is the time remaining on your reserved court. The timer continues if you close this page.</p>
+        <button class="btn btn-p" type="button" onclick="hideBookingIntro({restoreFocus:true})" style="margin-top:16px">Continue to payment</button>
+      </div>
+    </div>
+    <div class="booking-countdown-announcer" id="bookingCountdownAnnouncement" role="status" aria-live="polite" aria-atomic="true"></div>
+
     <!-- Step indicator -->
     <div class="wiz-steps">
       <div class="wiz-step active" id="wizStep1">
@@ -3815,6 +3851,11 @@ body.dark #splashScreen {
               <div class="pay-opt" id="payOptGotyme" data-m="gotyme" onclick="pickPay('gotyme')">
                 <div class="pay-ic">🏦</div>
                 <div class="pay-lb">GoTyme</div>
+                <div class="pay-sub">View payment details</div>
+              </div>
+              <div class="pay-opt" id="payOptMaribank" data-m="maribank" onclick="pickPay('maribank')">
+                <div class="pay-ic">MB</div>
+                <div class="pay-lb">MariBank → GCash</div>
                 <div class="pay-sub">View payment details</div>
               </div>
               <div class="pay-opt" id="payOptPnb" data-m="pnb" onclick="pickPay('pnb')">
@@ -6557,27 +6598,28 @@ let paymentReceiverSettings = {
   maya: { backendCode: '', uiCode: 'maya', displayName: 'Maya', number: '', name: '', qrImage: '', instructions: '' },
   bpi: { backendCode: '', uiCode: 'bpi', displayName: 'BPI', number: '', name: '', qrImage: '', instructions: '' },
   gotyme: { backendCode: '', uiCode: 'gotyme', displayName: 'GoTyme', number: '', name: '', qrImage: '', instructions: '' },
+  maribank: { backendCode: '', uiCode: 'maribank', displayName: 'MariBank', number: '', name: '', qrImage: '', instructions: '' },
   pnb: { backendCode: '', uiCode: 'pnb', displayName: 'PNB', number: '', name: '', qrImage: '', instructions: '' },
   cash: { backendCode: '', uiCode: 'cash', displayName: 'Cash', number: '', name: '', qrImage: '', instructions: '' },
 };
-let paymentMethods = { cash: false, gcash: false, bdopay: false, maya: false, bpi: false, gotyme: false, pnb: false };
-const DIGITAL_PAYMENT_METHODS = ['gcash', 'bdopay', 'maya', 'bpi', 'gotyme', 'pnb'];
+let paymentMethods = { cash: false, gcash: false, bdopay: false, maya: false, bpi: false, gotyme: false, maribank: false, pnb: false };
+const DIGITAL_PAYMENT_METHODS = ['gcash', 'bdopay', 'maya', 'bpi', 'gotyme', 'maribank', 'pnb'];
 const ALL_PAYMENT_METHODS = [...DIGITAL_PAYMENT_METHODS, 'cash'];
 const PAYMENT_METHOD_FALLBACK_NAMES = Object.freeze({
-  gcash: 'GCash', bdopay: 'BDO Pay', maya: 'Maya', bpi: 'BPI', gotyme: 'GoTyme', pnb: 'PNB', cash: 'Cash',
+  gcash: 'GCash', bdopay: 'BDO Pay', maya: 'Maya', bpi: 'BPI', gotyme: 'GoTyme', maribank: 'MariBank', pnb: 'PNB', cash: 'Cash',
 });
 
 function isDigitalPayMethod(method) {
-  return DIGITAL_PAYMENT_METHODS.includes(String(method || '').toLowerCase());
+  return DIGITAL_PAYMENT_METHODS.includes(window.PaymentSourceUI.uiCode(method));
 }
 
 function paymentMethodName(method) {
-  const code = String(method || '').toLowerCase();
+  const code = window.PaymentSourceUI.uiCode(method);
   return paymentReceiverSettings[code]?.displayName || PAYMENT_METHOD_FALLBACK_NAMES[code] || 'Payment';
 }
 
 function paymentReceiver(method) {
-  const code = String(method || '').toLowerCase();
+  const code = window.PaymentSourceUI.uiCode(method);
   return paymentReceiverSettings[code] || {
     backendCode: '', uiCode: code, displayName: PAYMENT_METHOD_FALLBACK_NAMES[code] || 'Payment',
     number: '', name: '', qrImage: '', instructions: '',
@@ -7229,7 +7271,7 @@ function assignPaymentQr(imgId, placeholderId, value) {
 }
 
 function paymentReceiverFromSettings(method, settings) {
-  const uiCode = String(method || '').toLowerCase();
+  const uiCode = window.PaymentSourceUI.uiCode(method);
   const fallbackName = PAYMENT_METHOD_FALLBACK_NAMES[uiCode] || 'Payment';
   if (window.PB_PLATFORM_V1) {
     const backendCode = String(window.PB_PAYMENT_METHOD_CODES?.[uiCode] || '').toLowerCase();
@@ -7276,7 +7318,8 @@ function applyPaymentSettings(settings) {
     const exactPlatformDestination = !window.PB_PLATFORM_V1 || (
       !!receiver?.backendCode && !!receiver.name && !!receiver.number
     );
-    paymentMethods[method] = requested && exactPlatformDestination;
+    // Cash remains a staff option; this public platform flow requires a digital receipt.
+    paymentMethods[method] = requested && exactPlatformDestination && (!window.PB_PLATFORM_V1 || method !== 'cash');
   }
   // The shared protected receipt service verifies the immutable full total.
   // Keep checkout aligned with that server-authoritative capability.
@@ -7294,14 +7337,22 @@ function applyPaymentSettings(settings) {
   assignPaymentQr('gotymeQrImg', 'gotymeQrPlaceholder', paymentReceiverSettings.gotyme.qrImage);
   assignPaymentQr('pnbQrImg', 'pnbQrPlaceholder', paymentReceiverSettings.pnb.qrImage);
 
-  const optionIds = { cash: 'payOptCash', gcash: 'payOptGcash', bdopay: 'payOptBdopay', maya: 'payOptMaya', bpi: 'payOptBpi', gotyme: 'payOptGotyme', pnb: 'payOptPnb' };
+  const optionIds = { cash: 'payOptCash', gcash: 'payOptGcash', bdopay: 'payOptBdopay', maya: 'payOptMaya', bpi: 'payOptBpi', gotyme: 'payOptGotyme', maribank: 'payOptMaribank', pnb: 'payOptPnb' };
   for (const method of ALL_PAYMENT_METHODS) {
     const option = $(optionIds[method]);
     if (!option) continue;
     const receiver = paymentReceiverSettings[method];
     const label = option.querySelector('.pay-lb');
     const sublabel = option.querySelector('.pay-sub');
-    if (label) label.textContent = receiver.displayName;
+    if (label) label.textContent = window.PaymentSourceUI.label(method, receiver.displayName);
+    const icon = option.querySelector('.pay-ic');
+    if (icon && window.PaymentMethodBrand) {
+      icon.className = 'pay-ic pm-brand-mark pm-brand-mark--picker pm-brand-mark--'+method;
+      icon.innerHTML = window.PaymentMethodBrand.iconHtml(method);
+    }
+    option.setAttribute('role','button');
+    option.tabIndex = 0;
+    option.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); pickPay(method); } };
     if (sublabel) sublabel.textContent = method === 'cash'
       ? 'Configured instructions'
       : receiver.qrImage ? 'QR and account details' : 'Account details';
@@ -7318,6 +7369,7 @@ function applyPaymentMethodVisibility() {
   if ($('payOptMaya')) $('payOptMaya').style.display = paymentMethods.maya ? '' : 'none';
   if ($('payOptBpi')) $('payOptBpi').style.display = paymentMethods.bpi ? '' : 'none';
   if ($('payOptGotyme')) $('payOptGotyme').style.display = paymentMethods.gotyme ? '' : 'none';
+  if ($('payOptMaribank')) $('payOptMaribank').style.display = paymentMethods.maribank ? '' : 'none';
   if ($('payOptPnb')) $('payOptPnb').style.display = paymentMethods.pnb ? '' : 'none';
 
   const hasAny = ALL_PAYMENT_METHODS.some(m => paymentMethods[m]);
@@ -7373,16 +7425,11 @@ function formatPhTime12(date) {
 }
 
 function updatePaymentWindowText() {
-  const wrap = $('bPayWindow');
-  if (!wrap) return;
-  const started = _reservationStartedAt ? new Date(_reservationStartedAt) : null;
-  if (!started || Number.isNaN(started.getTime())) {
-    wrap.style.display = 'none';
-    return;
-  }
-  const ends = new Date(started.getTime() + RESERVATION_MINUTES * 60 * 1000);
-  if ($('bPayWindowEnd')) $('bPayWindowEnd').textContent = formatPhTime12(ends);
-  wrap.style.display = '';
+  const wrap=$('bPayWindow');if(!wrap)return;
+  const deadline=bookingReservationDeadlineMs();
+  if(!Number.isFinite(deadline)){wrap.style.display='none';return;}
+  if($('bPayWindowEnd'))$('bPayWindowEnd').textContent=formatPhTime12(new Date(deadline));
+  wrap.style.display='';
 }
 
 function paymentInstructionText() {
@@ -7947,6 +7994,8 @@ let _reservedRef = null;
 let _reservedRefs = [];
 let _reservationStartedAt = null;
 let _countdownInterval = null;
+let _countdownTick = null;
+let _reservationIntroTimeout = null;
 const RESERVATION_MINUTES = 15;
 const GUEST_RESUME_KEY = 'pb_guest_booking_resume_v1';
 let _refundPolicyReturnFocus = null;
@@ -7965,10 +8014,19 @@ function clearReservationState() {
   clearGuestBookingResume();
 }
 
-function reservationSecondsLeft(startedAt = _reservationStartedAt) {
+function bookingReservationDeadlineMs(startedAt = _reservationStartedAt) {
+  if (window.PB_PLATFORM_V1) {
+    const access = _platformBookingAccess;
+    if (!access?.reference || !access?.bookingToken) return NaN;
+    return new Date(access.booking?.expiresAt || access.expiresAt || '').getTime();
+  }
   const startedMs = new Date(startedAt || '').getTime();
-  if (!Number.isFinite(startedMs)) return RESERVATION_MINUTES * 60;
-  return Math.max(0, Math.ceil(((startedMs + RESERVATION_MINUTES * 60 * 1000) - Date.now()) / 1000));
+  return Number.isFinite(startedMs) ? startedMs + RESERVATION_MINUTES * 60 * 1000 : NaN;
+}
+
+function reservationSecondsLeft(startedAt = _reservationStartedAt) {
+  const deadline = bookingReservationDeadlineMs(startedAt);
+  return Number.isFinite(deadline) ? Math.max(0,Math.ceil((deadline-Date.now())/1000)) : 0;
 }
 
 function guestResumeFormDraft() {
@@ -8518,6 +8576,7 @@ async function proceedToBook(courtId = null) {
 }
 
 function closeBookModal({ cancel = false } = {}) {
+  hideBookingIntro();
   const itemsToRelease = activeBookingItems();
   $('bookModal').classList.remove('active');
   document.body.style.overflow = '';
@@ -8759,47 +8818,94 @@ function refundPolicyModalKeydown(event) {
   closeRefundPolicy();
 }
 
+function setBookingIntroContentInert(inert) {
+  $('bookModal')?.querySelectorAll('.wiz-steps, .bk-modal-body, .bk-modal-ft').forEach(section => {
+    section.inert = inert;
+    if (inert) section.setAttribute('aria-hidden','true');
+    else section.removeAttribute('aria-hidden');
+  });
+}
+
+function hideBookingIntro({restoreFocus = false} = {}) {
+  if (_reservationIntroTimeout) clearTimeout(_reservationIntroTimeout);
+  _reservationIntroTimeout = null;
+  const intro=$('bookingIntro');
+  if (intro) { intro.setAttribute('aria-hidden','true');intro.inert=true; }
+  $('bookModal')?.classList.remove('booking-intro-active');
+  setBookingIntroContentInert(false);
+  if (restoreFocus && $('bookModal')?.classList.contains('active')) requestAnimationFrame(()=>$('wizNextBtn')?.focus({preventScroll:true}));
+}
+
+function showBookingIntro() {
+  // The intro describes an existing server hold; it never creates one.
+  const modal=$('bookModal'),intro=$('bookingIntro'),card=$('bookingIntroCard');
+  if (!window.PB_PLATFORM_V1 || !_platformBookingAccess?.reference || !_platformBookingAccess?.bookingToken ||
+    !modal?.classList.contains('active') || !intro || !card || !Number.isFinite(bookingReservationDeadlineMs()) || reservationSecondsLeft()<=0) return false;
+  hideBookingIntro();
+  _countdownTick?.();
+  if (!_countdownTick || reservationSecondsLeft()<=0 || !modal.classList.contains('active')) return false;
+  modal.classList.add('booking-intro-active');
+  setBookingIntroContentInert(true);
+  intro.inert=false;intro.setAttribute('aria-hidden','false');
+  if ($('bookingCountdownAnnouncement')) $('bookingCountdownAnnouncement').textContent='Your court is temporarily held. Complete payment before the displayed timer ends.';
+  requestAnimationFrame(()=>card.focus({preventScroll:true}));
+  // Same five-second introduction as the preview, with a visible skip action.
+  _reservationIntroTimeout=setTimeout(()=>hideBookingIntro({restoreFocus:true}),5000);
+  return true;
+}
+
 function startSlotCountdown(initialSeconds = null) {
   stopSlotCountdown();
-  const banner = $('slotCountdown');
-  const timeEl = $('scdTime');
-  const bigEl  = $('scdTimerBig');
-  if (!banner) return;
-  banner.style.display = 'flex';
-  banner.classList.remove('urgent');
-  const hasResumeSeconds = initialSeconds !== null && initialSeconds !== undefined && Number.isFinite(Number(initialSeconds));
-  let secsLeft = hasResumeSeconds
-    ? Math.max(0, Math.floor(Number(initialSeconds)))
-    : RESERVATION_MINUTES * 60;
-  function fmt(s) {
-    const m = Math.floor(s / 60), sec = s % 60;
-    return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
-  }
-  function tick() {
+  const banner=$('slotCountdown');if(!banner)return false;
+  const serverDeadline=bookingReservationDeadlineMs();
+  const legacyFallback=!window.PB_PLATFORM_V1 && Number.isFinite(Number(initialSeconds)) && initialSeconds!==null
+    ? Date.now()+Math.max(0,Number(initialSeconds))*1000 : NaN;
+  const deadline=Number.isFinite(serverDeadline)?serverDeadline:legacyFallback;
+  // A missing platform deadline must never become a fresh fifteen-minute hold.
+  if(!Number.isFinite(deadline)){updatePaymentWindowText();return false;}
+  banner.style.display='flex';banner.classList.remove('urgent');
+  const announced=new Set();
+  _countdownTick=()=>{
+    const current=window.PB_PLATFORM_V1?bookingReservationDeadlineMs():deadline;
+    if(!Number.isFinite(current)){stopSlotCountdown();return;}
+    const remaining=Math.max(0,Math.ceil((current-Date.now())/1000));
+    const display=String(Math.floor(remaining/60)).padStart(2,'0')+':'+String(remaining%60).padStart(2,'0');
+    for(const id of ['scdTime','scdTimerBig','bookingIntroTimer'])if($(id))$(id).textContent=display;
     updatePaymentWindowText();
-    const t = fmt(secsLeft);
-    if (timeEl) timeEl.textContent = t;
-    if (bigEl)  bigEl.textContent  = t;
-    if (secsLeft <= 60) banner.classList.add('urgent');
-    if (secsLeft <= 0) {
-      stopSlotCountdown();
-      banner.style.display = 'none';
-      // Time expired — cancel reservation and close modal.
-      toast('⏰ Time expired! Your slot reservation was released.', 'err');
-      cancelBookingWizard({ expired: true });
-      return;
+    banner.classList.toggle('urgent',remaining<=60);
+    if(remaining<=60&&remaining>0&&!announced.has('one-minute')){
+      announced.add('one-minute');
+      if($('bookingCountdownAnnouncement'))$('bookingCountdownAnnouncement').textContent='Less than one minute remains on this court hold.';
     }
-    secsLeft--;
-  }
-  tick();
-  _countdownInterval = setInterval(tick, 1000);
+    if(remaining>0)return;
+    stopSlotCountdown();hideBookingIntro();
+    if($('bookingCountdownAnnouncement'))$('bookingCountdownAnnouncement').textContent='The court hold has ended. Check your booking status before paying again.';
+    if(window.PB_PLATFORM_V1){
+      const access=_platformBookingAccess;
+      if(access?.reference&&access?.bookingToken)savePlatformStatusAccess(access);
+      closeBookModal();
+      startSavedPlatformBookingPolling().catch(()=>{});
+      toast('The court hold has ended. Check your booking status before paying again.','inf');
+    }else{
+      toast('Time expired. Your slot reservation was released.','err');
+      cancelBookingWizard({expired:true});
+    }
+  };
+  _countdownTick();
+  if(_countdownTick)_countdownInterval=setInterval(()=>_countdownTick?.(),1000);
+  return true;
 }
 
 function stopSlotCountdown() {
-  if (_countdownInterval) { clearInterval(_countdownInterval); _countdownInterval = null; }
-  const banner = $('slotCountdown');
-  if (banner) banner.style.display = 'none';
+  if(_countdownInterval){clearInterval(_countdownInterval);_countdownInterval=null;}
+  _countdownTick=null;
+  if($('slotCountdown'))$('slotCountdown').style.display='none';
 }
+
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)_countdownTick?.();});
+window.addEventListener('pageshow',()=>_countdownTick?.());
+window.addEventListener('focus',()=>_countdownTick?.());
+
 
 /* ── BOOKING WIZARD ── */
 function clearBookingInvalid(target) {
@@ -9653,6 +9759,7 @@ function updatePrice() {
    PAYMENT
    ============================================= */
 function pickPay(m) {
+  m = window.PaymentSourceUI.uiCode(m);
   if (!paymentMethods[m]) {
     toast('This payment method is currently unavailable.', 'err');
     return;
@@ -9699,27 +9806,30 @@ function pickPay(m) {
 }
 
 function syncDigitalPaymentPanel(method) {
+  method = window.PaymentSourceUI.uiCode(method);
   const receiver = paymentReceiver(method);
-  const label = receiver.displayName || paymentMethodName(method);
+  const label = window.PaymentSourceUI.name(method, receiver.displayName);
+  const destination = window.PaymentSourceUI.destination(method);
+  const sharedGcash = destination === 'gcash';
   const header = $('gcashBox')?.querySelector('.gc-header-lbl');
-  if (header) header.textContent = `${label} Payment`;
+  if (header) window.PaymentMethodBrand.renderLabel(header, method, window.PaymentSourceUI.label(method, label));
   const title = $('gcashBox')?.querySelector('.bpay-send-title');
-  if (title) title.textContent = `Send ${label} Payment To`;
+  if (title) title.textContent = sharedGcash ? 'Send from '+label+' to this GCash account' : 'Send '+label+' payment to';
+  // Only server-configured identity is displayed; no receipt example supplies
+  // a receiver name, number or QR code.
   if ($('gcMerchantNumber')) $('gcMerchantNumber').textContent = receiver.number;
   if ($('gcMerchantName')) $('gcMerchantName').textContent = receiver.name;
   const qrImage = assignPaymentQr('gcashQrImg', 'gcashQrPlaceholder', receiver.qrImage);
-  const qrElement = $('gcashQrImg');
-  if (qrElement) qrElement.alt = `${label} QR code`;
+  if ($('gcashQrImg')) $('gcashQrImg').alt = (sharedGcash ? 'GCash receiving account' : label)+' QR code';
   const guide = [
-    qrImage ? 'Scan QR or copy the account reference.' : 'Copy the configured account reference.',
-    'Pay the exact amount shown.',
+    qrImage ? (sharedGcash ? 'Scan this QR if your app supports it, or use Bank Transfer to GCash with the account number shown.' : 'Scan the configured QR in '+label+'.') : 'Copy the configured receiving account reference.',
+    'Send the exact payment amount shown; any transfer fee is separate.',
     paymentRefHelpText(method),
-    `Upload the ${label} receipt.`,
+    'Upload the complete '+label+' receipt.',
   ];
-  $('gcashBox')?.querySelectorAll('.payment-guide-step span span.payment-guide-long').forEach((el, i) => { if (guide[i]) el.textContent = guide[i]; });
-  $('gcashBox')?.querySelectorAll('.payment-guide-step span span.payment-guide-short').forEach((el, i) => { if (guide[i]) el.textContent = guide[i]; });
-  const receiptHelp = $('bReceiptRequired');
-  if (receiptHelp) receiptHelp.textContent = receiver.instructions || `Upload the receipt issued for this ${label} payment.`;
+  $('gcashBox')?.querySelectorAll('.payment-guide-step span span.payment-guide-long').forEach((el,i)=>{if(guide[i])el.textContent=guide[i];});
+  $('gcashBox')?.querySelectorAll('.payment-guide-step span span.payment-guide-short').forEach((el,i)=>{if(guide[i])el.textContent=guide[i];});
+  if ($('bReceiptRequired')) $('bReceiptRequired').textContent = [receiver.instructions,'Keep the receiving account, amount, date, time and transaction references visible.'].filter(Boolean).join(' ');
 }
 
 function copyPaymentNumber(method = 'gcash') {
@@ -9754,20 +9864,9 @@ function copyMerchantNum() {
   copyPaymentNumber('gcash');
 }
 
-function paymentRefMaxLength(method) {
-  return method === 'gcash' ? 13 : method === 'bdopay' ? 32 : method === 'maya' ? 14 : method === 'bpi' ? 20 : 30;
-}
+function paymentRefMaxLength(method) { return window.PaymentSourceUI.referenceRules(method).maxLength; }
 
-function normalizePaymentRef(value, method) {
-  const raw = String(value || '');
-  if (method === 'bdopay') return raw.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, paymentRefMaxLength(method));
-  if (method === 'maya') {
-    const compact = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
-    return compact.match(/.{1,4}/g)?.join(' ') || '';
-  }
-  if (method === 'bpi') return raw.replace(/\D/g, '').slice(0, paymentRefMaxLength(method));
-  return raw.replace(/\D/g, '').slice(0, paymentRefMaxLength(method));
-}
+function normalizePaymentRef(value, method) { return window.PaymentSourceUI.normalizeReference(value, method); }
 
 function isGcashRefValid(ref) {
   return /^\d{13}$/.test(String(ref || ''));
@@ -9785,20 +9884,15 @@ function isBpiConfirmationValid(ref) {
   return /^\d{10,20}$/.test(String(ref || '').replace(/\D/g, ''));
 }
 
-function paymentRefHelpText(method) {
-  if (method === 'gcash') return 'GCash reference must be exactly 13 digits.';
-  if (method === 'bdopay') return 'Enter the BDO Pay Reference no. in BN-YYYYMMDD-######## format, not the invoice number. We verify the invoice from the receipt.';
-  if (method === 'maya') return 'Enter the Maya Reference ID, e.g. B6DC F633 F08C. Do not enter the InstaPay Ref. No.';
-  if (method === 'bpi') return 'Enter the BPI Confirmation No., e.g. 1783397488347. Do not enter the Transaction Ref. No.';
-  return 'Must match the reference number on the uploaded receipt.';
-}
+function paymentRefHelpText(method) { return window.PaymentSourceUI.referenceRules(method).help; }
 
 function syncBookingRefUi(method = $('bPay')?.value || 'gcash') {
   const input = $('bGcashRef');
   if (input) {
     input.maxLength = paymentRefMaxLength(method);
-    input.placeholder = method === 'gcash' ? 'e.g. 1234567890123' : method === 'bdopay' ? 'e.g. BN-20260627-91811670' : method === 'maya' ? 'e.g. B6DC F633 F08C' : method === 'bpi' ? 'e.g. 1783397488347' : 'Enter payment reference number';
-    input.inputMode = (method === 'bdopay' || method === 'maya') ? 'text' : 'numeric';
+    const rules = window.PaymentSourceUI.referenceRules(method);
+    input.placeholder = rules.placeholder;
+    input.inputMode = rules.inputMode;
     const clean = normalizePaymentRef(input.value, method);
     if (input.value !== clean) input.value = clean;
   }
@@ -9845,7 +9939,7 @@ function updateRefCount() {
     el.textContent = `${len}/20 digits`;
     el.style.color = isBpiConfirmationValid(input?.value || '') ? 'var(--accent)' : 'var(--muted)';
   } else {
-    el.textContent = len + (len === 1 ? ' digit' : ' digits');
+    el.textContent = len + (len === 1 ? ' character' : ' characters');
     el.style.color = len > 0 ? 'var(--accent)' : 'var(--muted)';
   }
 }
@@ -10180,9 +10274,10 @@ async function submitPlatformBooking() {
     return;
   }
   const payMethod = $('bPay')?.value || '';
-  const paymentReference = $('bGcashRef')?.value?.trim() || '';
+  const paymentReference = normalizePaymentRef($('bGcashRef')?.value || '', payMethod).trim();
   const checks = [
     [!isDigitalPayMethod(payMethod), 'Please select an available online full-payment method.', 'payMethodBlock', 4],
+    [!!window.PaymentSourceUI.referenceError(paymentReference,payMethod), window.PaymentSourceUI.referenceError(paymentReference,payMethod), 'bGcashRef', 5],
     [refundPolicyFeatureEnabled() && !currentRefundPolicyAccepted(), 'Please read and agree to the Refund & Reschedule Policy before confirming.', $('bookingPolicyAgree')?.closest('.booking-policy-check'), 5],
     [!paymentReference, payMethod === 'bpi' ? 'Please enter your BPI Confirmation No. after paying.' : 'Please enter your payment reference number after paying.', 'bGcashRef', 5],
     [payMethod === 'gcash' && !isGcashRefValid(paymentReference), 'GCash reference number must be exactly 13 digits.', 'bGcashRef', 5],
@@ -11159,7 +11254,7 @@ async function restorePlatformDraftUi(saved, { openModal = true, held = false } 
       const expiresMs = new Date(serverBooking.expiresAt || '').getTime();
       _reservationStartedAt = Number.isFinite(expiresMs)
         ? new Date(expiresMs - RESERVATION_MINUTES * 60 * 1000).toISOString()
-        : new Date().toISOString();
+        : null;
       const secondsLeft = Math.max(0, Math.floor((expiresMs - Date.now()) / 1000));
       startSlotCountdown(secondsLeft);
     }
@@ -11518,25 +11613,36 @@ function balanceStatusCopy(balance) {
     : `Pay the exact ${fmt(Number(balance?.remainingAmount || 0))} balance by ${balanceDeadlineLabel(balance?.deadlineAt)}.`];
 }
 
+function balancePaymentMethods(balance) {
+  const methods = Array.isArray(balance?.paymentMethods) ? balance.paymentMethods : [];
+  return window.PB_PLATFORM_V1 ? methods.filter(method => window.PaymentSourceUI.uiCode(method.code) !== 'cash') : methods;
+}
+
 function balanceMethodDetailHtml(method) {
   if (!method) return '<div class="balance-method-copy">Select a payment method.</div>';
   const receiver = [method.accountName, method.accountReference].filter(Boolean).join(' · ');
   return `
     <div class="balance-method-copy">
-      <strong>${esc(method.displayName || method.code || 'Payment')}</strong>
+      <strong>${window.PaymentMethodBrand.markHtml(method.code,'pm-brand-mark--inline')} ${esc(window.PaymentSourceUI.label(method.code,method.displayName))}</strong>
+      ${window.PaymentSourceUI.destination(method.code) === 'gcash' ? '<div>Receiving account: GCash</div>' : ''}
       ${receiver ? `<div>${esc(receiver)}</div>` : ''}
       ${method.instructions ? `<div style="margin-top:5px">${esc(method.instructions)}</div>` : ''}
       <div style="margin-top:7px;font-weight:800;color:var(--text)">${automaticBalanceReceiptFlow() && _balancePaymentState?.receipt ? 'Receipt must show exactly' : 'Pay exactly'} ${fmt(Number(_balancePaymentState?.remainingAmount || 0))}.</div>
     </div>
-    ${method.qrImageUrl ? `<img class="balance-method-qr" src="${esc(method.qrImageUrl)}" alt="${esc(method.displayName || 'Payment')} QR code">` : ''}
+    ${method.qrImageUrl ? `<img class="balance-method-qr" src="${esc(method.qrImageUrl)}" alt="${esc(window.PaymentSourceUI.destination(method.code) === 'gcash' ? 'GCash receiving account' : method.displayName || 'Payment')} QR code">` : ''}
   `;
 }
 
 function updateBalancePaymentMethod() {
   const code = $('balancePayMethod')?.value || '';
-  const methods = _balancePaymentState?.paymentMethods || [];
+  const methods = balancePaymentMethods(_balancePaymentState);
   const method = methods.find(item => String(item.code) === String(code)) || methods[0] || null;
   if ($('balancePayMethodDetail')) $('balancePayMethodDetail').innerHTML = balanceMethodDetailHtml(method);
+  const input = $('balancePayReference'), rules = window.PaymentSourceUI.referenceRules(method?.code);
+  if (input) { input.maxLength=rules.maxLength;input.inputMode=rules.inputMode;input.placeholder=rules.placeholder; }
+  const referenceLabel = document.querySelector('label[for="balancePayReference"]');
+  if (referenceLabel) referenceLabel.textContent = rules.label;
+  if ($('balanceReferenceHelp')) $('balanceReferenceHelp').textContent = rules.help;
 }
 
 function renderBalancePayment(balance) {
@@ -11552,7 +11658,7 @@ function renderBalancePayment(balance) {
   if ($('balancePayTitle')) $('balancePayTitle').textContent = adjustment
     ? 'Complete your reschedule payment'
     : 'Complete your payment';
-  const methods = Array.isArray(balance.paymentMethods) ? balance.paymentMethods : [];
+  const methods = balancePaymentMethods(balance);
   body.innerHTML = `
     <div class="balance-pay-status ${statusClass}">${esc(statusText)}</div>
     <div class="balance-pay-summary">
@@ -11570,7 +11676,7 @@ function renderBalancePayment(balance) {
         <h3 class="balance-pay-step"><span class="balance-step-number">1</span><span>${correction ? 'Choose the method used for your payment' : `Send the exact ${adjustment?'additional':'remaining'} amount`}</span></h3>
         <label class="fl" for="balancePayMethod">Payment method</label>
         <select class="fi" id="balancePayMethod" onchange="updateBalancePaymentMethod()">
-          ${methods.map(method => `<option value="${esc(method.code)}">${esc(method.displayName || method.code)}</option>`).join('')}
+          ${methods.map(method => `<option value="${esc(method.code)}">${esc(window.PaymentSourceUI.label(method.code,method.displayName))}</option>`).join('')}
         </select>
         <div class="balance-method-detail" id="balancePayMethodDetail"></div>
       </div>
@@ -11579,7 +11685,8 @@ function renderBalancePayment(balance) {
         ${automaticBalanceReceiptFlow() ? '<p>Do not pay again because verification is pending. Upload a clear receipt of the payment you already made.</p>' : ''}
         <div class="fg" style="margin:0 0 10px">
           <label class="fl" for="balancePayReference">Payment reference number</label>
-          <input class="fi" id="balancePayReference" type="text" maxlength="64" autocomplete="off" placeholder="Enter the reference shown on the new receipt">
+          <input class="fi" id="balancePayReference" type="text" maxlength="64" autocomplete="off" aria-describedby="balanceReferenceHelp" placeholder="Enter the reference shown on the new receipt">
+          <p id="balanceReferenceHelp" style="font-size:.76rem;color:var(--muted);margin-top:5px"></p>
         </div>
         <div class="fg" style="margin:0">
           <label class="fl" for="balancePayReceipt">Receipt screenshot</label>
@@ -11646,11 +11753,12 @@ async function refreshBalancePayment() {
 async function submitBalanceReceipt() {
   if (!automaticBalanceReceiptFlow()) return submitBalanceReceiptLegacy();
   if (_balanceReceiptSaving || !_balancePaymentAccess || !balanceCanSubmitReceipt(_balancePaymentState)) return;
-  const paymentReference = String($('balancePayReference')?.value || '').trim();
   const method = $('balancePayMethod')?.value || '';
+  const paymentReference = window.PaymentSourceUI.normalizeReference($('balancePayReference')?.value,method).trim();
+  const referenceError = window.PaymentSourceUI.referenceError(paymentReference,method);
   const file = _balanceReceiptFile;
-  if (paymentReference.length < 6 || !file || !method) {
-    toast('Choose a method, enter the receipt reference and attach the receipt image.', 'err');
+  if (referenceError || !file || !method) {
+    toast(referenceError || 'Choose a method and attach the receipt image.', 'err');
     return;
   }
   const access = {..._balancePaymentAccess};
@@ -11850,14 +11958,13 @@ async function createPlatformBookingHold() {
     _reservedRef = serverBooking.reference;
     _reservedRefs = [serverBooking.reference];
     savePlatformRecovery(_platformBookingAccess);
-    _reservationStartedAt = new Date().toISOString();
-    const expiresMs = new Date(serverBooking.expiresAt || '').getTime();
-    const secondsLeft = Number.isFinite(expiresMs)
-      ? Math.max(1, Math.floor((expiresMs - Date.now()) / 1000))
-      : RESERVATION_MINUTES * 60;
-    startSlotCountdown(secondsLeft);
+    const expiresMs = bookingReservationDeadlineMs();
+    _reservationStartedAt = Number.isFinite(expiresMs) ? new Date(expiresMs - RESERVATION_MINUTES * 60 * 1000).toISOString() : null;
+    const secondsLeft = reservationSecondsLeft();
+    startSlotCountdown();
     updatePrice();
-    toast(`Slot held. Complete full payment within ${Math.max(1, Math.ceil(secondsLeft / 60))} minutes.`, 'ok');
+    if (secondsLeft > 0) showBookingIntro();
+    else if (!Number.isFinite(expiresMs)) toast('Booking saved. Refresh its status to check the payment deadline.', 'inf');
     return _platformBookingAccess;
   } catch (error) {
     const policyRejected = /^POLICY_/i.test(String(error?.code || '')) ||
@@ -12156,8 +12263,8 @@ async function expireStaleVerifyingBookings() {
 
 </script>
 <script src="supabase.min.js"></script>
-<script src="tenant-config.js?v=20260907-manual15"></script>
-<script src="supabase-config.js?v=20260907-manual15"></script><script src="receipt-pending.js?v=20260907-manual15"></script>
+<script src="tenant-config.js?v=20260908-routes2"></script>
+<script src="supabase-config.js?v=20260908-routes2"></script><script src="receipt-pending.js?v=20260908-routes2"></script>
 <script src="open-play-data.js?v=20260801-openplay-fee-settings"></script>
 <script src="open-play-public.js?v=20260801-openplay-fee-settings"></script>
 

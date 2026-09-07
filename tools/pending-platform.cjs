@@ -10,7 +10,8 @@ async function main(){
  const command=process.argv[2];
  const configurations={initial:['001-pending-receipts.sql','rollback-tests.sql','rollback-validation.json','migration-release.json','public.picklestreet_receipt_jobs'],balance:['002-balance-pending.sql','balance-rollback-tests.sql','balance-rollback-validation.json','balance-migration-release.json','public.picklestreet_balance_receipt_jobs'],expiry:['003-balance-expiry.sql','expiry-rollback-tests.sql','expiry-rollback-validation.json','expiry-migration-release.json','public.run_picklestreet_balance_hold_cleanup']};
  configurations.manual=['004-staff-payment-review.sql','manual-review-rollback-tests.sql','manual-review-rollback-validation.json','manual-review-migration-release.json','public.picklestreet_receipt_staff_reviews'];
- const config=configurations[process.argv[3]||'initial'];if(!config)throw Error('Choose initial, balance, expiry, or manual');
+ configurations.routes=['005-source-payment-routes.sql','source-route-rollback-tests.sql','source-route-rollback-validation.json','source-route-migration-release.json','public.picklestreet_receipt_route_settings'];
+ const config=configurations[process.argv[3]||'initial'];if(!config)throw Error('Choose initial, balance, expiry, manual, or routes');
  const migration=fs.readFileSync(path.join(dir,config[0]),'utf8');
  const hash=crypto.createHash('sha256').update(migration).digest('hex');
  if(command==='validate'){

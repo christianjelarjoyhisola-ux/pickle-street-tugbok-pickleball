@@ -19,6 +19,9 @@ const cases=[
  ['Guest cannot call the receipt transaction',base+'/rest/v1/rpc/begin_picklestreet_receipt_attempt',{method:'POST',headers,body:JSON.stringify({p_booking_id:'00000000-0000-4000-8000-000000000000',p_action:'retry',p_idempotency_key:'00000000-0000-4000-8000-000000000000'})},401],
  ['Guest cannot settle an additional payment',base+'/rest/v1/rpc/finish_picklestreet_balance_receipt_attempt',{method:'POST',headers,body:JSON.stringify({p_attempt_id:'00000000-0000-4000-8000-000000000000',p_lease_token:'00000000-0000-4000-8000-000000000000'})},401],
  ['Guest cannot invoke scheduled cleanup',base+'/rest/v1/rpc/run_picklestreet_balance_hold_cleanup',{method:'POST',headers,body:'{}'},401],
+ ['Guest cannot read private QR receipt settings',base+'/rest/v1/rpc/get_picklestreet_payment_settings',{method:'POST',headers,body:JSON.stringify({p_tenant_slug:'pickle-street-tugbok',p_hostname:'picklestreet.pages.dev'})},401],
+ ['Guest cannot save payment methods',base+'/rest/v1/rpc/save_picklestreet_payment_settings',{method:'POST',headers,body:JSON.stringify({p_tenant_slug:'pickle-street-tugbok',p_hostname:'picklestreet.pages.dev',p_expected_revision:'2026-09-08T00:00:00Z',p_patch:{}})},401],
+ ['Guest cannot call source-route automatic approval',base+'/rest/v1/rpc/auto_approve_picklestreet_receipt_route',{method:'POST',headers,body:JSON.stringify({p_verification_id:'00000000-0000-4000-8000-000000000000'})},401],
 ];
 const results=[];
 for(const [name,url,options,expected] of cases){const response=await fetch(url,options);const body=await response.text();assert.equal(response.status,expected,name+': '+body.slice(0,300));results.push({name,status:response.status,passed:true});}

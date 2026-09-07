@@ -1,7 +1,7 @@
 (function receiptPending(global) {
   'use strict';
   const enabled = () => global.PB_TENANT_CONFIG?.tenantSlug === 'pickle-street-tugbok' && global.PB_TENANT_CONFIG?.receiptReviewMode === 'auto_pending';
-  const automatic = b => enabled() && (!!b?.receiptFlow || ['gcash','maya','bdopay','bdo_pay','bdo','bpi','gotyme','pnb'].includes(String(b?.paymentMethod || '').toLowerCase()));
+  const automatic = b => enabled() && (!!b?.receiptFlow || ['gcash','maya','bdopay','bdo_pay','bdo','bpi','gotyme','maribank','pnb'].includes(String(b?.paymentMethod || '').toLowerCase()));
   // Booking state and an additional-payment receipt are separate authorities.
   const pending = b => automatic(b) && !['confirmed','completed','cancelled'].includes(b?.platformStatus || b?.status) && (b?.receiptPending === true || ['pending','for_verification'].includes(b?.paymentStatus));
   const balanceId = b => String(b?.balanceRequestId || b?.receiptBalanceRequestId || b?.balance_request_id || '');
@@ -60,15 +60,24 @@
       await DB.getSettings();
       for (const method of Object.values(global.PB_PAYMENT_METHODS_BY_CODE || {})) {
         if (method.code === 'cash') continue;
-        const option = document.createElement('option');option.value=method.code;option.textContent=method.displayName;
+        const option = document.createElement('option');option.value=method.code;option.textContent=global.PaymentSourceUI?.label(method.code,method.displayName) || method.displayName;
         form.elements.method.append(option);
       }
-      if (Array.from(form.elements.method.options).some(o=>o.value===booking.paymentMethod)) form.elements.method.value=booking.paymentMethod;
+      const selected=Array.from(form.elements.method.options).find(o=>(global.PaymentSourceUI?.uiCode(o.value)||o.value)===(global.PaymentSourceUI?.uiCode(booking.paymentMethod)||booking.paymentMethod));
+      if(selected) form.elements.method.value=selected.value;
+      const updateReferenceGuide=()=>{
+        const rules=global.PaymentSourceUI?.referenceRules(form.elements.method.value);if(!rules)return;
+        const input=form.elements.reference;input.maxLength=rules.maxLength;input.inputMode=rules.inputMode;input.placeholder=rules.placeholder;
+        input.setAttribute('aria-label',rules.label);
+      };
+      form.elements.method.addEventListener('change',updateReferenceGuide);updateReferenceGuide();
       submit.disabled = !form.elements.method.options.length;
       if(submit.disabled) message.textContent='No receiving payment method is configured. Contact the venue.';
     } catch (_) { message.textContent='Payment settings could not be loaded. Close this window and try again.'; }
     form.addEventListener('submit', async event => {
       event.preventDefault();if(saving || submit.disabled)return;
+      const referenceError=global.PaymentSourceUI?.referenceError(form.elements.reference.value,form.elements.method.value);
+      if(referenceError){message.textContent=referenceError;form.elements.reference.focus();return;}
       saving=true;submit.disabled=true;close.disabled=true;
       for (const field of [form.elements.method,form.elements.reference,form.elements.receipt]) field.disabled=true;
       message.textContent='Saving and checking your receipt…';

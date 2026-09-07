@@ -1,0 +1,178 @@
+{
+  "checkedAt": "2026-09-07T16:48:51.311Z",
+  "migrationHash": "eed7f6001fcf037457b14b7c4ae5c0d0fc9bee296969b03640a54006cabb498a",
+  "rolledBack": true,
+  "results": [
+    {
+      "file": "rollback-tests.sql",
+      "result": [
+        {
+          "checks": [
+            {
+              "name": "Changed receiving-account settings require a new check",
+              "passed": true
+            },
+            {
+              "name": "Corrected proof keeps history, ignores stale OCR and auto-confirms",
+              "passed": true
+            },
+            {
+              "name": "Corrected verified payment rechecks and restores available time",
+              "passed": true
+            },
+            {
+              "name": "Hold expiry releases court and preserves pending payment",
+              "passed": true
+            },
+            {
+              "name": "Idempotent upload recovery and retry rate limit",
+              "passed": true
+            },
+            {
+              "name": "OCR error persists pending proof without extending court hold",
+              "passed": true
+            },
+            {
+              "name": "Rejected, cancelled and manual approval transitions blocked",
+              "passed": true
+            },
+            {
+              "name": "Reused receipt file stays pending",
+              "passed": true
+            },
+            {
+              "name": "Settled original payments do not block later reschedule restoration",
+              "passed": true
+            },
+            {
+              "name": "Taken court remains pending with no partial rehold",
+              "passed": true
+            },
+            {
+              "name": "Unknown booking and unprivileged service calls denied",
+              "passed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "balance-rollback-tests.sql",
+      "result": [
+        {
+          "checks": [
+            {
+              "name": "Conflicting new reservation leaves extra payment pending and original intact",
+              "passed": true
+            },
+            {
+              "name": "Expired proposed time frees the court and preserves original reservation",
+              "passed": true
+            },
+            {
+              "name": "No manual rejection or approval; original booking remains usable",
+              "passed": true
+            },
+            {
+              "name": "OCR failure keeps original paid booking and finite proposed hold",
+              "passed": true
+            },
+            {
+              "name": "Replaced receipt history prevents reuse for a different balance",
+              "passed": true
+            },
+            {
+              "name": "Stale attempts and changed receiving accounts cannot approve",
+              "passed": true
+            },
+            {
+              "name": "Verified retry atomically changes schedule and settles exact extra amount",
+              "passed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "manual-review-rollback-tests.sql",
+      "result": [
+        {
+          "checks": [
+            {
+              "name": "Actor, tenant lookup and service role enforced",
+              "passed": true
+            },
+            {
+              "name": "Completed paid booking cannot move and survives adjustment rejection",
+              "passed": true
+            },
+            {
+              "name": "Expired original reservation safely reclaimed",
+              "passed": true
+            },
+            {
+              "name": "Expired reschedule adjustment confirmed atomically with staff audit",
+              "passed": true
+            },
+            {
+              "name": "Expired short-payment balance confirms while preserving accepted first payment",
+              "passed": true
+            },
+            {
+              "name": "Initial and balance automatic approvals continue with automatic status",
+              "passed": true
+            },
+            {
+              "name": "Initial rejection records reason and releases reservation",
+              "passed": true
+            },
+            {
+              "name": "Late OCR fenced after explicit approval",
+              "passed": true
+            },
+            {
+              "name": "Occupied original court rolls back confirmation without partial payment",
+              "passed": true
+            },
+            {
+              "name": "Occupied proposed time keeps original booking and pending proof",
+              "passed": true
+            },
+            {
+              "name": "Old paths and fabricated transaction marker denied",
+              "passed": true
+            },
+            {
+              "name": "Released underway initial booking remains pending",
+              "passed": true
+            },
+            {
+              "name": "Replacement upload invalidates stale displayed approval",
+              "passed": true
+            },
+            {
+              "name": "Reschedule rejection closes only adjustment and fences late OCR",
+              "passed": true
+            },
+            {
+              "name": "Service-only RPC and protected audit writer",
+              "passed": true
+            },
+            {
+              "name": "Short-payment rejection releases reservation and preserves accepted first payment",
+              "passed": true
+            },
+            {
+              "name": "Staff confirmation, final audit immutability and idempotency",
+              "passed": true
+            },
+            {
+              "name": "Underway initial confirmation respects shared before-play policy",
+              "passed": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

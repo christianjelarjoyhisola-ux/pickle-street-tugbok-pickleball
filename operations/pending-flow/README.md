@@ -1,8 +1,8 @@
-# Pickle Street pending receipt release — 2026-09-07
+# Pickle Street payment and receipt release — 2026-09-08
 
 Live site: https://picklestreet.pages.dev/
 
-Current Pages deployment: https://386c55bc.picklestreet.pages.dev/
+Current payment update: [source-route-release.md](source-route-release.md).
 
 Current staff-review update: [manual-review-release.md](manual-review-release.md).
 
@@ -42,14 +42,21 @@ pending booking totals. Open Play remains hidden as previously requested.
 
 ## Payment method coverage
 
-GCash is the currently configured active method. Its automatic route requires
-complete matching receiving-account details and a clearly labelled transferred
-amount. Masked or ambiguous details remain pending.
+GCash, BDO Pay, Maya, BPI, GoTyme and MariBank have separate source parsers and
+automatic receipt checks, all using the venue's shared GCash recipient. Each
+source must be enabled in Payments. The stored recipient is copied consistently
+to the source rows so public checkout, staff views and the receipt service agree.
+PNB retains its independent receiving account and manual-review fallback. Cash
+bookings are recorded by staff; public checkout requires digital payment proof.
 
-GoTyme has its separate existing destination parser and requires explicit tenant
-opt-in before automatic approval. Maya, BDO Pay, BPI, PNB and unknown layouts use
-dedicated pending fallbacks until their formats can be validated. They cannot
-accidentally pass through the GCash approval route.
+Automatic approval requires native OCR confidence, the correct source/destination,
+principal amount, a completed payment, source-specific primary and secondary
+references, receiving identity, and the original 15-minute payment window.
+Ambiguous or incomplete evidence remains pending. BDO Pay and BPI additionally
+require the venue's private QR receipt alias and destination token in Payments.
+An inactive GCash source switch does not disable other enabled routes to its
+configured recipient. No second hidden opt-in is required; manual venue approval
+mode still prevents automatic approval.
 
 This verifies receipt evidence; it does not query a bank ledger. No Xendit account,
 integration or transaction was added.
@@ -80,9 +87,13 @@ Applied migrations:
 4. `004-staff-payment-review.sql`: isolated authenticated staff decisions, immutable
    decision audit, stale-receipt and late-parser protection, and atomic availability
    checks for initial payments and reschedule adjustments.
+5. `005-source-payment-routes.sql`: private revisioned QR identity settings,
+   shared-recipient source routes, a dedicated fixed-tenant approval function,
+   and durable hashed reference claims across initial and extra payments.
+   Shared functions and other tenants' records are not changed.
 
 Migration files are accompanied by exact-hash validation and application records.
-`tools/pending-platform.cjs validate <initial|balance|expiry|manual>` checks unapplied
+`tools/pending-platform.cjs validate <initial|balance|expiry|manual|routes>` checks unapplied
 migrations in a rolled-back transaction. `apply` requires matching validation and
 refuses an already-installed workflow. Do not reapply an installed migration.
 

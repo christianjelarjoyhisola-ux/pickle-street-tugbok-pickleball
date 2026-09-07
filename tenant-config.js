@@ -17,6 +17,7 @@
     receiptReviewMode:'auto_pending',
     manualReceiptReviewEnabled:true,
     receiptPaymentWindowMinutes:15,
+    sharedGcashPaymentsEnabled:true,
     onboardingLocked:false,
     // The public widget is approved for this Pages origin; secrets stay server-side.
     turnstileSiteKey:currentHost==='picklestreet.pages.dev'?'0x4AAAAAAD4f_jPZuqET5eVD':'',

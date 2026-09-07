@@ -13,7 +13,8 @@
   });
 
   function normalize(method) {
-    return String(method || '').trim().toLowerCase();
+    const code = String(method || '').trim().toLowerCase();
+    return ['bdo','bdo_pay','bdopay'].includes(code) ? 'bdopay' : code;
   }
 
   function iconSrc(method) {

@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-09-07T10:36:42.798Z",
+  "checkedAt": "2026-09-07T16:55:01.044Z",
   "results": [
     {
       "name": "Browser preflight",
@@ -63,6 +63,21 @@
     },
     {
       "name": "Guest cannot invoke scheduled cleanup",
+      "status": 401,
+      "passed": true
+    },
+    {
+      "name": "Guest cannot read private QR receipt settings",
+      "status": 401,
+      "passed": true
+    },
+    {
+      "name": "Guest cannot save payment methods",
+      "status": 401,
+      "passed": true
+    },
+    {
+      "name": "Guest cannot call source-route automatic approval",
       "status": 401,
       "passed": true
     }

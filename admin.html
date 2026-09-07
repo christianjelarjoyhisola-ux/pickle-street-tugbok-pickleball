@@ -2655,8 +2655,10 @@ tr:hover td { background: var(--bg2); }
 
 </style>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="pickle-street.css?v=20260907-manual15">
+<link rel="stylesheet" href="pickle-street.css?v=20260908-routes2">
 <meta name="robots" content="noindex,nofollow">
+<link rel="stylesheet" href="payment-method-brand.css?v=20260908-routes2" />
+<link rel="stylesheet" href="payment-settings.css?v=20260908-routes2" />
 </head>
 <body class="admin-booting" data-theme="light">
 <div id="adminBootScreen" role="status" aria-live="polite" aria-label="Loading secure dashboard">
@@ -3594,14 +3596,15 @@ tr:hover td { background: var(--bg2); }
 
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">
           <div>
-            <div class="fl" style="margin:0">Customer Payment Methods</div>
-            <div style="font-size:.72rem;color:var(--muted);margin-top:3px">Enable one or more methods and enter the exact account details customers should use.</div>
+            <div class="fl" style="margin:0">Customer payments</div>
+            <div style="font-size:.72rem;color:var(--muted);margin-top:3px">Choose the apps customers can pay from, then configure your shared receiving account below.</div>
           </div>
         </div>
         <div id="platformPaymentMethodsBody" style="display:grid;gap:10px"></div>
 
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:16px">
-          <button class="btn btn-p" id="savePlatformActivationBtn" type="button" onclick="savePlatformActivationSettings()">Save Activation Settings</button>
+          <button class="btn btn-p" id="savePlatformActivationBtn" type="button" onclick="savePlatformActivationSettings()">Save Payment Settings</button>
+          <span id="platformPaymentSaveStatus" role="status" aria-live="polite" aria-atomic="true" style="font-size:.78rem;color:var(--muted)"></span>
           <button class="btn btn-s" id="activateTenantInitiallyBtn" type="button" hidden onclick="activateTenantInitially()">Activate Public Booking</button>
           <span id="platformActivationSummary" style="font-size:.78rem;color:var(--muted)">No production values are hardcoded in this website.</span>
         </div>
@@ -8425,18 +8428,18 @@ function clearFilters(){
 
 /* ── CALENDAR VIEW ── */
 function paymentMethodLabel(m) {
-  return ({ gcash: 'GCash', bdopay: 'BDO Pay', maya: 'Maya', bpi: 'BPI', gotyme: 'GoTyme', pnb: 'PNB', cash: 'Cash' }[String(m || '').toLowerCase()] || (m || 'Not recorded'));
+  return window.PaymentSourceUI?.label(m, m || 'Not recorded') || m || 'Not recorded';
 }
 
 function isDigitalPayment(m) {
-  return ['gcash', 'bdopay', 'maya', 'bpi', 'gotyme', 'pnb'].includes(String(m || '').toLowerCase());
+  return ['gcash', 'bdopay', 'maya', 'bpi', 'gotyme', 'maribank', 'pnb'].includes(window.PaymentSourceUI?.uiCode(m) || String(m || '').toLowerCase());
 }
 
 function receivedAccountKey(b) {
   const explicit = String(b?.receivedAccount || b?.received_account || '').toLowerCase().trim();
   if (explicit) return explicit;
   const method = String(b?.paymentMethod || b?.payment_method || '').toLowerCase();
-  return method || 'not_recorded';
+  return window.PB_TENANT_CONFIG?.sharedGcashPaymentsEnabled && method ? window.PaymentSourceUI.destination(method) : method || 'not_recorded';
 }
 
 function receivedAccountLabel(b) {
@@ -12528,71 +12531,16 @@ async function savePricingTiers() {
 /* ==============================================
    PAYMENT SETTINGS
    ============================================== */
-const PLATFORM_PAYMENT_METHOD_DEFINITIONS = Object.freeze([
-  { code: 'gcash', displayName: 'GCash' },
-  { code: 'maya', displayName: 'Maya' },
-  { code: 'bdo', displayName: 'BDO Pay' },
-  { code: 'bpi', displayName: 'BPI' },
-  { code: 'gotyme', displayName: 'GoTyme' },
-  { code: 'pnb', displayName: 'PNB' },
-]);
 let _platformActivation = null;
-
+let _platformPaymentFormMethods = [];
 function platformActivationPaymentMethods(savedMethods = []) {
-  const saved = new Map((savedMethods || []).map(method => [String(method.code || '').toLowerCase(), method]));
-  const definitions = [...PLATFORM_PAYMENT_METHOD_DEFINITIONS];
-  for (const method of (savedMethods || [])) {
-    const code = String(method.code || '').toLowerCase();
-    if (code && !definitions.some(definition => definition.code === code)) {
-      definitions.push({ code, displayName: method.displayName || code.toUpperCase() });
-    }
-  }
-  return definitions.map((definition, index) => ({
-    ...definition,
-    ...(saved.get(definition.code) || {}),
-    code: definition.code,
-    displayName: saved.get(definition.code)?.displayName || definition.displayName,
-    sortOrder: Number(saved.get(definition.code)?.sortOrder ?? index),
-  }));
+  return window.PBPaymentSettings.methods(savedMethods);
 }
-
 function renderPlatformPaymentMethods(methods) {
   const body = $('platformPaymentMethodsBody');
   if (!body) return;
-  body.innerHTML = methods.map(method => {
-    const code = esc(String(method.code || ''));
-    const name = esc(String(method.displayName || method.code || 'Payment method'));
-    const qrImageUrl = esc(String(method.qrImageUrl || ''));
-    return `<details class="platform-payment-method" data-code="${code}" data-display-name="${name}" ${method.isActive ? 'open' : ''} style="background:var(--input);border:1px solid var(--border);border-radius:11px;padding:0 13px">
-      <summary style="display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;list-style:none;padding:13px 0">
-        <strong style="font-size:.87rem">${name}</strong>
-        <label onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:7px;font-size:.76rem;color:var(--muted);cursor:pointer">
-          <input class="platform-method-active" type="checkbox" ${method.isActive ? 'checked' : ''} style="accent-color:var(--green)" /> Enabled
-        </label>
-      </summary>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;padding:0 0 13px">
-        <div class="fg" style="margin:0"><label class="fl">Account Name</label><input class="fi platform-method-account-name" maxlength="120" value="${esc(method.accountName || '')}" placeholder="Exact receiving account name" /></div>
-        <div class="fg" style="margin:0"><label class="fl">Account Number / Reference</label><input class="fi platform-method-account-reference" maxlength="120" value="${esc(method.accountReference || '')}" placeholder="Mobile or account number" /></div>
-        <div class="fg" style="margin:0;grid-column:1/-1">
-          <div class="platform-qr-upload">
-            <div class="platform-qr-preview">${qrImageUrl ? `<img src="${qrImageUrl}" alt="${name} payment QR preview" />` : '<span>NO QR</span>'}</div>
-            <div class="platform-qr-copy">
-              <div class="platform-qr-title">Payment QR Image <span>(optional)</span></div>
-              <p class="platform-qr-help">Upload a clear JPEG, PNG, or WebP image. Maximum file size: 2 MB.</p>
-              <div class="platform-qr-actions">
-                <button class="btn btn-g btn-sm platform-qr-upload-btn" type="button" onclick="choosePlatformPaymentQr(this)">${qrImageUrl ? 'Replace Image' : 'Upload Image'}</button>
-                <button class="btn btn-sm platform-qr-remove-btn" type="button" onclick="removePlatformPaymentQr(this)" ${qrImageUrl ? '' : 'hidden'}>Remove</button>
-              </div>
-              <div class="platform-qr-status ${qrImageUrl ? 'ok' : ''}" role="status" aria-live="polite">${qrImageUrl ? 'QR image is ready.' : 'No QR image uploaded.'}</div>
-              <input class="platform-method-qr-url" type="hidden" value="${qrImageUrl}" />
-              <input class="platform-qr-file" type="file" accept="image/jpeg,image/png,image/webp" onchange="uploadPlatformPaymentQr(this)" />
-            </div>
-          </div>
-        </div>
-        <div class="fg" style="margin:0;grid-column:1/-1"><label class="fl">Payment Instructions</label><textarea class="fi platform-method-instructions" maxlength="1000" rows="2" style="resize:vertical" placeholder="Reference format or payment reminder">${esc(method.instructions || '')}</textarea></div>
-      </div>
-    </details>`;
-  }).join('');
+  _platformPaymentFormMethods = methods;
+  body.innerHTML = window.PBPaymentSettings.render(methods, _platformActivation?.receiptVerification || {});
 }
 
 function platformQrElements(source) {
@@ -12664,7 +12612,7 @@ async function uploadPlatformPaymentQrFile(elements, file, methodCode, displayNa
     const asset = await DB.uploadTenantPaymentQr({ methodCode, file });
     if (!asset?.url) throw new Error('The upload did not return an image URL.');
     setPlatformQrPreview(elements, asset.url, displayName);
-    setPlatformQrStatus(elements, 'Uploaded. Click Save Activation Settings to publish it.', 'ok');
+    setPlatformQrStatus(elements, 'Uploaded. Click Save Payment Settings to publish it.', 'ok');
     toast(`${displayName} QR image uploaded.`);
   } catch (error) {
     console.error('uploadPlatformPaymentQr:', error);
@@ -12683,7 +12631,7 @@ async function removePlatformPaymentQr(button) {
   const displayName = elements.row.dataset.displayName || 'Payment';
   if (!confirm(`Remove the ${displayName} QR image?`)) return;
   setPlatformQrPreview(elements, '', displayName);
-  setPlatformQrStatus(elements, 'Removed. Click Save Activation Settings to publish the change.', 'ok');
+  setPlatformQrStatus(elements, 'Removed. Click Save Payment Settings to publish the change.', 'ok');
 }
 
 function platformActivationReadinessChecks(activation) {
@@ -12710,7 +12658,7 @@ async function renderPlatformActivationSettings(activation = null, { preserveInp
   const panel = $('platformTenantSettingsPanel');
   if (!panel || !window.PB_PLATFORM_V1) return;
   panel.style.display = '';
-  _platformActivation = activation || await DB.getTenantActivationSettings();
+  _platformActivation = activation?.receiptVerification ? activation : await DB.getTenantActivationSettings();
   const canManageOwnerFees = !!sess && Auth.can('owner_only', sess.role);
   const canManageBilling = canManageOwnerFees && _platformActivation.permissions?.canManagePlatformBilling === true;
   const canActivate = _platformActivation.permissions?.canActivatePublicBooking === true;
@@ -12767,27 +12715,27 @@ async function renderPlatformActivationSettings(activation = null, { preserveInp
 }
 
 function collectPlatformPaymentMethods() {
-  return [...document.querySelectorAll('.platform-payment-method')].map((row, index) => ({
-    code: row.dataset.code || '',
-    displayName: row.dataset.displayName || '',
-    accountName: row.querySelector('.platform-method-account-name')?.value.trim() || '',
-    accountReference: row.querySelector('.platform-method-account-reference')?.value.trim() || '',
-    qrImageUrl: row.querySelector('.platform-method-qr-url')?.value.trim() || '',
-    instructions: row.querySelector('.platform-method-instructions')?.value.trim() || '',
-    isActive: row.querySelector('.platform-method-active')?.checked === true,
-    sortOrder: index,
-  }));
+  return window.PBPaymentSettings.collect(_platformPaymentFormMethods, $('platformPaymentMethodsBody'));
 }
 
 async function savePlatformActivationSettings() {
+  const setSaveStatus = message => {
+    const status = $('platformPaymentSaveStatus');
+    if (status) status.textContent = message;
+  };
   if (!window.PB_PLATFORM_V1 || !Auth.can('payments', sess.role)) {
+    setSaveStatus('You do not have access to edit payment settings.');
     toast('You do not have access to edit activation settings.', 'err');
     return;
   }
   const emailEnabled = $('platformEmailEnabled').checked;
   const replyToEmail = $('platformReplyToEmail').value.trim();
+  const savedEmail = _platformActivation?.tenant;
+  const emailSettingsChanged = !savedEmail || emailEnabled !== (savedEmail.emailEnabled === true) ||
+    replyToEmail.toLowerCase() !== String(savedEmail.replyToEmail || '').trim().toLowerCase();
   const paymentMethods = collectPlatformPaymentMethods();
-  if (emailEnabled && !replyToEmail) {
+  if (emailSettingsChanged && emailEnabled && !replyToEmail) {
+    setSaveStatus('Enter the court Reply-To email before enabling booking emails.');
     toast('Enter the court Reply-To email before enabling booking emails.', 'err');
     $('platformReplyToEmail').focus();
     return;
@@ -12796,29 +12744,46 @@ async function savePlatformActivationSettings() {
     !method.accountName || !method.accountReference
   ));
   if (incompleteMethod) {
+    setSaveStatus(incompleteMethod.displayName + ' needs both the account name and account number.');
     toast(`${incompleteMethod.displayName} needs both the account name and account number.`, 'err');
     return;
   }
   const button = $('savePlatformActivationBtn');
   button.disabled = true;
   button.textContent = 'Saving...';
+  setSaveStatus('Saving...');
+  let saveConfirmed = false;
   try {
     const savedActivation = await DB.saveTenantActivationSettings({
-      emailEnabled,
-      replyToEmail,
+      ...(emailSettingsChanged ? {emailEnabled,replyToEmail} : {}),
       paymentMethods,
+      receiptVerification: {
+        gcashQrAlias: $('platformGcashQrAlias').value.trim(),
+        gcashQrToken: $('platformGcashQrToken').value.trim(),
+      },
+      receiptVerificationRevision: _platformActivation?.receiptVerificationRevision || 0,
     });
+    saveConfirmed = true;
     await renderPlatformActivationSettings(savedActivation);
+    const savedMessage = savedActivation?.readinessRefreshFailed
+      ? 'Payment settings saved. Reload settings to refresh booking readiness.'
+      : 'Payment settings saved.';
+    setSaveStatus(savedMessage);
+    toast(savedMessage);
     await renderIntegrationStatus();
-    toast(window.PB_PUBLIC_BOOKING_ENABLED
-      ? 'Activation settings saved. Online booking is ready.'
-      : 'Activation settings saved. The server readiness check is still required.');
   } catch (error) {
     console.error('savePlatformActivationSettings:', error);
-    toast(error.message || 'Failed to save activation settings.', 'err');
+    const interrupted = /abort|timed?\s*out|timeout|failed to fetch|fetch failed|network|connection/i.test(String(error?.name || '') + ' ' + String(error?.message || ''));
+    const message = saveConfirmed
+      ? 'Payment settings saved. Reload settings to refresh the display.'
+      : interrupted
+        ? 'The connection was interrupted. Your changes may have saved. Reload settings before trying Save again.'
+        : error?.message || 'Could not save payment settings. Review the details and try again.';
+    setSaveStatus(message);
+    toast(message, saveConfirmed ? undefined : 'err');
   } finally {
     button.disabled = false;
-    button.textContent = 'Save Activation Settings';
+    button.textContent = 'Save Payment Settings';
   }
 }
 
@@ -14892,8 +14857,11 @@ async function checkAgreementGate(session) {
 </script>
 
 <script src="supabase.min.js"></script>
-<script src="tenant-config.js?v=20260907-manual15"></script>
-<script src="supabase-config.js?v=20260907-manual15"></script><script src="receipt-pending.js?v=20260907-manual15"></script>
+<script src="tenant-config.js?v=20260908-routes2"></script>
+<script src="supabase-config.js?v=20260908-routes2"></script><script src="payment-source-ui.js?v=20260908-routes2"></script>
+<script src="receipt-pending.js?v=20260908-routes2"></script>
+<script src="payment-method-brand.js?v=20260908-routes2"></script>
+<script src="payment-settings.js?v=20260908-routes2"></script>
 <script src="open-play-data.js?v=20260803-openplay-reports"></script>
 <script src="open-play-admin.js?v=20260907-audit"></script>
 <script src="open-play-reporting.js?v=20260907-audit"></script>
