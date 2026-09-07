@@ -1528,25 +1528,6 @@ footer { background:var(--card); border-top:1px solid var(--border); padding:40p
 }
 .refund-policy-actions .btn { min-width:132px; min-height:44px; justify-content:center; }
 .refund-policy-actions .btn[hidden] { display:none; }
-.rain-policy-version {
-  display:inline-flex; align-items:center; min-height:26px; margin:0 0 13px; padding:4px 9px;
-  border:1px solid rgba(var(--ac),.28); border-radius:999px; background:rgba(var(--ac),.08);
-  color:var(--accent); font-size:.66rem; font-weight:900; letter-spacing:.45px; text-transform:uppercase;
-}
-.rain-policy-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
-.rain-policy-band {
-  min-width:0; padding:14px; border:1px solid var(--border); border-radius:14px; background:var(--input);
-}
-.rain-policy-range { color:var(--accent); font-size:.75rem; font-weight:900; letter-spacing:.5px; text-transform:uppercase; }
-.rain-policy-band strong { display:block; margin-top:7px; color:var(--text); font-size:.96rem; line-height:1.35; }
-.rain-policy-band p { margin:4px 0 0; color:var(--muted); font-size:.79rem; line-height:1.5; }
-.rain-policy-band.no-refund { border-color:rgba(194,65,58,.28); background:var(--red-bg); }
-.rain-policy-band.no-refund .rain-policy-range { color:var(--red); }
-.rain-policy-note {
-  margin:12px 0 4px; padding:11px 12px; border-left:3px solid var(--accent);
-  border-radius:0 10px 10px 0; background:rgba(var(--ac),.06); color:var(--muted);
-  font-size:.78rem; line-height:1.55;
-}
 .inv-policy-notice {
   margin:0 22px 16px;
   padding:10px 12px;
@@ -1577,7 +1558,6 @@ footer { background:var(--card); border-top:1px solid var(--border); padding:40p
     padding:12px 14px calc(12px + env(safe-area-inset-bottom));
   }
   .refund-policy-actions .btn { width:100%; }
-  .rain-policy-grid { grid-template-columns:1fr; }
 }
 /* ── BOOKING CONFIRMATION TICKET ─────────────────────────── */
 #invModal { align-items:flex-end; padding:0; }
@@ -3517,7 +3497,7 @@ body.dark #splashScreen {
 
 </style>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="pickle-street.css?v=20260908-welcome">
+<link rel="stylesheet" href="pickle-street.css?v=20260908-header">
 <meta name="robots" content="noindex,nofollow">
 </head>
 <body class="light">
@@ -3665,13 +3645,13 @@ body.dark #splashScreen {
     <img class="logo-img" src="logopickle.jpg" alt="Pickle Street Tugbok logo" />
     <span class="logo-tx">
       <span class="logo-name">Pickle Street Tugbok</span>
-      <span class="logo-sub">Court Reservations</span>
+      <span class="logo-sub ps-venue-address">Mangga St. Tugbok, Davao City</span>
     </span>
   </div>
   <div class="nav-headline" id="navHeadline" hidden>
     🏓 <span class="hl">𝑺𝒆𝒓𝒗𝒆. 𝑺𝒎𝒂𝒔𝒉. 𝑾𝒊𝒏. 𝑹𝒆𝒑𝒆𝒂𝒕.</span>
   </div>
-  <div class="nav-r"><a class="nav-manage-link" href="booking-management.html">Manage booking</a><a class="nav-manage-link ps-staff-link" href="login.html">Staff login</a>
+  <div class="nav-r"><a class="nav-manage-link" href="booking-management.html">Manage booking</a>
     <div class="sw-wrap">
       <span>☀️</span>
       <label class="sw"><input type="checkbox" id="darkTog" checked aria-label="Use dark theme"><span class="sw-tr"></span></label>
@@ -4212,7 +4192,7 @@ body.dark #splashScreen {
         <img class="logo-img" src="logopickle.jpg" alt="Pickle Street Tugbok logo" />
         <span class="logo-tx">
           <span class="logo-name">Pickle Street Tugbok</span>
-          <span class="logo-sub">Court Reservations</span>
+          <span class="logo-sub ps-venue-address">Mangga St. Tugbok, Davao City</span>
         </span>
       </div>
       <p class="ft-d" id="footerBookingDescription">Live court schedules and online reservations are available above.</p>
@@ -4223,7 +4203,6 @@ body.dark #splashScreen {
       <ul>
         <li><a href="#courts">Courts</a></li>
         <li><a href="#courts">Book Now</a></li>
-        <li><button type="button" class="ft-policy-link" id="footerRainPolicyLink" aria-haspopup="dialog" aria-controls="rainInterruptionPolicyModal" onclick="openRainInterruptionPolicy(this)">Rain Interruption Policy</button></li>
         <li data-refund-policy-feature hidden><button type="button" class="ft-policy-link" id="footerRefundPolicyLink" aria-haspopup="dialog" aria-controls="refundPolicyModal" onclick="openRefundPolicy(this)">Refund &amp; Reschedule Policy</button></li>
       </ul>
     </div>
@@ -4255,50 +4234,6 @@ body.dark #splashScreen {
     <span>Need a website? <a href="https://www.facebook.com/jelarjoychristian" target="_blank" rel="noopener noreferrer">Contact us</a></span>
   </div>
 </footer>
-
-<!-- RAIN INTERRUPTION POLICY: public information only; never a booking gate -->
-<dialog class="refund-policy-dialog rain-interruption-policy-dialog" id="rainInterruptionPolicyModal"
-  role="dialog" aria-modal="true" aria-labelledby="rainInterruptionPolicyTitle"
-  aria-describedby="rainInterruptionPolicyIntro" aria-hidden="true" inert
-  onclick="rainInterruptionPolicyBackdropClick(event)" onkeydown="rainInterruptionPolicyModalKeydown(event)">
-  <div class="refund-policy-hd">
-    <div>
-      <div class="refund-policy-eyebrow">Weather guidance</div>
-      <h2 id="rainInterruptionPolicyTitle" tabindex="-1">Rain Interruption Policy</h2>
-    </div>
-    <button type="button" class="refund-policy-close" aria-label="Close Rain Interruption Policy" onclick="closeRainInterruptionPolicy()">&#10005;</button>
-  </div>
-  <div class="refund-policy-body">
-    <span class="rain-policy-version">Current rule: rain-v3</span>
-    <p class="refund-policy-intro" id="rainInterruptionPolicyIntro">When staff stops play because rain makes the court unsafe, the result is based on time played from the actual play start. The percentage applies only to the eligible court-rental amount.</p>
-    <div class="rain-policy-grid">
-      <section class="rain-policy-band" aria-label="One to fifteen minutes">
-        <div class="rain-policy-range">1&ndash;15 minutes</div>
-        <strong>75% refunded or credited</strong>
-        <p>25% of the eligible court-rental amount is retained.</p>
-      </section>
-      <section class="rain-policy-band" aria-label="Sixteen to thirty minutes">
-        <div class="rain-policy-range">16&ndash;30 minutes</div>
-        <strong>50% refunded or credited</strong>
-        <p>50% of the eligible court-rental amount is retained.</p>
-      </section>
-      <section class="rain-policy-band" aria-label="Thirty-one to forty-five minutes">
-        <div class="rain-policy-range">31&ndash;45 minutes</div>
-        <strong>25% refunded or credited</strong>
-        <p>75% of the eligible court-rental amount is retained.</p>
-      </section>
-      <section class="rain-policy-band no-refund" aria-label="Forty-six to sixty minutes">
-        <div class="rain-policy-range">46&ndash;60 minutes</div>
-        <strong>No refund</strong>
-        <p>No booking reschedule is provided.</p>
-      </section>
-    </div>
-    <p class="rain-policy-note"><strong>Non-refundable fees:</strong> the booking/platform fee and any equipment rental are never included in a rain refund. <strong>After 60 minutes:</strong> no refund applies. Any approved refund or booking credit is completed manually by the venue after review; this notice does not require acceptance and does not block booking.</p>
-  </div>
-  <div class="refund-policy-actions">
-    <button type="button" class="btn btn-p" onclick="closeRainInterruptionPolicy()">Done</button>
-  </div>
-</dialog>
 
 <!-- REFUND & RESCHEDULE POLICY -->
 <dialog class="refund-policy-dialog" id="refundPolicyModal"
@@ -8626,52 +8561,6 @@ function closeBookModal({ cancel = false } = {}) {
   resetBookingTurnstile();
 }
 
-let _rainInterruptionPolicyReturnFocus = null;
-let _rainInterruptionPolicyPreviousBodyOverflow = '';
-
-function openRainInterruptionPolicy(trigger = document.activeElement) {
-  const modal = $('rainInterruptionPolicyModal');
-  if (!modal || modal.open) return false;
-  _rainInterruptionPolicyReturnFocus = trigger?.focus ? trigger : document.activeElement;
-  _rainInterruptionPolicyPreviousBodyOverflow = document.body.style.overflow;
-  const body = modal.querySelector('.refund-policy-body');
-  if (body) body.scrollTop = 0;
-  modal.removeAttribute('inert');
-  modal.setAttribute('aria-hidden', 'false');
-  if (typeof modal.showModal === 'function') modal.showModal();
-  else modal.setAttribute('open', '');
-  document.body.style.overflow = 'hidden';
-  requestAnimationFrame(() => $('rainInterruptionPolicyTitle')?.focus({ preventScroll:true }));
-  return true;
-}
-
-function closeRainInterruptionPolicy({ restoreFocus = true } = {}) {
-  const modal = $('rainInterruptionPolicyModal');
-  if (!modal || !modal.open) return;
-  if (modal.contains(document.activeElement)) document.activeElement?.blur?.();
-  if (typeof modal.close === 'function') modal.close();
-  else modal.removeAttribute('open');
-  modal.setAttribute('aria-hidden', 'true');
-  modal.setAttribute('inert', '');
-  document.body.style.overflow = _rainInterruptionPolicyPreviousBodyOverflow;
-  const returnFocus = _rainInterruptionPolicyReturnFocus;
-  _rainInterruptionPolicyReturnFocus = null;
-  if (restoreFocus && returnFocus?.isConnected) {
-    requestAnimationFrame(() => returnFocus.focus({ preventScroll:true }));
-  }
-}
-
-function rainInterruptionPolicyBackdropClick(event) {
-  if (event.target === $('rainInterruptionPolicyModal')) closeRainInterruptionPolicy();
-}
-
-function rainInterruptionPolicyModalKeydown(event) {
-  if (event.key !== 'Escape') return;
-  event.preventDefault();
-  event.stopPropagation();
-  closeRainInterruptionPolicy();
-}
-
 function currentRefundPolicyAccepted() {
   if (!refundPolicyFeatureEnabled()) return true;
   const modal = $('refundPolicyModal');
@@ -12228,10 +12117,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       e.preventDefault();
       closeRefundPolicy();
     });
-    $('rainInterruptionPolicyModal')?.addEventListener('cancel', e => {
-      e.preventDefault();
-      closeRainInterruptionPolicy();
-    });
     document.addEventListener('keydown', e => {
       if (e.key !== 'Escape') return;
       if ($('balancePayOverlay')?.classList.contains('show')) {
@@ -12242,11 +12127,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       if ($('refundPolicyModal')?.open) {
         e.preventDefault();
         closeRefundPolicy();
-        return;
-      }
-      if ($('rainInterruptionPolicyModal')?.open) {
-        e.preventDefault();
-        closeRainInterruptionPolicy();
         return;
       }
       closeSharedDatePicker();
