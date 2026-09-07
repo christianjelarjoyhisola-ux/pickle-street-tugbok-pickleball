@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
 <title>Pickle Street Tugbok Pickleball — Admin Dashboard</title>
-<link rel="icon" type="image/svg+xml" href="assets/pickle-street-mark.svg" />
+<link rel="icon" type="image/jpeg" href="logopickle.jpg" />
 <script src="chart.min.js"></script>
 <script src="booking-balance.js?v=20260907-pickle-street"></script>
 <script src="blocked-date-access.js?v=20260907-pickle-street"></script>
@@ -2654,13 +2654,13 @@ tr:hover td { background: var(--bg2); }
 
 </style>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="pickle-street.css?v=20260907-pending2">
+<link rel="stylesheet" href="pickle-street.css?v=20260907-receipt-logo">
 <meta name="robots" content="noindex,nofollow">
 </head>
 <body class="admin-booting" data-theme="light">
 <div id="adminBootScreen" role="status" aria-live="polite" aria-label="Loading secure dashboard">
   <div class="admin-boot-card">
-    <img class="admin-boot-logo" src="assets/pickle-street-mark.svg" alt="Pickle Street Tugbok logo"/>
+    <img class="admin-boot-logo" src="logopickle.jpg" alt="Pickle Street Tugbok logo"/>
     <h1 id="adminBootBrandName">PICKLE STREET TUGBOK</h1>
     <p>Loading your secure dashboard&hellip;</p>
     <div class="admin-boot-progress" aria-hidden="true"></div>
@@ -2671,7 +2671,7 @@ tr:hover td { background: var(--bg2); }
 <!-- TOP NAV -->
 <nav class="topnav">
   <div class="nav-brand" onclick="window.location.href='index.html'">
-    <img class="logo-img" src="assets/pickle-street-mark.svg" alt="Pickle Street Tugbok logo"/>
+    <img class="logo-img" src="logopickle.jpg" alt="Pickle Street Tugbok logo"/>
     <span id="adminBrandName">Pickle Street Tugbok</span> <span class="brand-accent">Admin</span>
   </div>
   <div class="nav-actions">
@@ -3917,10 +3917,11 @@ tr:hover td { background: var(--bg2); }
         <div id="vmReceiptStatus" style="font-size:.82rem;font-weight:700;border-radius:8px;padding:8px 10px;margin-bottom:8px"></div>
         <div id="vmReceiptFlags" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px"></div>
         <div id="vmReceiptDetails" class="receipt-detail-grid" style="display:none"></div>
-        <a id="vmReceiptLink" href="#" target="_blank" rel="noopener" style="display:none">
-          <img id="vmReceiptImg" alt="Receipt" style="width:100%;max-height:320px;object-fit:contain;border-radius:8px;border:1px solid var(--border);background:#fff"/>
+        <a id="vmReceiptLink" href="#" target="_blank" rel="noopener noreferrer" aria-label="Open uploaded receipt in a new tab" style="display:none">
+          <img id="vmReceiptImg" alt="Uploaded payment receipt" referrerpolicy="no-referrer" style="width:100%;max-height:320px;object-fit:contain;border-radius:8px;border:1px solid var(--border);background:#fff"/>
         </a>
-        <div id="vmReceiptNoImg" style="display:none;font-size:.76rem;color:var(--muted)">No receipt image was uploaded for this booking.</div>
+        <div id="vmReceiptNoImg" role="status" aria-live="polite" style="display:none;font-size:.76rem;color:var(--muted)">No receipt image was uploaded for this booking.</div>
+        <button id="vmReceiptImageRetry" type="button" class="btn btn-g" onclick="vmReloadReceiptPreview()" style="display:none;margin-top:10px">Reload receipt image</button>
       </div>
       <p style="font-size:.78rem;color:var(--muted);text-align:center;margin-top:12px;line-height:1.6">
         Match the reference and full booking amount against the recorded receiving account before confirming the booking.
@@ -9109,6 +9110,9 @@ async function openVerifyModal(ref, { returnFocus = null } = {}) {
 function closeVerifyModal({ restoreFocus = true } = {}) {
   ++_verifyModalOpenSeq;
   ++_vmReceiptLoadSeq;
+  const img = $('vmReceiptImg'), link = $('vmReceiptLink');
+  if (img) { img.onload = null; img.onerror = null; img.removeAttribute('src'); img.style.display = 'none'; }
+  if (link) { link.removeAttribute('href'); link.style.display = 'none'; }
   const overlay = $('verifyModal');
   if (!overlay) return;
   overlay.classList.remove('show');
@@ -9148,9 +9152,11 @@ function verifyPaymentModalKeydown(event) {
 async function vmPopulateReceipt(b){
   const seq = ++_vmReceiptLoadSeq;
   const link = $('vmReceiptLink'), img = $('vmReceiptImg'), noImg = $('vmReceiptNoImg');
-  if (img) { img.removeAttribute('src'); img.style.display = 'none'; }
+  const retry = $('vmReceiptImageRetry');
+  if (img) { img.onload = null; img.onerror = null; img.removeAttribute('src'); img.style.display = 'none'; }
   if (link) { link.removeAttribute('href'); link.style.display = 'none'; }
-  if (noImg) { noImg.style.display = 'none'; noImg.textContent = 'No receipt image attached.'; }
+  if (retry) { retry.style.display = 'none'; retry.disabled = false; }
+  if (noImg) { noImg.style.display = 'none'; noImg.textContent = 'No receipt image was uploaded for this booking.'; }
   const wrap = $('vmReceiptWrap');
   const s = b.receiptStatus || 'none';
   const displayFlags = receiptFlagsForDisplay(b);
@@ -9176,17 +9182,53 @@ async function vmPopulateReceipt(b){
     detailBox.style.display = '';
   }
   if (b.receiptImageUrl) {
+    if (noImg) { noImg.style.display = ''; noImg.textContent = 'Loading uploaded receipt…'; }
+    const failed = (message = 'Your receipt is uploaded, but the image could not load. Please reload the image.') => {
+      if (seq !== _vmReceiptLoadSeq) return;
+      if (img) { img.onload = null; img.onerror = null; img.removeAttribute('src'); img.style.display = 'none'; }
+      if (link) { link.removeAttribute('href'); link.style.display = 'none'; }
+      if (noImg) { noImg.style.display = ''; noImg.textContent = message; }
+      if (retry) retry.style.display = '';
+    };
     try {
-      const url = await DB.getReceiptSignedUrl(b.ref);
+      const url = await DB.getReceiptSignedUrl(b.ref, b.receiptVerificationId);
       if (seq !== _vmReceiptLoadSeq) return;
-      if (img) { img.src = url; img.style.display = ''; }
-      if (link) { link.href = url; link.style.display = ''; }
+      if (img) {
+        img.onload = () => {
+          if (seq !== _vmReceiptLoadSeq) return;
+          img.style.display = '';
+          if (link) { link.href = url; link.style.display = ''; }
+          if (noImg) noImg.style.display = 'none';
+          if (retry) retry.style.display = '';
+        };
+        img.onerror = () => failed();
+        img.src = url;
+      }
     } catch(e) {
-      if (seq !== _vmReceiptLoadSeq) return;
-      if (noImg) { noImg.style.display = ''; noImg.textContent = 'Could not load receipt image.'; }
+      failed(e?.code === 'RECEIPT_CHANGED' ? e.message : undefined);
     }
   } else if (noImg) {
     noImg.style.display = '';
+  }
+}
+
+async function vmReloadReceiptPreview() {
+  const ref = $('verifyModal')?.dataset.ref;
+  if (!ref || _verifyPaymentSaving) return;
+  const retry = $('vmReceiptImageRetry');
+  if (retry) retry.disabled = true;
+  let openSeq;
+  try {
+    const opening = openVerifyModal(ref, { returnFocus: _verifyModalLastFocus });
+    openSeq = _verifyModalOpenSeq;
+    await opening;
+  } catch (_) {
+    if (openSeq === _verifyModalOpenSeq && $('verifyModal')?.dataset.ref === ref && $('verifyModal').classList.contains('show')) {
+      $('vmReceiptNoImg').style.display = '';
+      $('vmReceiptNoImg').textContent = 'Could not refresh receipt details. Please try again.';
+    }
+  } finally {
+    if (retry && openSeq === _verifyModalOpenSeq) retry.disabled = false;
   }
 }
 
@@ -14769,8 +14811,8 @@ async function checkAgreementGate(session) {
 </script>
 
 <script src="supabase.min.js"></script>
-<script src="tenant-config.js?v=20260907-pending2"></script>
-<script src="supabase-config.js?v=20260907-pending2"></script><script src="receipt-pending.js?v=20260907-pending2"></script>
+<script src="tenant-config.js?v=20260907-receipt-logo"></script>
+<script src="supabase-config.js?v=20260907-receipt-logo"></script><script src="receipt-pending.js?v=20260907-receipt-logo"></script>
 <script src="open-play-data.js?v=20260803-openplay-reports"></script>
 <script src="open-play-admin.js?v=20260907-audit"></script>
 <script src="open-play-reporting.js?v=20260907-audit"></script>

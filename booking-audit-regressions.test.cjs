@@ -53,7 +53,7 @@ function receiptHarness(getReceiptSignedUrl) {
     receiptFlagsForDisplay: () => [], receiptFlagChips: () => '', receiptDetailsHtml: () => '',
     receiptReasonText: () => '', _verifyModalOpenSeq: 0 };
   vm.runInNewContext(extract(admin, 'vmPopulateReceipt'), context);
-  return { $, populate: context.vmPopulateReceipt };
+  return { $, context, populate: context.vmPopulateReceipt };
 }
 test('a failed receipt load removes the previous customer receipt', async () => {
   const pending = deferred();
@@ -75,6 +75,7 @@ test('a slower previous receipt cannot replace the currently selected receipt', 
   const b = h.populate({ ref: 'PS-SECOND', receiptImageUrl: 'protected', receiptStatus: 'manual_review' });
   second.resolve('https://example.test/second-receipt');
   await b;
+  h.$('vmReceiptImg').onload();
   first.resolve('https://example.test/first-receipt');
   await a;
   assert.equal(h.$('vmReceiptImg').src, 'https://example.test/second-receipt');
@@ -92,6 +93,91 @@ function normalizeBooking(row) {
 const original = { id: 'booking-1', reference: 'PS-TEST', status: 'confirmed', payment_status: 'paid',
   starts_at: '2026-10-10T09:00:00+08:00', ends_at: '2026-10-10T11:00:00+08:00',
   local_booking_date: '2026-10-10', total_amount: 600 };
+
+test('sanitized manager receipt availability reaches the protected image loader without a private path', async () => {
+  const booking = normalizeBooking({ ...original, receipt_verifications: [{
+    id: 'receipt-1', status: 'manual_review', created_at: '2026-10-10T01:00:00Z', image_available: true,
+  }] });
+  assert.equal(booking.receiptImageUrl, 'protected');
+  let request;
+  const h = receiptHarness(async (ref, id) => { request = {ref, id}; return 'https://example.test/private-receipt'; });
+  await h.populate(booking);
+  assert.deepEqual(request, {ref: 'PS-TEST', id: 'receipt-1'});
+  assert.match(h.$('vmReceiptNoImg').textContent, /Loading uploaded receipt/);
+  assert.equal(h.$('vmReceiptLink').style.display, 'none', 'Do not offer an image before it loads');
+  h.$('vmReceiptImg').onload();
+  assert.equal(h.$('vmReceiptNoImg').style.display, 'none');
+  assert.equal(h.$('vmReceiptLink').href, 'https://example.test/private-receipt');
+});
+
+test('receipt availability respects explicit false and malformed flags and supports older projections', () => {
+  for (const availability of [false, 'true', null, 1]) {
+    const b = normalizeBooking({...original, receipt_verifications:[{id:'r', image_available:availability, storage_path:'private/path'}]});
+    assert.equal(b.receiptImageUrl, null);
+  }
+  for (const receipt of [{id:'r', imageAvailable:true}, {id:'r', storage_path:'private/path'}, {id:'r', storagePath:'private/path'}]) {
+    const b = normalizeBooking({...original, receipt_verifications:[receipt]});
+    assert.equal(b.receiptImageUrl, 'protected');
+  }
+  assert.equal(normalizeBooking(original).receiptImageUrl, null);
+});
+
+test('only truly absent receipt evidence shows the missing-upload message without a signing request', async () => {
+  let calls = 0;
+  const h = receiptHarness(async () => { calls++; });
+  await h.populate({ref:'PS-EMPTY', receiptStatus:'manual_review', receiptImageUrl:null});
+  assert.equal(calls, 0);
+  assert.match(h.$('vmReceiptNoImg').textContent, /No receipt image was uploaded/);
+  assert.equal(h.$('vmReceiptImageRetry').style.display, 'none');
+});
+
+test('image download failure preserves uploaded status and a retry obtains a fresh link', async () => {
+  let calls = 0;
+  const h = receiptHarness(async () => 'https://example.test/receipt-' + ++calls);
+  const booking = {ref:'PS-RETRY', receiptImageUrl:'protected', receiptStatus:'manual_review'};
+  await h.populate(booking);
+  h.$('vmReceiptImg').onerror();
+  assert.equal(h.$('vmReceiptImg').src, '');
+  assert.match(h.$('vmReceiptNoImg').textContent, /receipt is uploaded/);
+  assert.equal(h.$('vmReceiptImageRetry').style.display, '');
+  await h.populate(booking);
+  h.$('vmReceiptImg').onload();
+  assert.equal(h.$('vmReceiptLink').href, 'https://example.test/receipt-2');
+  assert.equal(h.$('vmReceiptNoImg').style.display, 'none');
+});
+
+test('late image events and signing failures do not change a newer receipt or reopen a closed preview', async () => {
+  const h = receiptHarness(async ref => 'https://example.test/' + ref);
+  await h.populate({ref:'PS-A', receiptImageUrl:'protected'});
+  const oldLoad = h.$('vmReceiptImg').onload, oldError = h.$('vmReceiptImg').onerror;
+  await h.populate({ref:'PS-B', receiptImageUrl:'protected'});
+  h.$('vmReceiptImg').onload();
+  oldError(); oldLoad();
+  assert.equal(h.$('vmReceiptLink').href, 'https://example.test/PS-B');
+  vm.runInNewContext(extract(admin, 'closeVerifyModal'), h.context);
+  const lateLoad = h.$('vmReceiptImg').onload;
+  h.context.closeVerifyModal({restoreFocus:false});
+  lateLoad();
+  assert.equal(h.$('vmReceiptImg').src, '');
+  assert.equal(h.$('vmReceiptLink').href, '');
+  assert.equal(h.$('vmReceiptImg').onload, null);
+});
+
+test('a failed old reload cannot overwrite a reopened preview for the same booking', async () => {
+  const pending = deferred(), $ = elements();
+  $('verifyModal').dataset.ref = 'PS-SAME';
+  const context = {$, _verifyPaymentSaving:false, _verifyModalLastFocus:null, _verifyModalOpenSeq:1};
+  context.openVerifyModal = () => { context._verifyModalOpenSeq++; return pending.promise; };
+  vm.runInNewContext(extract(admin,'vmReloadReceiptPreview'),context);
+  const loading = context.vmReloadReceiptPreview();
+  context._verifyModalOpenSeq += 2; // Close, then reopen the same reference.
+  $('vmReceiptNoImg').textContent = 'New receipt loaded';
+  $('vmReceiptImageRetry').disabled = true; // A newer reload is running.
+  pending.reject(new Error('Old request failed'));
+  await loading;
+  assert.equal($('vmReceiptNoImg').textContent,'New receipt loaded');
+  assert.equal($('vmReceiptImageRetry').disabled,true);
+});
 test('a pending paid reschedule retains only the original confirmed hours in the booking projection', () => {
   const booking = normalizeBooking({ ...original, booking_slots: [
     { status: 'confirmed', starts_at: '2026-10-10T09:00:00+08:00' },

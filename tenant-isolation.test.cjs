@@ -79,6 +79,38 @@ test('receipt retry uses staff authorization and a stable caller request id',asy
   assert.ok(new Headers(request.init.headers).get('Authorization').includes('test-manager-token'));
   assert.equal(JSON.parse(request.init.body).idempotencyKey,'00000000-0000-4000-8000-000000000001');assert.equal(result.paymentStatus,'pending');
 });
+
+test('receipt images use the staff signer with the projected verification ID, never a public storage URL', async () => {
+  const response = {ok:true, signedUrl:API+'/storage/v1/object/sign/tenant-private/receipt?token=test',
+    booking:{reference:'PS-TEST', receipt_verifications:[{id:'receipt-1',image_available:true,status:'manual_review'}]}};
+  const {context:c,calls}=boot({scope:'manager',response});
+  assert.equal(await c.DB.getReceiptSignedUrl('PS-TEST','receipt-1'),response.signedUrl);
+  const signed=calls.find(call=>(call.url||'').includes('get-receipt-view-url'));
+  assert.ok(signed);
+  assert.deepEqual(JSON.parse(signed.init.body),{tenantSlug:SLUG,verificationId:'receipt-1'});
+  assert.match(new Headers(signed.init.headers).get('Authorization'),/test-manager-token/);
+});
+
+test('receipt preview denies public pages, missing receipts and changed receipt IDs before signing', async () => {
+  for(const options of [
+    {scope:'public',response:{ok:true,booking:{receipt_verifications:[{id:'receipt-1',image_available:true}]}}},
+    {scope:'manager',response:{ok:true,booking:{reference:'PS-TEST',receipt_verifications:[]}}},
+    {scope:'manager',response:{ok:true,booking:{reference:'PS-TEST',receipt_verifications:[{id:'receipt-new',image_available:true}]}}},
+  ]) {
+    const {context:c,calls}=boot(options);
+    await assert.rejects(c.DB.getReceiptSignedUrl('PS-TEST','receipt-1'),/No receipt|receipt has changed/);
+    assert.equal(calls.some(call=>(call.url||'').includes('get-receipt-view-url')),false);
+  }
+});
+
+test('receipt preview rejects untrusted signed URL hosts, schemes and embedded credentials', async () => {
+  for(const signedUrl of ['https://other.supabase.co/receipt','http://neqvrwtofiolcuxewdze.supabase.co/receipt',
+    'https://attacker@neqvrwtofiolcuxewdze.supabase.co/receipt']) {
+    const {context:c}=boot({scope:'manager',response:{ok:true,signedUrl,
+      booking:{reference:'PS-TEST',receipt_verifications:[{id:'receipt-1',image_available:true}]}}});
+    await assert.rejects(c.DB.getReceiptSignedUrl('PS-TEST','receipt-1'),/not issued by the booking platform/);
+  }
+});
 test('published manager-only RPC signatures remain usable without weakening public scope',async()=>{
   for(const scope of ['public','manager']) {
     const {context:c,calls}=boot({scope});

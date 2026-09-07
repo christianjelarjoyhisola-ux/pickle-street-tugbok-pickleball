@@ -929,6 +929,13 @@ function _pbPlatformBookingToLegacy(row, courtMap, timeZone) {
       ? [...row.receiptVerifications].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
     : [];
   const receipt = receipts[0] || null;
+  // Manager responses deliberately omit private paths and expose only this
+  // availability flag. An explicit false must not be revived by a legacy path.
+  const receiptImageAvailable = receipt?.image_available !== undefined
+    ? receipt.image_available === true
+    : receipt?.imageAvailable !== undefined
+      ? receipt.imageAvailable === true
+      : !!(receipt?.storage_path || receipt?.storagePath);
   const paymentSessions = Array.isArray(row.payment_sessions)
     ? [...row.payment_sessions].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
     : Array.isArray(row.paymentSessions)
@@ -1025,7 +1032,7 @@ function _pbPlatformBookingToLegacy(row, courtMap, timeZone) {
     receiptVerificationId: receipt?.id || null,
     // The source image stays private. This sentinel only tells the dashboard
     // that an authenticated, short-lived viewing URL can be requested.
-    receiptImageUrl: receipt?.storage_path ? 'protected' : null,
+    receiptImageUrl: receiptImageAvailable ? 'protected' : null,
     receiptStatus: receipt?.status || 'none',
     receiptFlags: receipt?.flags || [],
     receiptExtracted: receipt?.extracted_data || null,
@@ -4247,11 +4254,16 @@ window.DB = {
   },
 
   // Request a short-lived signed URL to view a stored receipt (admin only).
-  async getReceiptSignedUrl(bookingRef) {
+  async getReceiptSignedUrl(bookingRef, expectedVerificationId = null) {
     if (PB_PLATFORM_V1) {
       const booking = await this.getBookingByRef(bookingRef);
-      if (!booking?.receiptVerificationId || !booking?.receiptImageUrl) {
+      if (!booking?.receiptVerificationId) {
         throw new Error('No receipt image is attached to this booking.');
+      }
+      if (expectedVerificationId && booking.receiptVerificationId !== expectedVerificationId) {
+        const error = new Error('The receipt has changed. Refresh its details before opening the image.');
+        error.code = 'RECEIPT_CHANGED';
+        throw error;
       }
       const result = await _invokeEdgeFunction(
         `get-receipt-view-url?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,

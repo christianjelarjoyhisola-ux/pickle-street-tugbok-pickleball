@@ -30,7 +30,17 @@ button,a,input,select,textarea {touch-action:manipulation}
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible {outline:3px solid #568eaf;outline-offset:4px}
 .nav,.topnav,.navbar {background:var(--card)!important;border-color:var(--border)!important;box-shadow:none!important}
 .nav {height:84px;padding:0 max(28px,calc((100vw - 1280px)/2));gap:24px}
-.nav .logo-img,.logo-ic,img.logo {padding:0!important;border:0!important;box-shadow:none!important;background:transparent!important;border-radius:12px!important;width:48px;height:48px}
+/* Preserve the complete portrait crest, including its Tugbok wordmark. */
+.logo-img,.nav .logo-img,.topnav .logo-img,.logo-ic,.admin-boot-logo,.sp-logo-img {
+  object-fit:contain!important;object-position:center!important;filter:none!important;
+  padding:2px!important;border:1px solid #e1e8e1!important;box-shadow:none!important;
+  background:#fff!important;border-radius:7px!important;flex:0 0 auto!important;
+}
+.nav .logo-img {width:48px;height:60px}
+.topnav .logo-img {width:36px;height:44px}
+footer .logo-img {width:72px;height:88px}
+.logo-ic,.admin-boot-logo {width:100px;height:120px}
+.sp-logo-img {width:110px!important;height:132px!important}
 .logo-tx .logo-name {font-size:1.12rem!important;font-weight:800}
 .logo-tx .logo-sub {font-size:.75rem!important;letter-spacing:.1em!important;font-weight:500;color:var(--muted)!important;margin-top:4px;text-transform:uppercase}
 .nav-headline {display:flex;flex-direction:row;justify-content:center;gap:28px;font-size:.9rem;pointer-events:auto;font-family:'DM Sans',sans-serif}
@@ -81,6 +91,7 @@ input,select,textarea {font-size:1rem!important}
 @media(max-width:1340px) {.venue-intro,.sec {margin-left:28px;margin-right:28px}.sec{max-width:none}}
 @media(max-width:900px) {.nav-headline{display:none}.venue-intro-copy{padding:28px}.venue-intro h1{font-size:2.15rem}.venue-intro-meta{flex-wrap:wrap;gap:8px 16px}.find-time-entry{float:none;width:100%;margin:0 0 18px}.venue-intro{min-height:280px}.venue-photo span{display:none}}
 @media(max-width:620px) {.nav{height:72px;padding:0 16px;gap:8px}.nav .logo-tx{display:block}.logo-tx .logo-name{font-size:.91rem!important}.logo-tx .logo-sub{font-size:.65rem!important}.nav .logo-img{width:39px;height:39px}.nav .sw-wrap{display:none}.nav-manage-link{font-size:.75rem!important;padding:9px!important}.venue-intro{margin:18px 16px 24px;grid-template-columns:1fr;min-height:0;border-radius:17px}.venue-intro-copy{padding:24px}.venue-intro h1{font-size:2.25rem;margin:12px 0}.venue-intro p{font-size:.94rem}.venue-intro-meta{margin-top:16px}.venue-photo{min-height:150px}.sec{margin:0 16px;padding-bottom:28px!important}.sec-hd h2{font-size:1.6rem}.shared-date-entry{flex-wrap:wrap;gap:14px;padding:16px}.shared-date-control{width:100%;justify-content:space-between}.preview-notice{padding:10px 16px;text-align:left}.courts{gap:18px}}
+@media(max-width:620px) {.nav .logo-img{width:38px;height:48px}.topnav .logo-img{width:34px;height:42px}}
 @media(prefers-reduced-motion:reduce) {*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 
 .ps-nav-button{font:600 .9rem DM Sans,sans-serif;background:none;border:0;color:var(--text);cursor:pointer;padding:10px}.cc{background:var(--card)!important;border:1px solid var(--border)!important;border-radius:18px!important;box-shadow:0 5px 22px rgba(25,54,66,.045)!important;overflow:hidden}.cc-mobile-name,.cc-times-title{font-family:Manrope,sans-serif!important;font-weight:750;letter-spacing:-.02em!important}.cc-photo{background-color:#dce6e9!important}.cc-times{background:var(--card)!important}.booking-mode-btn{box-shadow:none!important;border-color:var(--border)!important}.booking-mode-btn.active{background:#e9f2ee!important;color:#255c4a!important}.developer-promo-dialog,.bg-grid,.bg-glow{display:none!important}.ps-staff-link{white-space:nowrap}.empty h3{font-size:1.4rem;margin-bottom:8px}.empty p{font-size:1rem;line-height:1.6;margin-bottom:20px}@media(max-width:620px){.ps-staff-link{display:none}.nav .sw-wrap{display:none}}

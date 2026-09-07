@@ -6,6 +6,6 @@ module.exports = Object.freeze([
   'open-play-data.js', 'open-play-public.js', 'open-play-admin.js', 'open-play-reporting.js',
   'open-play.css', 'open-play-admin.css', 'open-play-reporting.css',
   'pickle-street.css', 'pickle-street.js', 'booking-management.css', 'booking-management.js',
-  'assets/pickle-street-mark.svg', 'assets/pickle-street-courts.jpg',
+  'assets/pickle-street-mark.svg', 'assets/pickle-street-courts.jpg', 'logopickle.jpg',
   'assets/payment-not-configured.svg', '_headers',
 ]);
