@@ -200,11 +200,11 @@ async function _pbCached(scope, params, ttlMs, loader) {
   const promise = Promise.resolve()
     .then(loader)
     .then(value => {
-      _pbFastCache.set(key, { at: Date.now(), value });
+      if (_pbFastCache.get(key)?.promise === promise) _pbFastCache.set(key, { at: Date.now(), value });
       return value;
     })
     .catch(err => {
-      _pbFastCache.delete(key);
+      if (_pbFastCache.get(key)?.promise === promise) _pbFastCache.delete(key);
       throw err;
     });
   _pbFastCache.set(key, { at: now, promise });
@@ -269,11 +269,8 @@ function _pbClockHour(value, endOfDay = false) {
 function _pbPlatformCourtToLegacy(court, { publicPublished = false } = {}) {
   const regular = court?.pricingConfig?.regular || {};
   const bands = Array.isArray(regular.bands) ? regular.bands : [];
-  const rateSchedule = bands.map(band => ({
-    from: _pbClockHour(band.start),
-    to: String(band.end) === '24:00' ? 24 : _pbClockHour(band.end, true),
-    rate: Number(band.hourlyRate),
-  })).filter(band => Number.isInteger(band.from) && Number.isInteger(band.to) && band.to > band.from && Number.isFinite(band.rate) && band.rate > 0);
+  const rateSchedule = bands.map(band => PBCourtPricing.fromBand(band))
+    .filter(band => !PBCourtPricing.validationError(band));
   const surface = String(court?.publicConfig?.surface || '').trim();
   const suppliedStatus = String(court?.status || '').toLowerCase();
   const status = ['active', 'inactive', 'maintenance'].includes(suppliedStatus)
@@ -284,6 +281,7 @@ function _pbPlatformCourtToLegacy(court, { publicPublished = false } = {}) {
     : publicPublished ? 'active' : 'inactive';
   return {
     id: court.id,
+    updatedAt: court.updatedAt || null,
     slug: court.slug,
     name: court.name,
     desc: court.description || '',
@@ -310,6 +308,7 @@ function _pbPublicPlatformCourtToLegacy(court) {
 function _pbPlatformRawCourtToLegacy(row) {
   return _pbPlatformCourtToLegacy({
     id: row.id,
+    updatedAt: row.updated_at,
     slug: row.slug,
     name: row.name,
     description: row.description,
@@ -1515,6 +1514,15 @@ function _extractFnError(err, fallback = 'Edge Function request failed') {
   try { return JSON.stringify(err); } catch(_) { return fallback; }
 }
 
+function _pbCourtSaveError(error) {
+  const message = _extractFnError(error, 'Court settings could not be saved.');
+  if (/PICKLESTREET_COURT_REVISION_(CONFLICT|REQUIRED)/.test(message)) return new Error('Court settings changed since you opened this page. Refresh the page to load the latest settings before saving again. Your current edits have not been applied.');
+  if (/PICKLESTREET_PROMO_METADATA_REQUIRED/.test(message)) return new Error('Refresh this page to use the latest promo pricing editor. Your saved prices are unchanged.');
+  if (/PICKLESTREET_PROMO_RATE_INVALID/.test(message)) return new Error('Check your standard and promo prices. An enabled promo must be lower than the standard price, with no more than two decimals.');
+  if (/SHARED_COURT_SCHEDULE_INVALID/.test(message)) return new Error('Pricing tiers must cover every opening hour exactly once, without gaps or overlaps.');
+  return new Error(message);
+}
+
 async function _invokePaymentSessionFallback(payload) {
   const fnUrl = `${SUPABASE_URL.replace(/\/+$/, '')}/functions/v1/create-payment-session`;
   const sess = await _sb.auth.getSession();
@@ -2041,7 +2049,7 @@ window.DB = {
     });
   },
 
-  async saveCourt(court) {
+  async saveCourt(court, { expectedRevisions } = {}) {
     if (PB_PLATFORM_V1) {
       if (!await _pbAuthenticatedSession()) throw new Error('Your session is no longer available. Please sign in again.');
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(court.id || ''));
@@ -2075,11 +2083,7 @@ window.DB = {
           // server cannot safely reconcile yet.
           fullPaymentRequired: true,
           minimumHours,
-          bands: bands.map(band => ({
-            start: `${String(Number(band.from)).padStart(2, '0')}:00`,
-            end: Number(band.to) === 24 ? '24:00' : `${String(Number(band.to)).padStart(2, '0')}:00`,
-            hourlyRate: Number(band.rate),
-          })),
+          bands: bands.map(band => PBCourtPricing.toBand(band)),
         },
         event: {
           ...(existing?.pricingConfig?.event || court.pricingConfig?.event || {}),
@@ -2117,23 +2121,24 @@ window.DB = {
           eventPackageEnabled: pricingConfig.event?.enabled === true,
         },
       };
-      const { error } = await _sb.rpc('manage_tenant_court', {
+      const { data, error } = await _sb.rpc('manage_picklestreet_court', {
         p_tenant_slug: PB_TENANT_SLUG,
         p_hostname: _pbTenantHostname(),
         p_action: 'save',
         p_court_id: isUuid ? court.id : null,
         p_patch: patch,
+        p_expected_revisions: expectedRevisions || {},
       });
-      if (error) throw error;
-      _pbClearFastCache(['courts', 'settings', 'platformBootstrap']);
-      return;
+      if (error) throw _pbCourtSaveError(error);
+      _pbClearFastCache(['courts', 'settings', 'platformBootstrap', 'platformAvailability']);
+      return data;
     }
     const { error } = await _sb.from('courts').upsert(courtToRow(court));
     if (error) { console.error('saveCourt:', error); throw error; }
     _pbClearFastCache(['courts']);
   },
 
-  async saveSharedCourtSchedule({ opensAt, closesAt, rateSchedule }) {
+  async saveSharedCourtSchedule({ opensAt, closesAt, rateSchedule, expectedRevisions }) {
     if (!PB_PLATFORM_V1) throw new Error('Shared court schedules require the protected platform backend.');
     if (!await _pbAuthenticatedSession()) throw new Error('Your session is no longer available. Please sign in again.');
     const open = String(opensAt || '').slice(0, 5);
@@ -2141,35 +2146,33 @@ window.DB = {
     if (!/^\d{2}:00$/.test(open) || !/^\d{2}:00$/.test(close)) {
       throw new Error('Shared court hours must use whole-hour times.');
     }
-    const bands = (Array.isArray(rateSchedule) ? rateSchedule : []).map(band => ({
-      start: `${String(Number(band.from)).padStart(2, '0')}:00`,
-      end: Number(band.to) === 24 ? '24:00' : `${String(Number(band.to)).padStart(2, '0')}:00`,
-      hourlyRate: Number(band.rate),
-    }));
+    const bands = (Array.isArray(rateSchedule) ? rateSchedule : []).map(band => PBCourtPricing.toBand(band));
     if (!bands.length) throw new Error('At least one shared pricing tier is required.');
-    const { data, error } = await _sb.rpc('apply_shared_tenant_court_schedule', {
+    const { data, error } = await _sb.rpc('apply_shared_picklestreet_court_schedule', {
       p_tenant_slug: PB_TENANT_SLUG,
       p_hostname: _pbTenantHostname(),
       p_opens_at: open,
       p_closes_at: close,
       p_bands: bands,
+      p_expected_revisions: expectedRevisions || {},
     });
-    if (error) throw new Error(_extractFnError(error, 'The shared court schedule was not saved'));
+    if (error) throw _pbCourtSaveError(error);
     _pbClearFastCache(['courts', 'settings', 'platformBootstrap', 'platformAvailability']);
     return data;
   },
 
-  async deleteCourt(id) {
+  async deleteCourt(id, { expectedRevisions } = {}) {
     if (PB_PLATFORM_V1) {
       if (!await _pbAuthenticatedSession()) throw new Error('Your session is no longer available. Please sign in again.');
-      const { error } = await _sb.rpc('manage_tenant_court', {
+      const { error } = await _sb.rpc('manage_picklestreet_court', {
         p_tenant_slug: PB_TENANT_SLUG,
         p_hostname: _pbTenantHostname(),
         p_action: 'delete',
         p_court_id: id,
         p_patch: {},
+        p_expected_revisions: expectedRevisions || {},
       });
-      if (error) throw error;
+      if (error) throw _pbCourtSaveError(error);
       _pbClearFastCache(['courts', 'settings', 'platformBootstrap']);
       return;
     }

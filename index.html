@@ -3497,7 +3497,7 @@ body.dark #splashScreen {
 
 </style>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="pickle-street.css?v=20260908-bluegreen-courts">
+<link rel="stylesheet" href="pickle-street.css?v=20260908-promo-tiers">
 <meta name="robots" content="noindex,nofollow">
 </head>
 <body class="light">
@@ -3509,7 +3509,7 @@ body.dark #splashScreen {
   <div class="ps-welcome-shell">
     <div class="ps-welcome-copy">
       <p class="ps-welcome-eyebrow">COUNTRYSIDE FEEL. URBAN ACCESS.</p>
-      <p class="ps-welcome-subtitle"><span>YOUR NEW STREET</span> <span>FOR PICKLEBALL</span></p>
+      <p class="ps-welcome-subtitle">YOUR NEW STREET FOR PICKLEBALL</p>
       <div class="ps-welcome-rule" aria-hidden="true"></div>
       <div class="ps-welcome-crest">
         <img src="assets/pickle-street-logo-transparent.png" alt="Pickle Street Tugbok logo" width="184" height="222">
@@ -3517,7 +3517,8 @@ body.dark #splashScreen {
       <h1 id="psWelcomeTitle" tabindex="-1" autofocus><span>PICKLE STREET</span><span>TUGBOK</span></h1>
       <p class="ps-welcome-address">Mangga St. Tugbok, Davao City</p>
       <div class="ps-welcome-actions">
-        <button class="ps-welcome-enter" type="button" data-welcome-dismiss><span class="ps-welcome-cta-label">TAP TO BOOK</span><span class="ps-welcome-cta-end" aria-hidden="true">ENTER <span>↗</span></span></button>
+        <button class="ps-welcome-enter" type="button" data-welcome-dismiss><span class="ps-welcome-cta-label">TAP TO BOOK</span></button>
+        <p class="ps-welcome-promotion" id="psWelcomePromotion" hidden></p>
         <p id="psWelcomeLead">Reserve your slot first — then complete payment.</p>
       </div>
     </div>
@@ -4648,6 +4649,7 @@ function setPublicSplashBookingState(state = 'live') {
 }
 
 function renderPublicTerminalState(state = 'offline', error = null) {
+  updateWelcomePromotion([]);
   const setupRequired = state === 'setup';
   window.PB_PUBLIC_BOOKING_ENABLED = false;
   setPublicSplashBookingState(setupRequired ? 'setup' : 'offline');
@@ -7518,6 +7520,29 @@ function getPricingTiersForCourt(c) {
     : [];
 }
 
+function courtPriceLabel(value) {
+  return '₱' + Number(value).toLocaleString('en-PH', { maximumFractionDigits:2 });
+}
+
+function updateWelcomePromotion(courts) {
+  const message = $('psWelcomePromotion');
+  if (!message) return;
+  const promo = PBCourtPricing.promotion(courts);
+  message.hidden = !promo;
+  message.innerHTML = promo
+    ? `PROMO ${promo.uniform ? '' : 'FROM '}${esc(courtPriceLabel(promo.rate))}/HR <s>${esc(courtPriceLabel(promo.standardRate))}</s><small>${promo.uniform ? 'Court rental' : 'Court rental · selected times'} · booking fee added separately</small>`
+    : '';
+}
+
+function courtSlotPriceHtml(hour, tiers, rate) {
+  const matches = (tiers || []).filter(tier => hour >= tier.from && hour < tier.to);
+  const tier = matches.length === 1 ? matches[0] : null;
+  const promo = tier?.promoEnabled === true && !PBCourtPricing.validationError(tier);
+  return promo
+    ? `<span class="csl-promo">${esc(courtPriceLabel(rate))}<s aria-label="Regular price ${esc(courtPriceLabel(tier.standardRate))}">${esc(courtPriceLabel(tier.standardRate))}</s></span>`
+    : esc(courtPriceLabel(rate));
+}
+
 const fmtTs = h => h === 24 ? '12A' : `${h % 12 || 12}${h < 12 ? 'A' : 'P'}`;
 /* compact range label for mobile, e.g. 6AM–7AM / 11AM–12PM */
 const fmtTc = h => h === 24 ? '12AM' : `${h % 12 || 12}${h < 12 ? 'AM' : 'PM'}`;
@@ -9092,7 +9117,7 @@ async function onCardDate(courtId, date, options = {}) {
     if (isMaint_)  { const _ml=getMaintenanceLabel(date,h,courtId); return `<div class="cc-slot-btn maintenance"><div class="csl-time">${timeRange}</div><div class="csl-tag">${_ml.icon} ${_ml.text}</div></div>`; }
     if (isPolicyBlocked_) return `<div class="cc-slot-btn past-slot" aria-disabled="true" title="Outside booking window"><div class="csl-time">${timeRange}</div><div class="csl-tag">Unavailable</div></div>`;
     if (!(slotRate > 0)) return `<div class="cc-slot-btn maintenance"><div class="csl-time">${timeRange}</div><div class="csl-tag">Rate unavailable</div></div>`;
-    return `<button type="button" class="cc-slot-btn" data-h="${h}" aria-pressed="false" aria-label="${esc(`${fmtT(h)} to ${fmtT(h + 1)}. ₱${slotRate}`)}" onclick="event.stopPropagation(); toggleCardSlot('${courtId}','${date}',${h})"><div class="csl-time">${timeRange}</div><div class="csl-price">₱${slotRate}</div></button>`;
+    return `<button type="button" class="cc-slot-btn" data-h="${h}" aria-pressed="false" aria-label="${esc(`${fmtT(h)} to ${fmtT(h + 1)}. ₱${slotRate}`)}" onclick="event.stopPropagation(); toggleCardSlot('${courtId}','${date}',${h})"><div class="csl-time">${timeRange}</div><div class="csl-price">${courtSlotPriceHtml(h, cTiers, slotRate)}</div></button>`;
   }).join('');
 }
 
@@ -9169,6 +9194,7 @@ async function renderCourts() {
   }
 
   setPublicSplashBookingState('live');
+  updateWelcomePromotion(courts);
   document.querySelector('.booking-mode-switch')?.removeAttribute('hidden');
   document.querySelector('.shared-date-entry')?.removeAttribute('hidden');
   syncBookingModeUi();
@@ -9255,7 +9281,7 @@ async function renderCourts() {
           if (isMaint_)  { const _ml=getMaintenanceLabel(selectedDate,h,c.id); return `<div class="cc-slot-btn maintenance"><div class="csl-time">${timeRange}</div><div class="csl-tag">${esc(_ml.icon)} ${esc(_ml.text)}</div></div>`; }
           if (isPolicyBlocked_) return `<div class="cc-slot-btn past-slot" aria-disabled="true" title="Outside booking window"><div class="csl-time">${timeRange}</div><div class="csl-tag">Unavailable</div></div>`;
           if (!(slotRate > 0)) return `<div class="cc-slot-btn maintenance"><div class="csl-time">${timeRange}</div><div class="csl-tag">Rate unavailable</div></div>`;
-          return `<button type="button" class="cc-slot-btn${isSelectedSlot_ ? ' selected' : ''}" data-h="${h}" aria-pressed="${isSelectedSlot_}" aria-label="${esc(`${fmtT(h)} to ${fmtT(h + 1)}. ₱${slotRate}`)}" onclick="event.stopPropagation(); toggleCardSlot('${jsArg(c.id)}','${jsArg(selectedDate)}',${h})"><div class="csl-time">${timeRange}</div><div class="csl-price">₱${slotRate}</div></button>`;
+          return `<button type="button" class="cc-slot-btn${isSelectedSlot_ ? ' selected' : ''}" data-h="${h}" aria-pressed="${isSelectedSlot_}" aria-label="${esc(`${fmtT(h)} to ${fmtT(h + 1)}. ₱${slotRate}`)}" onclick="event.stopPropagation(); toggleCardSlot('${jsArg(c.id)}','${jsArg(selectedDate)}',${h})"><div class="csl-time">${timeRange}</div><div class="csl-price">${courtSlotPriceHtml(h, _cTiers, slotRate)}</div></button>`;
         }).join('');
     const isSelectedCard = !blk && !!cardSelection && cardSelection.date === selectedDate && cardSelection.slots.length > 0;
     const selectedSummary = isSelectedCard
@@ -12191,7 +12217,7 @@ async function expireStaleVerifyingBookings() {
 </script>
 <script src="supabase.min.js"></script>
 <script src="tenant-config.js?v=20260908-routes2"></script>
-<script src="supabase-config.js?v=20260908-receipt-upload-fix"></script><script src="receipt-pending.js?v=20260908-routes2"></script>
+<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260908-promo-tiers"></script><script src="receipt-pending.js?v=20260908-routes2"></script>
 <script src="open-play-data.js?v=20260801-openplay-fee-settings"></script>
 <script src="open-play-public.js?v=20260801-openplay-fee-settings"></script>
 

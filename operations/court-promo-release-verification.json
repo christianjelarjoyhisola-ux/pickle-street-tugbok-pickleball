@@ -1,0 +1,70 @@
+{
+  "checkedAt": "2026-09-08T02:53:11.366Z",
+  "origin": "https://picklestreet.pages.dev",
+  "assets": [
+    {
+      "route": "/",
+      "sha256": "49a7e6839ae9e0fc96d51e155ea1b3d31bee038dd9be63251d7b190ed1c7195a"
+    },
+    {
+      "route": "/admin",
+      "sha256": "8d3761f2df182fc47dac297bf1846068557505fa5dc1d59f36b0dfd7ee349d26"
+    },
+    {
+      "route": "/court-pricing.js",
+      "sha256": "320839e27d06c5f4a03442faafac2a2e92c4287523170081eb5fb5de6b10b500"
+    },
+    {
+      "route": "/supabase-config.js",
+      "sha256": "fb1300e284dfaecb309bf22636de95955fe2da9214c95e2c6ce595402a913a20"
+    },
+    {
+      "route": "/pickle-street.css",
+      "sha256": "90fa9b0b76e2bd1e19517f648f7d479edc4ab4b7196d74d1abef8150e9042ebf"
+    }
+  ],
+  "publicBookingEnabled": true,
+  "courtCount": 3,
+  "testingPrices": [
+    {
+      "name": "Court 1",
+      "bands": [
+        {
+          "hourlyRate": 1,
+          "promoEnabled": false
+        }
+      ]
+    },
+    {
+      "name": "Court 2",
+      "bands": [
+        {
+          "hourlyRate": 1,
+          "promoEnabled": false
+        }
+      ]
+    },
+    {
+      "name": "Court 3",
+      "bands": [
+        {
+          "hourlyRate": 1,
+          "promoEnabled": false
+        }
+      ]
+    }
+  ],
+  "anonymousManagerWritesDenied": [
+    {
+      "name": "apply_shared_picklestreet_court_schedule",
+      "status": 401,
+      "code": "42501"
+    },
+    {
+      "name": "manage_picklestreet_court",
+      "status": 401,
+      "code": "42501"
+    }
+  ],
+  "pricesChanged": false
+}

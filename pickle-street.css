@@ -191,8 +191,7 @@ html.ps-welcome-open {overflow:hidden}
 .ps-welcome-shell {position:relative;z-index:1;display:grid;grid-template-rows:1fr auto;min-height:100%;max-width:1440px;margin:auto;padding:max(24px,env(safe-area-inset-top)) max(24px,env(safe-area-inset-right)) max(22px,env(safe-area-inset-bottom)) max(24px,env(safe-area-inset-left));box-sizing:border-box;text-align:center}
 .ps-welcome-copy {align-self:center;justify-self:center;width:100%;max-width:620px;padding:clamp(24px,5vh,54px) 0 32px;box-sizing:border-box}
 .ps-welcome-eyebrow {margin:0 0 7px;color:#9ed4df;font:600 16px/1.4 'Barlow Condensed','Arial Narrow',sans-serif;letter-spacing:.2em;text-indent:.2em}
-.ps-welcome-subtitle {margin:0;color:#f0f4f2;font:400 clamp(1.875rem,4vw,2.4rem)/1.1 'Bebas Neue','Barlow Condensed','Arial Narrow',sans-serif;letter-spacing:.07em;text-indent:.07em;text-transform:uppercase;text-wrap:balance}
-.ps-welcome-subtitle>span {display:inline-block}
+.ps-welcome-subtitle {margin:0;color:#f0f4f2;font:400 clamp(16px,4.8vw,26px)/1.2 'Bebas Neue','Barlow Condensed','Arial Narrow',sans-serif;letter-spacing:.045em;text-indent:.045em;text-transform:uppercase;white-space:nowrap}
 .ps-welcome-rule {height:1px;width:100%;max-width:480px;margin:20px auto 24px;background:linear-gradient(90deg,transparent,#83b9c785,transparent)}
 .ps-welcome-crest {display:grid;place-items:center;width:184px;height:222px;margin:0 auto 22px}
 .ps-welcome-crest img {display:block;width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 5px 16px #0006)}
@@ -202,10 +201,13 @@ html.ps-welcome-open {overflow:hidden}
 #psWelcomeTitle:focus {outline:none}
 .ps-welcome-address {margin:18px 0 0;color:#bccdce;font:500 13px/1.6 'DM Sans',sans-serif;letter-spacing:.12em;text-transform:uppercase}
 .ps-welcome-actions {max-width:430px;margin:30px auto 0}
+.ps-welcome-promotion {margin:12px 0 0;font-size:14px;font-weight:600;line-height:1.5;color:#bce5ec}
+.ps-welcome-promotion s {margin-left:6px;font-weight:400;color:#b6c5cc}
+.ps-welcome-promotion small {display:block;font-size:11px;font-weight:400;letter-spacing:.06em;color:#b6c5cc}
+.csl-promo {display:flex;align-items:center;justify-content:center;gap:5px;flex-wrap:wrap}
+.csl-promo s {font-size:.72em;font-weight:400;opacity:.65}
 .ps-welcome-enter {display:flex;justify-content:center;align-items:center;gap:16px;width:min(100%,280px);min-height:52px;margin:0 auto;padding:12px 18px;background:linear-gradient(115deg,#245f7c,#157f91 92%);color:#fff;border:1px solid #a4d4dd59;border-radius:9px;cursor:pointer;box-shadow:inset 0 1px 0 #ffffff14,0 10px 35px #00182080;transition:filter .2s,transform .2s,box-shadow .2s}
 .ps-welcome-cta-label {font:400 24px/1.15 'Bebas Neue','Barlow Condensed','Arial Narrow',sans-serif;letter-spacing:.1em;text-indent:.1em;white-space:nowrap}
-.ps-welcome-cta-end {display:flex;align-items:center;gap:8px;padding-left:16px;border-left:1px solid #d3ebe655;font:700 12px/1.6 'DM Sans',sans-serif;letter-spacing:.1em}
-.ps-welcome-cta-end>span {font-size:18px;font-weight:400;letter-spacing:0}
 .ps-welcome-enter:hover {filter:brightness(1.16);transform:translateY(-2px);box-shadow:inset 0 1px 0 #ffffff25,0 14px 40px #001820a0}
 .ps-welcome-enter:active {transform:translateY(0)}
 .ps-welcome #psWelcomeLead {margin:13px 0 0;color:#c9d4d6;font-size:12px;line-height:1.65;letter-spacing:.025em}
@@ -225,15 +227,11 @@ html.ps-welcome-open {overflow:hidden}
   .ps-welcome-address {font-size:12px;letter-spacing:.07em}
   .ps-welcome-enter {width:min(100%,260px);min-height:50px;gap:14px;padding:11px 14px}
   .ps-welcome-cta-label {font-size:23px;letter-spacing:.1em}
-  .ps-welcome-cta-end {padding-left:16px;gap:8px}
 }
 @media(max-width:380px) {
   .ps-welcome-eyebrow {font-size:14px;letter-spacing:.15em}
-  .ps-welcome-subtitle {font-size:1.875rem;letter-spacing:.065em}
   .ps-welcome-enter {gap:12px}
   .ps-welcome-cta-label {font-size:23px;letter-spacing:.09em}
-  .ps-welcome-cta-end {padding-left:12px}
-  .ps-welcome-cta-end>span {display:none}
   .ps-welcome-bottom>p {letter-spacing:.04em}
 }
 @media(max-height:700px) {

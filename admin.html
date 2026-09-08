@@ -860,11 +860,18 @@ tr:hover td { background: var(--bg2); }
 .court-config-summary.warn { border-color: rgba(var(--yellow-rgb), .36); background: rgba(var(--yellow-rgb), .08); color: var(--text2); }
 .court-config-note { margin: 10px 0 0; color: var(--text3); font-size: .72rem; line-height: 1.45; }
 .pricing-tier-row {
-  display: grid; grid-template-columns: minmax(130px, .8fr) minmax(130px, .8fr) minmax(140px, 1fr) auto;
+  display: grid; grid-template-columns: repeat(2, minmax(110px, .8fr)) minmax(140px, 1fr) auto;
   gap: 10px; align-items: end; margin-bottom: 10px; padding: 12px 14px;
   background: var(--input); border: 1px solid var(--border); border-radius: 9px;
 }
 .pricing-tier-row .fg { margin: 0; }
+.tier-promo-panel { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(150px, 1fr) minmax(140px, 1fr) minmax(160px, 1.3fr); align-items: center; gap: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.tier-promo-toggle { display: flex; align-items: center; gap: 9px; min-height: 44px; font-weight: 700; font-size: .85rem; cursor: pointer; }
+.tier-promo-enabled { width: 20px; height: 20px; accent-color: var(--accent); }
+.tier-effective { color: var(--muted); font-size: .8rem; line-height: 1.5; }
+.pricing-tier-row[data-promo-active="true"] { border-color: var(--accent); }
+.pricing-tier-row[data-promo-active="true"] .tier-effective { color: var(--accent); }
+@media (max-width:700px) { .tier-promo-panel { grid-template-columns: 1fr; gap: 8px; } }
 .pricing-tier-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
 .court-name-cell { display: flex; align-items: center; gap: 10px; min-width: 170px; }
 .court-thumb {
@@ -2655,7 +2662,7 @@ tr:hover td { background: var(--bg2); }
 
 </style>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="pickle-street.css?v=20260908-bluegreen-courts">
+<link rel="stylesheet" href="pickle-street.css?v=20260908-promo-tiers">
 <meta name="robots" content="noindex,nofollow">
 <link rel="stylesheet" href="payment-method-brand.css?v=20260908-routes2" />
 <link rel="stylesheet" href="payment-settings.css?v=20260908-routes2" />
@@ -3172,10 +3179,11 @@ tr:hover td { background: var(--bg2); }
         <div class="court-config-head">
           <div>
             <h4 id="pricingTiersTitle">💰 Pricing Tiers</h4>
-            <p>Set the shared hourly price for each time range. Tiers must cover every operating hour without gaps or overlaps.</p>
+            <p>Set the standard hourly price and an optional promo for each time range. Turn a promo off to return to the standard price. These tiers apply to every court.</p>
           </div>
         </div>
         <div id="tiersBody"></div>
+        <p class="court-config-note">Example: standard ₱200, promo ₱150. Promotions apply to court rental; any booking fee is added separately. Cover every operating hour without gaps or overlaps.</p>
         <div class="pricing-tier-actions">
           <button class="btn btn-g btn-sm" id="addPricingTierBtn" type="button" onclick="addTierRow()">+ Add Tier</button>
           <button class="btn btn-p btn-sm" id="savePricingTiersBtn" type="button" onclick="savePricingTiers()">💾 Save Tiers</button>
@@ -11575,6 +11583,13 @@ async function saveBusinessSettings() {
    ============================================== */
 let _sharedCourtSchedule = null;
 let _sharedCourtScheduleDirty = false;
+let _sharedCourtScheduleEditVersion = 0;
+let _sharedCourtScheduleSaving = false;
+let _courtModalRevisions = {};
+
+function courtRevisionMap(courts) {
+  return Object.fromEntries((courts || []).map(court => [court.id, court.updatedAt]));
+}
 
 async function renderCourts(){
   const platformCourtConfig = window.PB_PLATFORM_V1 === true;
@@ -11656,16 +11671,9 @@ function courtWholeHour(value, { closing = false } = {}) {
 
 function normalizedCourtTiers(value) {
   if (!Array.isArray(value)) return [];
-  return value.map(tier => ({
-    from: Number(tier?.from),
-    to: Number(tier?.to),
-    rate: Number(tier?.rate),
-  })).filter(tier =>
-    Number.isInteger(tier.from) && tier.from >= 0 && tier.from <= 23 &&
-    Number.isInteger(tier.to) && tier.to >= 1 && tier.to <= 24 && tier.to > tier.from &&
-    Number.isFinite(tier.rate) && tier.rate > 0 && tier.rate <= 9999999999.99 &&
-    Math.abs(Math.round(tier.rate * 100) - tier.rate * 100) <= 0.000001
-  ).sort((a, b) => a.from - b.from || a.to - b.to || a.rate - b.rate);
+  return value.map(tier => PBCourtPricing.normalize(tier))
+    .filter(tier => !PBCourtPricing.validationError(tier))
+    .sort((a, b) => a.from - b.from || a.to - b.to || a.rate - b.rate);
 }
 
 function scheduleFromCourt(court) {
@@ -11691,7 +11699,7 @@ function scheduleFromCourt(court) {
 
 function deriveSharedCourtSchedule(courts) {
   const rows = Array.isArray(courts) ? courts : [];
-  if (!rows.length) return { empty:true, valid:false, mixedHours:false, mixedPricing:false, openHour:null, closeHour:null, tiers:[] };
+  if (!rows.length) return { empty:true, valid:false, mixedHours:false, mixedPricing:false, openHour:null, closeHour:null, tiers:[], revisions:{} };
   const schedules = rows.map(scheduleFromCourt);
   const first = schedules[0];
   const mixedHours = schedules.some(schedule =>
@@ -11702,6 +11710,7 @@ function deriveSharedCourtSchedule(courts) {
   const valid = !mixedHours && !mixedPricing && schedules.every(schedule => schedule.valid);
   return {
     empty:false,
+    revisions:courtRevisionMap(rows),
     valid,
     mixedHours,
     mixedPricing,
@@ -11791,6 +11800,7 @@ let _courtSaveInFlight = false;
 async function openCourtModal(id){
   if (!requireVenueManagement('courts')) return;
   const courts = await DB.getCourts();
+  _courtModalRevisions = courtRevisionMap(courts);
   const c=id?courts.find(x=>String(x.id)===String(id)):null;
   const template = c || courts[0] || null;
   $('cmTitle').textContent=c?'EDIT COURT':'ADD COURT';
@@ -11911,15 +11921,8 @@ async function saveCourt(){
   if (!existing && !courts.length) {
     const draft = readSharedCourtScheduleDraft();
     if (draft.ok) schedule = { ...draft, valid:true };
-  } else if (!existing && _sharedCourtSchedule?.valid) {
-    schedule = {
-      openHour:_sharedCourtSchedule.openHour,
-      closeHour:_sharedCourtSchedule.closeHour,
-      opensAt:_sharedCourtSchedule.opensAt,
-      closesAt:_sharedCourtSchedule.closesAt,
-      tiers:_sharedCourtSchedule.tiers.map(tier => ({ ...tier })),
-      valid:true,
-    };
+  } else if (!existing && courts.length) {
+    schedule = deriveSharedCourtSchedule(courts);
   }
   if (!schedule?.valid) {
     toast(courts.length
@@ -11985,7 +11988,7 @@ async function saveCourt(){
   button.textContent='Saving...';
   closeControls.forEach(control=>{control.disabled=true;});
   try {
-    await DB.saveCourt(court);
+    await DB.saveCourt(court, { expectedRevisions:_courtModalRevisions });
     if (!id && !courts.length) _sharedCourtScheduleDirty = false;
     _courtSaveInFlight=false;
     closeModal('courtModal');
@@ -12029,7 +12032,7 @@ async function toggleBlock(id){
   c.status=movingToMaintenance?'maintenance':'active';
   c.blocked=movingToMaintenance;
   try {
-    await DB.saveCourt(c);
+    await DB.saveCourt(c, { expectedRevisions:courtRevisionMap(courts) });
     await renderCourts();
     toast(movingToMaintenance?'Court blocked.':'Court is available for booking.','inf');
   } catch (error) {
@@ -12047,7 +12050,7 @@ async function delCourt(id){
     : `Delete ${court.name}? This cannot be undone. Existing booking references may prevent deletion.`;
   if(!confirm(warning))return;
   try {
-    await DB.deleteCourt(id);
+    await DB.deleteCourt(id, { expectedRevisions:courtRevisionMap(courts) });
     await renderCourts();
     toast('Court deleted.','inf');
   } catch (error) {
@@ -12259,11 +12262,18 @@ async function saveHours() {
 }
 
 async function savePlatformSharedCourtSchedule(successMessage) {
+  if (_sharedCourtScheduleSaving) return;
+  const editVersion = _sharedCourtScheduleEditVersion;
+  const expectedRevisions = { ...(_sharedCourtSchedule?.revisions || {}) };
   const draft = readSharedCourtScheduleDraft();
   if (!draft.ok) {
     toast(draft.message || 'Complete the shared hours and pricing tiers.', 'err');
     return;
   }
+  const buttons=[$('saveHoursBtn'),$('savePricingTiersBtn')].filter(Boolean);
+  _sharedCourtScheduleSaving = true;
+  buttons.forEach(button=>button.disabled=true);
+  try {
   const courts = await DB.getCourts();
   const incompatiblePolicy = courts.find(court => {
     const minimumHours = courtRegularConfig(court).minimumHours;
@@ -12282,6 +12292,10 @@ async function savePlatformSharedCourtSchedule(successMessage) {
     return;
   }
   if (!courts.length) {
+    if (_sharedCourtScheduleEditVersion !== editVersion) {
+      toast('You have newer edits. Save again when the schedule is ready.', 'inf');
+      return;
+    }
     _sharedCourtSchedule = {
       empty:true,
       valid:true,
@@ -12293,6 +12307,7 @@ async function savePlatformSharedCourtSchedule(successMessage) {
       closesAt:draft.closesAt,
       tiers:draft.tiers.map(tier => ({ ...tier })),
       draft:true,
+      revisions:{},
     };
     adminTiers = draft.tiers.map(tier => ({ ...tier }));
     _sharedCourtScheduleDirty = false;
@@ -12306,19 +12321,26 @@ async function savePlatformSharedCourtSchedule(successMessage) {
     _sharedCourtSchedule.closeHour === draft.closeHour &&
     JSON.stringify(normalizedCourtTiers(_sharedCourtSchedule.tiers)) === JSON.stringify(normalizedCourtTiers(draft.tiers));
   if (!sameSchedule && !confirm(`Apply these hours and rates to all ${courts.length} court${courts.length === 1 ? '' : 's'}? Existing bookings keep their original times and totals.`)) return;
-  const buttons=[$('saveHoursBtn'),$('savePricingTiersBtn')].filter(Boolean);
-  buttons.forEach(button=>button.disabled=true);
   if ($('tiersStatus')) $('tiersStatus').textContent = 'Saving the shared schedule...';
-  try {
-    await DB.saveSharedCourtSchedule({
+    const saved = await DB.saveSharedCourtSchedule({
       opensAt:draft.opensAt,
       closesAt:draft.closesAt,
       rateSchedule:draft.tiers,
+      expectedRevisions,
     });
-    _sharedCourtScheduleDirty = false;
-    await renderCourts();
-    if ($('tiersStatus')) $('tiersStatus').textContent = 'Shared hours and rates are saved for every court. Existing bookings keep their original times and totals.';
-    toast(successMessage);
+    let newerEdits = _sharedCourtScheduleEditVersion !== editVersion;
+    _sharedCourtSchedule = { ..._sharedCourtSchedule, revisions:saved?.revisions || expectedRevisions };
+    _sharedCourtScheduleDirty = newerEdits;
+    try { await renderCourts(); }
+    catch (refreshError) { console.error('Saved schedule list refresh failed:', refreshError); }
+    newerEdits = _sharedCourtScheduleEditVersion !== editVersion;
+    if ($('tiersStatus')) {
+      $('tiersStatus').classList.remove('warn');
+      $('tiersStatus').textContent = newerEdits
+        ? 'Schedule saved. Your newer edits are still unsaved; save again to apply them.'
+        : 'Shared hours, standard prices and promo settings are saved for every court. Existing bookings keep their original totals.';
+    }
+    toast(newerEdits ? 'Saved. Your newer edits are still unsaved.' : successMessage);
   } catch (error) {
     console.error('Shared court schedule save failed:', error);
     if ($('tiersStatus')) {
@@ -12327,6 +12349,7 @@ async function savePlatformSharedCourtSchedule(successMessage) {
     }
     toast(error?.message || 'The shared court schedule was not saved.', 'err');
   } finally {
+    _sharedCourtScheduleSaving = false;
     buttons.forEach(button=>button.disabled=!canManageVenue('courts'));
   }
 }
@@ -12446,16 +12469,39 @@ function renderTiersUI() {
         <select class="fi tier-to" id="pricingTierTo${i}" onchange="markSharedScheduleDirty()">${hOpts(t.to)}</select>
       </div>
       <div class="fg">
-        <label class="fl" for="pricingTierRate${i}">₱ Rate / hour</label>
-        <input type="number" class="fi tier-rate" id="pricingTierRate${i}" value="${t.rate === '' || t.rate === null || t.rate === undefined ? '' : Number.isFinite(Number(t.rate)) ? Number(t.rate) : ''}" min="0.01" max="9999999999.99" step="0.01" placeholder="Required" oninput="markSharedScheduleDirty()" />
+        <label class="fl" for="pricingTierRate${i}">₱ Standard / hour</label>
+        <input type="number" class="fi tier-rate" id="pricingTierRate${i}" value="${tierInputAmount(t.standardRate ?? t.rate)}" min="0.01" max="9999999999.99" step="0.01" placeholder="Required" oninput="markSharedScheduleDirty()" />
       </div>
       <button class="btn btn-d btn-sm" type="button" aria-label="Remove pricing tier ${i + 1}" onclick="removeTier(${i})">🗑 Remove</button>
+      <div class="tier-promo-panel">
+        <label class="tier-promo-toggle" for="pricingTierPromoEnabled${i}"><input type="checkbox" class="tier-promo-enabled" id="pricingTierPromoEnabled${i}"${t.promoEnabled === true ? ' checked' : ''} onchange="markSharedScheduleDirty()" /> Promo enabled</label>
+        <div class="fg"><label class="fl" for="pricingTierPromoRate${i}">₱ Promo / hour</label><input type="number" class="fi tier-promo-rate" id="pricingTierPromoRate${i}" value="${tierInputAmount(t.promoRate)}" min="0.01" max="9999999999.99" step="0.01" placeholder="Optional when off" oninput="markSharedScheduleDirty()" /></div>
+        <output class="tier-effective" aria-live="polite"></output>
+      </div>
     </div>`).join('');
+  c.querySelectorAll('.tier-row').forEach(updateTierPricePreview);
+}
+
+function tierInputAmount(value) {
+  return value === '' || value === null || value === undefined || !Number.isFinite(Number(value)) ? '' : Number(value);
+}
+
+function updateTierPricePreview(row) {
+  const enabled = row.querySelector('.tier-promo-enabled')?.checked === true;
+  const standardRate = Number(row.querySelector('.tier-rate')?.value);
+  const promoRate = Number(row.querySelector('.tier-promo-rate')?.value);
+  const output = row.querySelector('.tier-effective');
+  row.dataset.promoActive = String(enabled);
+  if (!output) return;
+  const price = enabled ? promoRate : standardRate;
+  output.textContent = !(price > 0) ? (enabled ? 'Enter a promo price to continue.' : 'Enter the standard price.')
+    : enabled && promoRate >= standardRate ? 'Promo must be lower than the standard price.'
+    : `${enabled ? 'Promo on' : 'Promo off'} · Court rental ₱${price.toLocaleString('en-PH', { maximumFractionDigits:2 })}/hour${enabled ? '' : '. Promo price is kept for later.'}`;
 }
 
 function addTierRow() {
   adminTiers = collectPricingTierDraftRows();
-  adminTiers.push({ from: '', to: '', rate: '' });
+  adminTiers.push({ from: '', to: '', standardRate: '', rate: '', promoRate: '', promoEnabled:false });
   renderTiersUI();
   markSharedScheduleDirty();
 }
@@ -12471,12 +12517,16 @@ function collectPricingTierDraftRows() {
   return [...document.querySelectorAll('#tiersBody .tier-row')].map(row => ({
     from:String(row.querySelector('.tier-from')?.value ?? ''),
     to:String(row.querySelector('.tier-to')?.value ?? ''),
-    rate:String(row.querySelector('.tier-rate')?.value ?? ''),
+    standardRate:String(row.querySelector('.tier-rate')?.value ?? ''),
+    promoRate:String(row.querySelector('.tier-promo-rate')?.value ?? ''),
+    promoEnabled:row.querySelector('.tier-promo-enabled')?.checked === true,
   }));
 }
 
 function markSharedScheduleDirty() {
   _sharedCourtScheduleDirty = true;
+  _sharedCourtScheduleEditVersion += 1;
+  document.querySelectorAll('#tiersBody .tier-row').forEach(updateTierPricePreview);
   const status = $('tiersStatus');
   if (!status) return;
   status.classList.remove('warn');
@@ -12484,23 +12534,15 @@ function markSharedScheduleDirty() {
 }
 
 function readPricingTierRows() {
-  const rows = [...document.querySelectorAll('#tiersBody .tier-row')];
+  const rows = collectPricingTierDraftRows();
   if (!rows.length) return { ok:false, message:'Add at least one shared pricing tier.' };
   const tiers = [];
   for (const row of rows) {
-    const fromText = String(row.querySelector('.tier-from')?.value ?? '');
-    const toText = String(row.querySelector('.tier-to')?.value ?? '');
-    const rateText = String(row.querySelector('.tier-rate')?.value ?? '');
-    const from = Number(fromText);
-    const to = Number(toText);
-    const rate = Number(rateText);
-    if (!fromText || !toText || !rateText || !Number.isInteger(from) || from < 0 || from > 23 ||
-        !Number.isInteger(to) || to < 1 || to > 24 || to <= from ||
-        !Number.isFinite(rate) || rate <= 0 || rate > 9999999999.99 ||
-        Math.abs(Math.round(rate * 100) - rate * 100) > 0.000001) {
-      return { ok:false, message:'Every pricing tier needs an end time after its start time and a positive rate with no more than two decimals.' };
-    }
-    tiers.push({ from, to, rate });
+    if (!row.from || !row.to || !row.standardRate) return { ok:false, message:'Every tier needs a start time, end time, and standard hourly price.' };
+    const tier = PBCourtPricing.normalize(row);
+    const message = PBCourtPricing.validationError(tier);
+    if (message) return { ok:false, message };
+    tiers.push(tier);
   }
   return { ok:true, tiers };
 }
@@ -14858,7 +14900,7 @@ async function checkAgreementGate(session) {
 
 <script src="supabase.min.js"></script>
 <script src="tenant-config.js?v=20260908-routes2"></script>
-<script src="supabase-config.js?v=20260908-receipt-upload-fix"></script><script src="payment-source-ui.js?v=20260908-routes2"></script>
+<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260908-promo-tiers"></script><script src="payment-source-ui.js?v=20260908-routes2"></script>
 <script src="receipt-pending.js?v=20260908-routes2"></script>
 <script src="payment-method-brand.js?v=20260908-routes2"></script>
 <script src="payment-settings.js?v=20260908-routes2"></script>

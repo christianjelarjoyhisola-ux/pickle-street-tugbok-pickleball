@@ -38,7 +38,7 @@ function courtDateHarness({settingsWait=false}={}) {
     loadOperatingHours:async()=>{if(settingsWait&&++loads===1)return oldResponse.promise;},
     refundPolicyReady:()=>true,
     DB:{getCourts:async()=>[],getBookings:async({date})=>!settingsWait&&date==='2026-09-30'?oldResponse.promise:[]},
-    renderPublicTerminalState:(...args)=>events.terminal.push(args),setPublicSplashBookingState:()=>{},
+    renderPublicTerminalState:(...args)=>events.terminal.push(args),updateWelcomePromotion:()=>{}, setPublicSplashBookingState:()=>{},
     document:{querySelector:()=>element()},syncBookingModeUi:()=>{},syncConfiguredBookingUi:()=>events.painted++,
     isEventBooking:()=>false,esc:value=>value,PUBLIC_BUSINESS_NAME:'Test venue'};
   vm.runInNewContext('let _courtsRenderGeneration=0;\n'+extract(source,'renderCourts'),context);

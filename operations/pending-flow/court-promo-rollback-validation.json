@@ -1,0 +1,111 @@
+{
+  "checkedAt": "2026-09-08T02:48:19.178Z",
+  "migrationHash": "1f3f42121795b8b97515433952ccf9dac441702f01563bbb9acd3731760f7671",
+  "rolledBack": true,
+  "result": [
+    {
+      "check_name": "Actual group booking route persists 151 hold with access and policy evidence",
+      "passed": true
+    },
+    {
+      "check_name": "Actual group route rejects stale promo quotes after the switch changes",
+      "passed": true
+    },
+    {
+      "check_name": "Authenticated writes require the matching browser Origin",
+      "passed": true
+    },
+    {
+      "check_name": "Authentication and exact target tenant origin required",
+      "passed": true
+    },
+    {
+      "check_name": "Core and actual group idempotent replays keep the original 151 total",
+      "passed": true
+    },
+    {
+      "check_name": "Core booking persists one promo hour at 150 plus configured fee one",
+      "passed": true
+    },
+    {
+      "check_name": "Core rejects a mismatched promo subtotal before holding any slot",
+      "passed": true
+    },
+    {
+      "check_name": "Disabled promo may retain its previous amount above current standard",
+      "passed": true
+    },
+    {
+      "check_name": "Every preexisting public function definition is unchanged",
+      "passed": true
+    },
+    {
+      "check_name": "Existing booking amounts and other tenant court rows untouched",
+      "passed": true
+    },
+    {
+      "check_name": "Existing shared manager cannot strip or forge promo pricing",
+      "passed": true
+    },
+    {
+      "check_name": "Individual court save and delete preserve existing contract",
+      "passed": true
+    },
+    {
+      "check_name": "Invalid prices, partial metadata, flags, gaps and overlaps rejected",
+      "passed": true
+    },
+    {
+      "check_name": "Legacy rate one remains one with promo disabled",
+      "passed": true
+    },
+    {
+      "check_name": "Migration leaves current court prices unchanged",
+      "passed": true
+    },
+    {
+      "check_name": "Mixed promo tiers and overnight server quotes calculate correctly",
+      "passed": true
+    },
+    {
+      "check_name": "New regular booking charges 201 while earlier promo holds remain 151",
+      "passed": true
+    },
+    {
+      "check_name": "Only authenticated manager adapters are exposed",
+      "passed": true
+    },
+    {
+      "check_name": "Other tenant court and tenant configuration fingerprints unchanged",
+      "passed": true
+    },
+    {
+      "check_name": "Pre-migration target court fingerprint preserved through installation",
+      "passed": true
+    },
+    {
+      "check_name": "Public bootstrap projects both prices and effective promo",
+      "passed": true
+    },
+    {
+      "check_name": "Server derives enabled and disabled rates despite forged hourlyRate",
+      "passed": true
+    },
+    {
+      "check_name": "Shared save applies derived prices atomically and preserves unrelated policy",
+      "passed": true
+    },
+    {
+      "check_name": "Stale and incomplete revision sets rejected",
+      "passed": true
+    },
+    {
+      "check_name": "Turning promo off preserves both existing hold amounts and deadlines",
+      "passed": true
+    },
+    {
+      "check_name": "Turning promo off restores regular server quote",
+      "passed": true
+    }
+  ]
+}
