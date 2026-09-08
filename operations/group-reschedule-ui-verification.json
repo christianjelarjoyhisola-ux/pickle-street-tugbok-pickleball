@@ -1,0 +1,24 @@
+{
+  "checkedAt": "2026-09-08T16:50:52.838Z",
+  "passed": 15,
+  "cases": [
+    "all sessions review and contained controls 320px",
+    "all sessions review and contained controls 390px",
+    "all sessions review and contained controls 768px",
+    "all sessions review and contained controls 1280px",
+    "selected session leaves sibling unchanged and saves once",
+    "18-session review starts at its heading and keeps footer controls within the viewport",
+    "review stays disabled until every delayed session availability request finishes",
+    "older availability response cannot overwrite the newer selected date or its options",
+    "lost save reply retries same identity without duplicate move",
+    "stale booking keeps original and requires refreshed review",
+    "higher price creates payment link while originals remain reserved",
+    "expiredAdjustment replay keeps originals and requires a fresh availability review without offering payment",
+    "cancelledAdjustment replay keeps originals and requires a fresh availability review without offering payment",
+    "settled adjustment replay confirms the saved schedule without another hold or payment link",
+    "incomplete save response cannot claim success and requires a booking refresh"
+  ],
+  "onlyMockServices": true,
+  "liveBookingsCreated": 0,
+  "screenshotDirectory": "C:\\Users\\hisol\\AppData\\Local\\Temp\\picklestreet-group-reschedule-qa"
+}

@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { requireHighEntropySecret, secretsMatch } from '../_shared/security.ts';
 import { sendDuplicateRejectionEmail } from '../picklestreet-receipts/duplicate-rejection.ts';
+import { createGroupedRescheduleEmailSender, dispatchDueGroupRescheduleEmails } from '../picklestreet-reschedule/email.ts';
 
 const TENANT = 'f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a';
 
@@ -20,7 +21,8 @@ export async function dispatch(request: Request): Promise<Response> {
     if (due.error) throw new Error('Outbox unavailable');
     // The sender atomically leases each row; concurrent status reads cannot send it twice.
     const results = await Promise.all((due.data || []).map(row => sendDuplicateRejectionEmail(db, row.booking_id)));
-    return Response.json({ ok: true, checked: results.length, sent: results.filter(x => x === 'sent').length });
+    const grouped = await dispatchDueGroupRescheduleEmails(db, createGroupedRescheduleEmailSender());
+    return Response.json({ ok: true, checked: results.length + grouped.checked, sent: results.filter(x => x === 'sent').length + grouped.sent });
   } catch {
     return Response.json({ ok: false, error: 'Email dispatch unavailable' }, { status: 503 });
   }

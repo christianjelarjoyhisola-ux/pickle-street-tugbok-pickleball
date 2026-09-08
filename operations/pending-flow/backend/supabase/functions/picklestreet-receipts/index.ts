@@ -12,6 +12,7 @@ import { canonicalSourceProvider,verifySourceRoute } from "./source-routes.ts";
 import { deliverEmail } from "../_shared/reschedule-booking.ts";
 import { sendMailerooEmail } from "../_shared/maileroo.ts";
 import { createSupabaseRescheduleBookingStore } from "./reschedule-store.ts";
+import { createGroupEmailStore, createGroupedRescheduleEmailSender, deliverGroupedRescheduleEmail } from "../picklestreet-reschedule/email.ts";
 
 export const TENANT_ID="f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a";
 export const TENANT_SLUG="pickle-street-tugbok";
@@ -175,6 +176,12 @@ async function sendConfirmation(db:DB,result:Obj):Promise<void>{
   try {
     if(result.requestType==='reschedule_adjustment'){
       if(!result.rescheduleEventId)return;
+      const groupEvent=await db.from('picklestreet_group_reschedule_events').select('booking_id').eq('tenant_id',TENANT_ID).eq('event_id',result.rescheduleEventId).maybeSingle();
+      if(groupEvent.error)throw new Error('Reschedule notification unavailable');
+      if(groupEvent.data){
+        const delivered=await deliverGroupedRescheduleEmail({store:createGroupEmailStore(db),sender:createGroupedRescheduleEmailSender(),eventId:result.rescheduleEventId,bookingId:groupEvent.data.booking_id});
+        result.confirmationEmail=delivered.status;return;
+      }
       const store=createSupabaseRescheduleBookingStore({db,supabaseUrl:env('SUPABASE_URL'),anonKey:env('SUPABASE_ANON_KEY'),bookingAccessTokenSecret:env('BOOKING_ACCESS_TOKEN_SECRET')});
       const delivered=await deliverEmail({store,tenantId:TENANT_ID,eventId:result.rescheduleEventId,forceResend:false,sender:{async send(message){return await sendMailerooEmail({apiKey:env('MAILEROO_API_KEY'),fromAddress:env('MAILEROO_FROM_EMAIL'),fromName:message.fromName,replyTo:message.replyTo,replyToName:message.replyToName,to:message.to,toName:message.toName,subject:message.subject,html:message.html,plainText:message.plainText,referenceId:message.referenceId,tags:message.tags});}}});
       result.confirmationEmail=delivered.status;return;
@@ -197,6 +204,22 @@ export function receiptSubmissionResult(result:Obj,balanceId:string|null=null):O
     : passed ? balanceId ? 'Your additional payment is verified. The booking update is complete.' : 'All payment checks passed. Your booking is confirmed.'
     : publicPendingReason(result.flags||[],result.errorCode||'verification_processing')};
 }
+export function receiptApprovalTiming(booking:Obj,requestDetails:Obj|null=null,now=Date.now()):boolean{
+  if(booking.checked_in_at||['completed','cancelled','void'].includes(booking.status))return false;
+  if(requestDetails?.groupRescheduleV1===true){
+    if(booking.status!=='confirmed'||booking.payment_status!=='paid')return false;
+    const ids=obj(requestDetails.quote).changedSessionIds;
+    const sessions=requestDetails.proposedSessions;
+    if(!Array.isArray(ids)||!ids.length||!Array.isArray(sessions))return false;
+    const uniqueIds=new Set(ids);
+    if(uniqueIds.size!==ids.length)return false;
+    return ids.every(id=>{
+      const matches=sessions.filter(session=>obj(session).sessionId===id);
+      return matches.length===1&&Date.parse(String(obj(matches[0]).startsAt||''))>now;
+    });
+  }
+  return Date.parse(String(booking.starts_at||''))>now;
+}
 export async function staffReviewResponse(db:DB,body:Obj,actor:string,origin:string):Promise<Response>{
   const verificationId=uuid(body.verificationId);
   const bookingReference=reference(body.bookingReference);
@@ -204,7 +227,7 @@ export async function staffReviewResponse(db:DB,body:Obj,actor:string,origin:str
     .eq('tenant_id',TENANT_ID).eq('id',verificationId).maybeSingle();
   if(receipt.error)fail('REVIEW_UNAVAILABLE','Receipt details could not be loaded. Please try again.',503);
   if(!receipt.data)fail('RECEIPT_NOT_FOUND','The receipt is not available for this venue.',404);
-  const booking=await db.from('bookings').select('id,reference,status,payment_status,starts_at').eq('tenant_id',TENANT_ID)
+  const booking=await db.from('bookings').select('id,reference,status,payment_status,starts_at,checked_in_at').eq('tenant_id',TENANT_ID)
     .eq('id',receipt.data!.booking_id).eq('reference',bookingReference).maybeSingle();
   if(booking.error||!booking.data)fail('RECEIPT_NOT_FOUND','The receipt does not match this booking.',404);
   if(body.action==='review_context'){
@@ -214,10 +237,16 @@ export async function staffReviewResponse(db:DB,body:Obj,actor:string,origin:str
       .select('receipt_id,current_attempt_id').eq('tenant_id',TENANT_ID)
       .eq(balanceId?'balance_request_id':'booking_id',balanceId||receipt.data!.booking_id).maybeSingle();
     if(job.error||!job.data?.current_attempt_id||job.data.receipt_id!==verificationId)fail('REVIEW_UNAVAILABLE','Run Retry verification first, then reopen this receipt.');
-    const canApprove=booking.data!.status!=='completed' && new Date(booking.data!.starts_at).getTime()>Date.now();
+    let requestDetails:Obj|null=null;
+    if(balanceId){
+      const balance=await db.from('booking_balance_requests').select('request_details').eq('tenant_id',TENANT_ID).eq('booking_id',booking.data!.id).eq('id',balanceId).maybeSingle();
+      if(balance.error||!balance.data)fail('REVIEW_UNAVAILABLE','The additional-payment schedule could not be verified. Reload this receipt.',503);
+      requestDetails=obj(balance.data.request_details);
+    }
+    const canApprove=receiptApprovalTiming(booking.data!,requestDetails);
     return jsonResponse({ok:true,verificationId,attemptId:job.data.current_attempt_id,balanceRequestId:balanceId||null,
       bookingReference,paymentWindowMinutes:15,canApprove,
-      approvalUnavailableReason:canApprove?'':'This court time has already started. The platform does not allow confirming payment after play starts.'},200,origin);
+      approvalUnavailableReason:canApprove?'':requestDetails?.groupRescheduleV1===true?'The proposed sessions or booking status no longer allow approval. Refresh the booking before reviewing payment.':'This court time has already started or the booking is no longer eligible for payment confirmation.'},200,origin);
   }
   const decision=String(body.decision||'');
   const note=String(body.note||'').trim();

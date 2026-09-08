@@ -1,0 +1,12 @@
+{
+  "appliedAt": "2026-09-08T16:48:19.834Z",
+  "migrationHash": "af9c3e6bc36aca7a13571e8b8bb95a0f470f6b3742286761903ba63c873b90e5",
+  "result": [
+    {
+      "isolation": {
+        "preservedTenantTables": 51,
+        "unrelatedFunctionsUnchanged": true
+      }
+    }
+  ]
+}

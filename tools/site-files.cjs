@@ -4,6 +4,7 @@ module.exports = Object.freeze([
   'tenant-config.js', 'supabase-config.js', 'supabase.min.js', 'chart.min.js',
   'booking-balance.js', 'blocked-date-access.js', 'receipt-pending.js',
   'court-pricing.js',
+  'admin-group-reschedule.js', 'admin-group-reschedule.css',
   'payment-method-brand.js', 'payment-method-brand.css', 'payment-settings.js', 'payment-settings.css',
   'payment-source-ui.js',
   'assets/payment-methods/gcash.png', 'assets/payment-methods/bdo-pay.png',

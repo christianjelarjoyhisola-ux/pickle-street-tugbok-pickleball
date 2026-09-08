@@ -2663,6 +2663,8 @@ tr:hover td { background: var(--bg2); }
 </style>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="pickle-street.css?v=20260908-action-layout">
+<link rel="stylesheet" href="admin-group-reschedule.css?v=20260909-group-reschedule">
+<script src="admin-group-reschedule.js?v=20260909-group-reschedule"></script>
 <meta name="robots" content="noindex,nofollow">
 <link rel="stylesheet" href="payment-method-brand.css?v=20260908-routes2" />
 <link rel="stylesheet" href="payment-settings.css?v=20260908-routes2" />
@@ -4467,6 +4469,7 @@ function groupBookings(bookings = []) {
       return sum + (Number.isFinite(dp) ? dp : 0);
     }, 0);
     const receiptFlags = [...new Set(items.flatMap(b => b.receiptFlags || []))];
+    const scheduleItems = items.flatMap(calendarBookingSessions);
     return {
       ...primary,
       isGroup: items.length > 1,
@@ -4479,10 +4482,10 @@ function groupBookings(bookings = []) {
       fullName: commonValue(items, 'fullName', primary.fullName || '--'),
       email: commonValue(items, 'email', primary.email || ''),
       contactNumber: commonValue(items, 'contactNumber', primary.contactNumber || ''),
-      courtName: bookingGroupCourtLabel(items),
-      dateLabel: bookingGroupDateLabel(items),
-      timeLabel: bookingGroupTimeLabel(items),
-      scheduleLabel: bookingGroupScheduleLabel(items),
+      courtName: bookingGroupCourtLabel(scheduleItems),
+      dateLabel: bookingGroupDateLabel(scheduleItems),
+      timeLabel: bookingGroupTimeLabel(scheduleItems),
+      scheduleLabel: bookingCourtSessions(primary).length > 1 ? scheduleItems.map(item => `${item.courtName} · ${sessionScheduleLabel(item)}`).join(' | ') : bookingGroupScheduleLabel(scheduleItems),
       total,
       downpayment,
       paymentMethod: commonValue(items, 'paymentMethod', primary.paymentMethod || ''),
@@ -5501,8 +5504,15 @@ function isMultiSessionBooking(b) {
   return bookingCourtSessions(b).length > 1 || b?.atomicMultiSessionBookingV1 === true || b?.metadata?.atomicMultiSessionBookingV1 === true;
 }
 function multiSessionRescheduleNotice(b) {
-  return isMultiSessionBooking(b) && ['confirmed','pending','payment_review'].includes(String(b?.status || '').toLowerCase())
-    ? '<button class="btn btn-g btn-sm" disabled title="Rescheduling a booking with multiple court sessions is not yet available.">Reschedule unavailable</button>' : '';
+  return canRescheduleCourtSessions(b)
+    ? `<button class="btn btn-g btn-sm" type="button" onclick="openRescheduleModal('${jsArg(b.primaryRef || b.ref)}')">Reschedule</button>` : '';
+}
+function canRescheduleCourtSessions(b) {
+  return window.PB_PLATFORM_V1 && !!window.PBGroupReschedule && isMultiSessionBooking(b)
+    && !b.archivedAt && !b.playerRainClaim && !weatherRefundIncidents(b).length
+    && ['owner','court_owner'].includes(String(sess?.role || '').toLowerCase())
+    && String(b.platformStatus || b.status || '').toLowerCase() === 'confirmed'
+    && String(b.paymentStatus || '').toLowerCase() === 'paid';
 }
 function canRescheduleBooking(b) {
   if (isMultiSessionBooking(b)) return false;
@@ -5621,11 +5631,11 @@ function mobileBookingCard(b, canDelete){
         <span class="mb-book-name">${esc(b.fullName || 'Guest')}</span>
       </div>
       ${b.email ? `<span class="mb-book-sub">${esc(b.email)}</span>` : ''}
-      <div class="mb-book-schedule">
+      ${isMultiSessionBooking(b) ? `<div style="margin-top:8px">${bookingScheduleSummaryHtml(b)}</div>` : `<div class="mb-book-schedule">
         <span class="mb-book-court">${esc(courtLabel)}</span>
         <span class="mb-book-time">${esc(timeLabel)}</span>
       </div>
-      <div class="mb-book-sub">${esc(dateLabel)}</div>
+      <div class="mb-book-sub">${esc(dateLabel)}</div>`}
       <div class="mb-book-summary">
         <span class="mb-book-chip amount">${fmt(b.total)}</span>
         <span class="mb-book-chip">${esc(payMethod)}</span>
@@ -5803,6 +5813,18 @@ function canResendRescheduleEmailForBooking(b) {
     String(b.platformStatus || '').toLowerCase()
   );
 }
+function bookingRescheduleHistoryRouteHtml(event,b) {
+  const before = Array.isArray(event.beforeSessions) ? event.beforeSessions : [];
+  const after = Array.isArray(event.sessions) ? event.sessions : [];
+  if (before.length && after.length) {
+    const byId = new Map(after.map(session => [String(session.sessionId),session]));
+    return before.map(session => {
+      const next = byId.get(String(session.sessionId));
+      return `<div><strong>${esc(session.courtName || 'Court')}</strong> · ${esc(rescheduleDateTimeLabel(session.startsAt,session.endsAt))}${next ? ` → ${esc(rescheduleDateTimeLabel(next.startsAt,next.endsAt))}` : ''}</div>`;
+    }).join('');
+  }
+  return isMultiSessionBooking(b) ? 'Multiple court sessions rescheduled' : `${esc(rescheduleDateTimeLabel(event.oldStartsAt,event.oldEndsAt))} → ${esc(rescheduleDateTimeLabel(event.newStartsAt,event.newEndsAt))}`;
+}
 function bookingRescheduleHistoryHtml(b) {
   const events = Array.isArray(b?.rescheduleEvents) ? b.rescheduleEvents : [];
   if (!events.length) return '';
@@ -5826,7 +5848,7 @@ function bookingRescheduleHistoryHtml(b) {
     const emailActionLabel = ['failed','pending'].includes(emailStatus) ? 'Retry Email' : 'Resend Email';
     return `<article class="reschedule-history-item">
       <div class="reschedule-history-heading">
-        <div class="reschedule-history-route">${esc(rescheduleDateTimeLabel(event.oldStartsAt,event.oldEndsAt))} → ${esc(rescheduleDateTimeLabel(event.newStartsAt,event.newEndsAt))}</div>
+        <div class="reschedule-history-route">${bookingRescheduleHistoryRouteHtml(event,b)}</div>
         <span class="reschedule-history-state ${isLatest?'':'superseded'}">${isLatest?'Latest':'Superseded'}</span>
       </div>
       <div class="reschedule-history-meta">${esc(actor)} · ${esc(when)} · ${esc(String(event.reasonCode || 'reason').replaceAll('_',' '))}</div>
@@ -5952,13 +5974,24 @@ async function openBookingDetails(ref) {
     const b = await getBookingGroupByRef(ref);
     if (!b) throw new Error('Booking not found.');
     const bookingKey = b.groupRef || b.displayRef || b.ref;
-    const [notificationsResult, weatherRefundResult] = await Promise.allSettled([
+    const [notificationsResult, weatherRefundResult, groupedHistoryResult] = await Promise.allSettled([
       b.hostBooking && DB.getBookingBalanceNotifications ? DB.getBookingBalanceNotifications(bookingKey) : Promise.resolve([]),
       loadWeatherRefundsForBookingGroup(b),
+      isMultiSessionBooking(b) && typeof DB.groupRescheduleContext === 'function' ? DB.groupRescheduleContext(b.ref) : Promise.resolve(null),
     ]);
     const notifications = notificationsResult.status === 'fulfilled' ? notificationsResult.value : [];
     const weatherRefundAvailable = weatherRefundResult.status === 'fulfilled';
     if (weatherRefundAvailable) Object.assign(b, weatherRefundResult.value);
+    if (groupedHistoryResult.status === 'fulfilled' && Array.isArray(groupedHistoryResult.value?.history)) {
+      const byId = new Map((b.rescheduleEvents || []).map(event => [String(event.id),event]));
+      const history = groupedHistoryResult.value.history.map(event => {
+        const normalized = _pbPlatformRescheduleEventToLegacy(event);
+        const original = byId.get(String(event.eventId || event.id));
+        return { ...original, ...normalized, rescheduledBy: original?.rescheduledBy || normalized.rescheduledBy, internalNote: original?.internalNote || normalized.internalNote, notifyCustomer: original?.notifyCustomer ?? normalized.notifyCustomer };
+      });
+      const groupedIds = new Set(history.map(event => String(event.id)));
+      b.rescheduleEvents = [...history,...(b.rescheduleEvents || []).filter(event => !groupedIds.has(String(event.id)))];
+    }
     const total = Number(b.total || 0);
     const paid = window.BookingBalance?.paidAmount?.(b) || 0;
     const historicalBalance = Math.max(0, total - paid);
@@ -5987,7 +6020,7 @@ async function openBookingDetails(ref) {
       <div class="booking-detail-section"><h3>Reservation</h3>
         <div class="booking-detail-row"><span>Host / source</span><strong>${esc(b.hostName || b.hostEmail || bookingSourceMeta(b))}</strong></div>
         <div class="booking-detail-row"><span>Court</span><strong>${esc(b.courtName || '--')}</strong></div>
-        <div class="booking-detail-row"><span>Schedule</span><strong>${esc(b.scheduleLabel || `${fmtD(b.date)} · ${b.startTime || ''}-${b.endTime || ''}`)}</strong></div>
+        ${isMultiSessionBooking(b) ? '' : `<div class="booking-detail-row"><span>Schedule</span><strong>${esc(b.scheduleLabel || `${fmtD(b.date)} · ${b.startTime || ''}-${b.endTime || ''}`)}</strong></div>`}
         ${bookingCourtSessions(b).map(session => `<div class="booking-detail-row"><span>${esc(session.courtName || 'Court')}</span><strong>${esc(sessionScheduleLabel(session))}</strong></div>`).join('')}
         <div class="booking-detail-row"><span>Booked on</span><strong>${b.createdAt ? esc(window.BookingBalance.formatDeadline(b.createdAt)) : '--'}</strong></div>
         ${deadlineState.label && !forfeited ? `<div class="booking-detail-row"><span>Time remaining</span><strong>${esc(deadlineState.label)}</strong></div>` : ''}
@@ -6012,7 +6045,7 @@ async function openBookingDetails(ref) {
       ${hasReceipt ? `<button class="btn btn-g" onclick="closeBookingDetails();openVerifyModal('${jsArg(actionRef)}')">View Payment</button>` : ''}
       ${canOpenWeatherRefund(b) ? `<button class="btn btn-g" onclick="openWeatherRefundFromBookingDetails('${jsArg(actionRef)}')">${esc(weatherRefundActionLabel(b))}</button>` : ''}
       ${b.balanceRequestId && ['awaiting_payment','payment_review'].includes(b.balanceRequestStatus) ? `<button class="btn btn-g" onclick="resendPlatformBalanceNotice('${jsArg(actionRef)}','${jsArg(b.balanceRequestId)}',this)">Resend Balance Email</button>` : ''}
-      ${canRescheduleBooking(b) ? `<button class="btn btn-p" onclick="openRescheduleFromBookingDetails('${jsArg(actionRef)}')">Reschedule</button>` : ''}
+      ${canRescheduleBooking(b) || canRescheduleCourtSessions(b) ? `<button class="btn btn-p" onclick="openRescheduleFromBookingDetails('${jsArg(actionRef)}')">Reschedule</button>` : ''}
       ${b.hostBooking && b.email && (forfeited || historicalBalance > 0) ? `<button class="btn btn-p" onclick="resendHostBalanceNotice('${jsArg(actionRef)}')">${forfeited?'Resend Forfeiture Notice':'Send Balance Reminder'}</button>` : ''}`;
     requestAnimationFrame(() => modal.querySelector('.booking-details-modal')?.focus());
   } catch (error) {
@@ -7249,7 +7282,10 @@ async function resendRescheduleEmail(ref, eventId, button = null) {
   const original = button?.textContent || 'Resend Email';
   if (button) { button.disabled = true; button.textContent = 'Sending...'; }
   try {
-    const result = await DB.resendBookingRescheduleEmail(ref, eventId);
+    const booking = await getBookingGroupByRef(ref);
+    const result = isMultiSessionBooking(booking) && typeof DB.resendGroupRescheduleEmail === 'function'
+      ? await DB.resendGroupRescheduleEmail(ref, eventId)
+      : await DB.resendBookingRescheduleEmail(ref, eventId);
     const status = String(result?.email?.status || '');
     if (status === 'sent') toast('Reschedule email sent to the customer.');
     else if (status === 'disabled') toast('Email is still disabled for this venue.', 'inf');
@@ -7631,7 +7667,7 @@ function todayFocusBookingHtml(booking,{next=false,extra=0,nowMinutes=0}={}){
   const range=todayBookingRange(booking);
   const review=todayBookingReviewPending(booking);
   const timing=next&&range.start!==null?todayCountdownLabel(range.start,nowMinutes):review?'Payment verification pending':'Playing now';
-  const extraCopy=extra>0?` · +${extra} other live booking${extra===1?'':'s'}`:'';
+  const extraCopy=extra>0?` · +${extra} other live session${extra===1?'':'s'}`:'';
   return`
     <div class="today-focus-time">${esc(todayBookingTimeLabel(booking))}</div>
     <div class="today-focus-name">${esc(booking.fullName||'Customer')}</div>
@@ -7736,7 +7772,7 @@ function scheduleExplorerRows(now){
 
 function renderScheduleExplorer(bookings){
   if(Array.isArray(bookings)){
-    _scheduleExplorerBookings=[...bookings];
+    _scheduleExplorerBookings=bookings.flatMap(calendarBookingSessions);
     updateScheduleCourtFilter(_scheduleExplorerBookings);
   }
   const now=phScheduleNow();
@@ -7783,8 +7819,8 @@ function renderScheduleExplorer(bookings){
   if($('todayTimelineCount')){
     const shown=Math.min(visible.length,schedule.length);
     $('todayTimelineCount').textContent=schedule.length>shown
-      ?`Showing ${shown} of ${schedule.length} bookings`
-      :`${schedule.length} booking${schedule.length===1?'':'s'}`;
+      ?`Showing ${shown} of ${schedule.length} sessions`
+      :`${schedule.length} session${schedule.length===1?'':'s'}`;
   }
 
   const list=$('todayTimelineList');
@@ -7822,7 +7858,7 @@ function renderScheduleExplorer(bookings){
 }
 
 function keepScheduleExplorerLive(bookings,dateKey){
-  _scheduleExplorerBookings=[...bookings];
+  _scheduleExplorerBookings=bookings.flatMap(calendarBookingSessions);
   _scheduleExplorerTodayKey=dateKey;
   if(_scheduleExplorerTimer)return;
   _scheduleExplorerTimer=setInterval(()=>{
@@ -7850,9 +7886,9 @@ async function renderDash(){
   const forfeitedTxns=groupBookings(realBks.filter(b=>b.status==='forfeited' && b.paymentStatus==='deposit_retained'));
   const retainedRevenue=forfeitedTxns.reduce((s,b)=>s+(window.BookingBalance?.paidAmount?.(b)||0),0);
   const rev=activeTxns.reduce((s,b)=>s+b.total,0)+retainedRevenue;
-  const todayBks=activeTxns.filter(b=>b.date===today);
+  const todayBks=activeTxns.filter(b=>bookingMatchesDate(b,today));
   const scheduleExplorerBookings=bks.filter(isScheduleActiveBooking);
-  const cc={};active.forEach(b=>{cc[b.courtName]=(cc[b.courtName]||0)+1;});
+  const cc={};active.flatMap(calendarBookingSessions).forEach(b=>{cc[b.courtName]=(cc[b.courtName]||0)+1;});
   const most=Object.entries(cc).sort((a,b)=>b[1]-a[1])[0];
   $('dTotal').textContent=activeTxns.length;
   $('dToday').textContent=todayBks.length;
@@ -8313,10 +8349,10 @@ async function renderBookings(){
   const { q, fd, fs, fp, fr } = bookingFilters();
   if(q) bks=bks.filter(b=>{
     const incident=b.weatherRefund || {};
-    return [b.ref,b.groupRef,b.fullName,b.email,b.courtName,b.gcashRef,incident.payoutMethod,incident.payoutReference,weatherRefundStatusLabel(incident)]
+    return [b.ref,b.groupRef,b.fullName,b.email,b.courtName,b.gcashRef,bookingScheduleSearchText(b),incident.payoutMethod,incident.payoutReference,weatherRefundStatusLabel(incident)]
       .some(v=>String(v||'').toLowerCase().includes(q));
   });
-  if(fd) bks=bks.filter(b=>b.date===fd);
+  if(fd) bks=bks.filter(b=>bookingMatchesDate(b,fd));
   if(fs) bks=bks.filter(b=>b.status===fs);
   if(fp) bks=bks.filter(b=>b.paymentStatus===fp);
   if(fr) bks=bks.filter(b=>weatherRefundHistoryState(b.weatherRefund)===fr);
@@ -8372,7 +8408,7 @@ async function renderBookings(){
       <td data-label="Ref"><code style="color:var(--green);font-size:.76rem">${esc(b.displayRef || b.ref)}</code>${b.isGroup?`<div style="font-size:.68rem;color:var(--muted);margin-top:3px">${b.items.length} courts</div>`:''}</td>
       <td data-label="Customer"><div style="font-weight:600">${esc(b.fullName)}</div><div style="font-size:.75rem;color:var(--text)">${esc(b.email)}</div><div style="margin-top:4px">${bookingSourceBadge(b)}</div></td>
       <td data-label="Court">${esc(b.courtName)}</td>
-      <td data-label="Schedule">${fmtD(b.date)}<div style="font-size:.75rem;color:var(--text);font-weight:600">${esc(b.startTime)}–${esc(b.endTime)}</div></td>
+      <td data-label="Schedule">${bookingScheduleSummaryHtml(b)}</td>
       <td data-label="Booked On">${b.createdAt ? (() => { const d=new Date(b.createdAt); return d.toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'}) + '<div style="font-size:.75rem;color:var(--muted);font-weight:600">' + d.toLocaleTimeString('en-PH',{hour:'numeric',minute:'2-digit',hour12:true}) + '</div>'; })() : '<span style="color:var(--muted)">—</span>'}</td>
       <td data-label="Amount">${bookingAmountSummaryHtml(b)}<div class="amount-stack" style="display:none">
         <div class="amount-main">${fmt(b.total)}</div>
@@ -8454,7 +8490,7 @@ async function renderBookingArchive(){
         <td data-label="Ref"><code style="color:var(--green);font-size:.76rem">${esc(b.ref)}</code></td>
         <td data-label="Customer"><div style="font-weight:600">${esc(b.fullName||'Guest')}</div><div style="font-size:.75rem;color:var(--muted)">${esc(b.email||'')}</div></td>
         <td data-label="Court">${esc(b.courtName||'Court')}</td>
-        <td data-label="Schedule">${fmtD(b.date)}<div style="font-size:.75rem;font-weight:600">${esc(b.startTime||'')}–${esc(b.endTime||'')}</div></td>
+        <td data-label="Schedule">${bookingScheduleSummaryHtml(b)}</td>
         <td data-label="Amount">${fmt(b.total||0)}</td>
         <td data-label="Status">${statusBdg(b.status)}</td>
         <td data-label="Archived On">${archivedLabel}</td>
@@ -8689,9 +8725,11 @@ async function renderCalendar(){
   // Build booking map: date → status counts
   const bkMap={};
   bks.filter(isScheduleActiveBooking).forEach(b=>{
-    if(!bkMap[b.date]) bkMap[b.date]={pending:0,confirmed:0,completed:0,cancelled:0,total:0};
-    bkMap[b.date][b.status]=(bkMap[b.date][b.status]||0)+1;
-    bkMap[b.date].total++;
+    bookingDateKeys(b).forEach(date=>{
+      if(!bkMap[date]) bkMap[date]={pending:0,confirmed:0,completed:0,cancelled:0,total:0};
+      bkMap[date][b.status]=(bkMap[date][b.status]||0)+1;
+      bkMap[date].total++;
+    });
   });
 
   const DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -8788,6 +8826,7 @@ function sessionScheduleLabel(session) {
   return [session.bookingDate || session.date, session.timeLabel || [session.startTime, session.endTime].filter(Boolean).join(' – ')].filter(Boolean).join(' · ');
 }
 function calendarBookingSessions(booking) {
+  if (booking?._sessionProjection) return [booking];
   const sessions = bookingCourtSessions(booking);
   if (!sessions.length) return [booking];
   return sessions.map(session => {
@@ -8797,8 +8836,33 @@ function calendarBookingSessions(booking) {
     const zone = 'Asia/Manila';
     const date = hasDates ? new Intl.DateTimeFormat('en-CA', {timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit'}).format(start) : session.bookingDate || session.date || booking.date;
     const hours = hasDates ? Array.from({length:Math.ceil((end-start)/3600000)}, (_, index) => Number(new Intl.DateTimeFormat('en-GB', {timeZone:zone,hour:'2-digit',hourCycle:'h23'}).format(new Date(start.getTime()+index*3600000)))) : session.slots || [];
-    return {...booking, ...session, date, slots:hours, courtId:session.courtId || session.court_id, courtName:session.courtName || session.court_name || 'Court'};
+    const timeFormat = new Intl.DateTimeFormat('en-PH', {timeZone:zone,hour:'numeric',minute:'2-digit',hour12:true});
+    const startTime = hasDates ? timeFormat.format(start) : session.startTime || '';
+    const endTime = hasDates ? timeFormat.format(end) : session.endTime || '';
+    const duration = hasDates ? (end-start)/3600000 : Number(session.durationHours || session.duration || hours.length);
+    return {...booking, ...session, _sessionProjection:true, sessions:[], date, slots:hours, startTime, endTime, duration, durationHours:duration,
+      startsAt:hasDates?start.toISOString():session.startsAt, endsAt:hasDates?end.toISOString():session.endsAt,
+      timeLabel:[startTime,endTime].filter(Boolean).join(' – '), courtId:session.courtId || session.court_id, courtName:session.courtName || session.court_name || 'Court'};
   });
+}
+function bookingDateKeys(booking) {
+  const items = bookingCourtSessions(booking).length ? [booking] : Array.isArray(booking?.items) && booking.items.length ? booking.items : [booking];
+  return [...new Set(items.flatMap(calendarBookingSessions).map(item=>String(item?.date || '')).filter(Boolean))].sort();
+}
+function bookingMatchesDate(booking,date) {
+  return bookingDateKeys(booking).includes(String(date));
+}
+function bookingMatchesDateRange(booking,from,to) {
+  return bookingDateKeys(booking).some(date=>(!from || date>=from)&&(!to || date<=to));
+}
+function bookingScheduleSearchText(booking) {
+  return calendarBookingSessions(booking).map(session=>[session.courtName,session.date,sessionScheduleLabel(session)].join(' ')).join(' ');
+}
+function bookingScheduleSummaryHtml(booking) {
+  if (bookingCourtSessions(booking).length > 1) {
+    return calendarBookingSessions(booking).map(session=>`<div style="margin:3px 0;font-size:.75rem;line-height:1.5;overflow-wrap:anywhere"><strong>${esc(session.courtName)}</strong><br>${esc(sessionScheduleLabel(session))}</div>`).join('');
+  }
+  return `${esc(booking.dateLabel || fmtD(booking.date))}<div style="font-size:.75rem;color:var(--text);font-weight:600">${esc(booking.timeLabel || `${booking.startTime || ''}–${booking.endTime || ''}`)}</div>`;
 }
 function calBookingSlots(b) {
   if (Array.isArray(b?.slots) && b.slots.length) return b.slots.map(Number).filter(Number.isFinite);
@@ -8900,7 +8964,7 @@ function renderCalendarDayPanel(dateStr, bookings = [], bkMap = {}, courts = [])
 
   let boardCourts = (courts || []).filter(Boolean);
   if (!boardCourts.length) {
-    const names = [...new Set(bookings.filter(b => b.date === dateStr && b.courtName).map(b => b.courtName))];
+    const names = [...new Set(bookings.flatMap(calendarBookingSessions).filter(b => b.date === dateStr && b.courtName).map(b => b.courtName))];
     boardCourts = names.map((name, i) => ({ id: `court-${i}`, name, rate: 0, blocked: false }));
   }
   if (!boardCourts.length) boardCourts = [{ id: 'court', name: 'Court', rate: 0, blocked: false }];
@@ -9162,7 +9226,7 @@ async function openVerifyModal(ref, { returnFocus = null, reviewAction = null } 
   $('vmContact').textContent = b.contactNumber;
   $('vmRef').textContent = b.displayRef || b.ref;
   $('vmCourt').textContent = b.courtName;
-  $('vmDate').textContent = `${fmtD(b.date)} · ${b.startTime}–${b.endTime}`;
+  $('vmDate').textContent = isMultiSessionBooking(b) ? calendarBookingSessions(b).map(session=>`${session.courtName} · ${sessionScheduleLabel(session)}`).join(' | ') : `${fmtD(b.date)} · ${b.startTime}–${b.endTime}`;
   $('vmAmount').textContent = fmt(b.receiptExpectedAmount ?? b.downpayment ?? b.total);
   if ($('vmDate') && b.scheduleLabel) $('vmDate').textContent = b.scheduleLabel;
   const breakdown = $('vmGroupBreakdown');
@@ -9727,7 +9791,7 @@ async function nbRenderSlots() {
   // Fetch booked slots for this court + date
   const allBks = await DB.getBookings();
   _nbBookedSlots = new Set();
-  allBks.filter(b => String(b.courtId) === String(court.id) && b.date === date && bookingHoldsAdminSlot(b))
+  allBks.flatMap(calendarBookingSessions).filter(b => String(b.courtId) === String(court.id) && b.date === date && bookingHoldsAdminSlot(b))
     .forEach(b => (b.slots || []).forEach(s => _nbBookedSlots.add(s)));
 
   const now = new Date();
@@ -10229,7 +10293,7 @@ async function nbRenderSlots() {
   }
   const allBookings = await DB.getBookings();
   _nbBookedSlotMap = new Map(courts.map(c => [String(c.id), new Set()]));
-  allBookings
+  allBookings.flatMap(calendarBookingSessions)
     .filter(b => b.date === date && bookingHoldsAdminSlot(b) && _nbBookedSlotMap.has(String(b.courtId)))
     .forEach(b => (b.slots || []).forEach(slot => _nbBookedSlotMap.get(String(b.courtId)).add(Number(slot))));
 
@@ -10718,8 +10782,24 @@ async function openRescheduleModal(ref, { returnFocus = null } = {}) {
     toast(error?.message || 'The booking could not be loaded.', 'err');
     return false;
   }
+  if (group && canRescheduleCourtSessions(group)) {
+    return window.PBGroupReschedule.open({
+      booking: group, api: DB, returnFocus: returnFocus || document.activeElement,
+      onSaved: async (result, paymentRequired) => {
+        await Promise.allSettled([renderBookings(), renderDash()]);
+        if (paymentRequired) {
+          toast('The new sessions are held for 15 minutes. The original booking stays reserved until the additional payment is verified.', 'inf');
+        } else {
+          toast('Court sessions rescheduled under the same booking reference.');
+        }
+        if (result.email?.status === 'failed' || result.email?.status === 'delivery_unknown') {
+          toast('The schedule was saved. Check the email delivery status in the booking details.', 'inf');
+        }
+      },
+    });
+  }
   if (!group || !canRescheduleBooking(group)) {
-    toast(isMultiSessionBooking(group) ? 'Rescheduling a booking with multiple court sessions is not yet available.' : 'This booking is no longer eligible for rescheduling.', 'err');
+    toast('This booking is no longer eligible for rescheduling. Check its payment and booking status.', 'err');
     return false;
   }
   const modal = $('rescheduleModal');
@@ -10898,8 +10978,8 @@ function isValidReschedulePaymentDeadline(deadline, startsAt, now = new Date()) 
 async function exportCSV(){
   let bks=await DB.getBookings();
   const { q, fd, fs } = bookingFilters();
-  if(q) bks=bks.filter(b=>[b.ref,b.fullName,b.email,b.courtName,b.gcashRef].some(v=>String(v||'').toLowerCase().includes(q)));
-  if(fd) bks=bks.filter(b=>b.date===fd);
+  if(q) bks=bks.filter(b=>[b.ref,b.fullName,b.email,b.courtName,b.gcashRef,bookingScheduleSearchText(b)].some(v=>String(v||'').toLowerCase().includes(q)));
+  if(fd) bks=bks.filter(b=>bookingMatchesDate(b,fd));
   if(fs) bks=bks.filter(b=>b.status===fs);
   bks = groupBookings(bks.filter(b=>b.email!=='reserve@hold.internal'));
   const h=['Transaction Ref','Name','Email','Contact','Court(s)','Schedule','Hrs','Total','Paid Using','Money Received To','Payment Status','Booking Status','Created','Child Refs'];
@@ -11199,10 +11279,8 @@ async function renderReport(){
   // remain schedule/history records but do not appear in analytics.
   let bks=allBks.filter(isPlatformBillableBooking);
   let forfeitedRows=allBks.filter(b=>isDashboardReportBooking(b) && b.status==='forfeited' && b.paymentStatus==='deposit_retained');
-  if(from) bks=bks.filter(b=>b.date>=from);
-  if(to)   bks=bks.filter(b=>b.date<=to);
-  if(from) forfeitedRows=forfeitedRows.filter(b=>b.date>=from);
-  if(to)   forfeitedRows=forfeitedRows.filter(b=>b.date<=to);
+  if(from || to) bks=bks.filter(b=>bookingMatchesDateRange(b,from,to));
+  if(from || to) forfeitedRows=forfeitedRows.filter(b=>bookingMatchesDateRange(b,from,to));
   const txns = groupBookings(bks);
   const forfeitedTxns = groupBookings(forfeitedRows);
   const reportTxns = [...txns, ...forfeitedTxns];

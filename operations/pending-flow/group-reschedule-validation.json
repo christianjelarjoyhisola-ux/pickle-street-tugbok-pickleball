@@ -1,0 +1,115 @@
+{
+  "checkedAt": "2026-09-08T16:47:13.271Z",
+  "migrationHash": "af9c3e6bc36aca7a13571e8b8bb95a0f470f6b3742286761903ba63c873b90e5",
+  "rolledBack": true,
+  "result": [
+    {
+      "checks": {
+        "groupHoldChecks": [
+          {
+            "name": "Changed selection rejected",
+            "passed": true
+          },
+          {
+            "name": "Idempotent retry keeps same reference and deadline",
+            "passed": true
+          },
+          {
+            "name": "One owner/reference/total; simultaneous courts and nonadjacent hours; one original deadline",
+            "passed": true
+          },
+          {
+            "name": "One real customer and policy complete all sessions with same capability",
+            "passed": true
+          },
+          {
+            "name": "Other venue origin cannot create a group",
+            "passed": true
+          },
+          {
+            "name": "Unavailable session rolls back every newly requested slot",
+            "passed": true
+          }
+        ],
+        "groupPaymentChecks": [
+          {
+            "name": "Automatic verification: one receipt covers aggregate total and confirms every session",
+            "passed": true
+          },
+          {
+            "name": "Expired grouped hold restores all free sessions atomically on manual confirmation",
+            "passed": true
+          },
+          {
+            "name": "Manual confirmation: one payer/reference/payment, all court sessions confirmed",
+            "passed": true
+          }
+        ],
+        "groupRescheduleChecks": [
+          {
+            "name": "A target claimed after preview rolls back the whole move without releasing original sessions",
+            "passed": true
+          },
+          {
+            "name": "All sessions preserve durations, one reference and payment evidence; retry creates one event",
+            "passed": true
+          },
+          {
+            "name": "Automatic verified additional payment commits every grouped session and preserves original payment evidence",
+            "passed": true
+          },
+          {
+            "name": "Cheaper replacement retains original paid amount and clearly quotes no refund",
+            "passed": true
+          },
+          {
+            "name": "Direct edits and internal settlement RPC cannot bypass the protected group request",
+            "passed": true
+          },
+          {
+            "name": "Final preview rejects overlaps between proposed sessions",
+            "passed": true
+          },
+          {
+            "name": "No-op, unauthenticated, unauthorized actor and out-of-tenant booking rejected",
+            "passed": true
+          },
+          {
+            "name": "One email lease for current grouped schedule; older superseded events do not enter the queue",
+            "passed": true
+          },
+          {
+            "name": "Partial reschedule keeps unselected sessions and stable session identities",
+            "passed": true
+          },
+          {
+            "name": "Same-court session swap reuses existing occupancies atomically",
+            "passed": true
+          },
+          {
+            "name": "Stale pricing blocked; promo-aware extra amount; rain preserves paid hours; 15-minute new-slot hold retains all originals",
+            "passed": true
+          },
+          {
+            "name": "Stale schedule and changed idempotency payload are rejected",
+            "passed": true
+          },
+          {
+            "name": "Uncertain additional receipt stays pending; staff confirmation atomically applies all sessions",
+            "passed": true
+          },
+          {
+            "name": "Unpaid adjustment expiry releases only new holds and preserves original booking",
+            "passed": true
+          },
+          {
+            "name": "Weather claim during payment blocks automatic and staff middle-session changes despite unchanged outer dates",
+            "passed": true
+          }
+        ],
+        "preservedTenantTables": 51,
+        "unrelatedFunctionsUnchanged": true
+      }
+    }
+  ]
+}

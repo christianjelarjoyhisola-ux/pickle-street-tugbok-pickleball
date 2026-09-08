@@ -3223,6 +3223,12 @@ body.dark #splashScreen {
 .balance-pay-cell.remaining strong { color:#c0392b; font-size:1.08rem; }
 .balance-pay-section { margin-top:13px; padding:14px; border:1px solid var(--border); border-radius:12px; }
 .balance-pay-section h3 { margin:0 0 10px; font-size:.8rem; }
+.balance-session-list { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
+.balance-session-list li { min-width:0; padding:10px 12px; border:1px solid var(--border); border-radius:9px; background:var(--input); }
+.balance-session-list strong { display:block; font-size:.8rem; overflow-wrap:anywhere; }
+.balance-session-list span { display:block; margin-top:4px; color:var(--muted); font-size:.76rem; line-height:1.5; overflow-wrap:anywhere; }
+.balance-session-history { margin-top:12px; }
+.balance-session-history summary { padding:8px 0; cursor:pointer; color:var(--muted); font-size:.78rem; font-weight:700; }
 .balance-method-detail {
   display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px;
   align-items:center; margin-top:10px; padding:12px; border-radius:10px; background:var(--input);
@@ -11515,6 +11521,20 @@ function balanceDeadlineLabel(value) {
   }).format(deadline);
 }
 
+function balanceScheduleSummaryHtml(balance) {
+  const adjustment = balance?.requestType === 'reschedule_adjustment';
+  const proposed = Array.isArray(balance?.proposedSessions) ? balance.proposedSessions : [];
+  const original = Array.isArray(balance?.originalSessions) ? balance.originalSessions : [];
+  const settled = balance?.status === 'settled';
+  const inactive = ['expired','cancelled'].includes(balance?.status);
+  const grouped = adjustment && balance?.groupRescheduleV1 === true && proposed.length > 0;
+  const total = `<div style="margin-top:9px;color:var(--muted);font-size:.76rem">${adjustment ? 'New booking total' : 'Booking total'} ${fmt(Number(balance?.totalAmount || 0))}${settled || inactive ? '' : ` · deadline ${esc(balanceDeadlineLabel(balance?.deadlineAt))}`}</div>`;
+  if (!grouped) return `<div class="balance-pay-section"><h3>${esc(balance?.courtName || 'Court')}</h3><div style="color:var(--muted);font-size:.8rem">${adjustment ? 'Requested new schedule: ' : ''}${esc(balanceScheduleLabel(balance))}</div>${total}</div>`;
+  const list = sessions => `<ul class="balance-session-list">${sessions.map(session => `<li><strong>${esc(session.courtName || 'Court')}</strong><span>${esc(balanceScheduleLabel(session))}</span></li>`).join('')}</ul>`;
+  if (inactive) return `<div class="balance-pay-section"><h3>Original schedules kept</h3>${list(original)}<details class="balance-session-history"><summary>Requested move — not applied</summary>${list(proposed)}</details></div>`;
+  return `<div class="balance-pay-section"><h3>${settled ? 'Confirmed schedules' : 'Requested schedules'}</h3>${list(proposed)}${original.length ? `<details class="balance-session-history"><summary>${settled ? 'Previous schedules' : 'Original schedules — kept until confirmation'}</summary>${list(original)}</details>` : ''}${total}</div>`;
+}
+
 function automaticBalanceReceiptFlow() {
   return window.PB_PLATFORM_V1 && window.PBReceiptPending?.enabled() === true;
 }
@@ -11603,11 +11623,7 @@ function renderBalancePayment(balance) {
       <div class="balance-pay-cell"><span>${adjustment?'Original payment':'Payment received'}</span><strong>${fmt(Number(balance.acceptedAmount || 0))}</strong></div>
       <div class="balance-pay-cell remaining"><span>${adjustment?'Additional payment':'Remaining balance'}</span><strong>${fmt(Number(balance.remainingAmount || 0))}</strong></div>
     </div>
-    <div class="balance-pay-section">
-      <h3>${esc(balance.courtName || 'Court')}</h3>
-      <div style="color:var(--muted);font-size:.8rem">${adjustment?'Requested new schedule: ':''}${esc(balanceScheduleLabel(balance))}</div>
-      <div style="margin-top:5px;color:var(--muted);font-size:.76rem">${adjustment?'New booking total':'Booking total'} ${fmt(Number(balance.totalAmount || 0))} · deadline ${esc(balanceDeadlineLabel(balance.deadlineAt))}</div>
-    </div>
+    ${balanceScheduleSummaryHtml(balance)}
     ${active ? `
       <div class="balance-pay-section">
         <h3 class="balance-pay-step"><span class="balance-step-number">1</span><span>${correction ? 'Choose the method used for your payment' : `Send the exact ${adjustment?'additional':'remaining'} amount`}</span></h3>

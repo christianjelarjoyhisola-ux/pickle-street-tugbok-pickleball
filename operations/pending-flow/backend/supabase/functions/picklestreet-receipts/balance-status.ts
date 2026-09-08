@@ -53,6 +53,19 @@ function objectValue(value: unknown): JsonObject {
     : {};
 }
 
+// Project only player-facing schedule fields; internal notes and payment evidence stay private.
+export function publicRescheduleSessions(value: unknown): JsonObject[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(objectValue).map((session) => ({
+    sessionId: text(session.sessionId),
+    courtId: text(session.courtId),
+    courtName: text(session.courtName) || "Court",
+    startsAt: text(session.startsAt),
+    endsAt: text(session.endsAt),
+    durationHours: Number(session.durationHours) || 0,
+  }));
+}
+
 export async function originalBalanceStatus(request: Request): Promise<Response> {
   let allowedOrigin: string | undefined;
   try {
@@ -194,6 +207,14 @@ export async function originalBalanceStatus(request: Request): Promise<Response>
         balance: {
           requestId,
           requestType,
+          ...(context.tenantId === "f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a" &&
+              requestType === "reschedule_adjustment" && requestDetails.groupRescheduleV1 === true
+            ? {
+              groupRescheduleV1: true,
+              originalSessions: publicRescheduleSessions(requestDetails.originalSessions),
+              proposedSessions: publicRescheduleSessions(requestDetails.proposedSessions),
+            }
+            : {}),
           bookingReference: booking.reference,
           courtName: text(courtJoin.name) || "Court",
           startsAt: requestType === "reschedule_adjustment"

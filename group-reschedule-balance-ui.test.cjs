@@ -1,0 +1,14 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const source=fs.readFileSync('index.html','utf8');
+const start=source.indexOf('function balanceScheduleLabel(balance) {');
+const end=source.indexOf('function automaticBalanceReceiptFlow() {',start);
+const context={Intl,Date,esc:value=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'),fmt:n=>'PHP '+n};
+vm.runInNewContext(source.slice(start,end),context);
+const sessions=[{courtName:'Court 1',startsAt:'2026-10-10T10:00:00+08:00',endsAt:'2026-10-10T12:00:00+08:00'},{courtName:'Court 2',startsAt:'2026-10-10T17:00:00+08:00',endsAt:'2026-10-10T18:00:00+08:00'}];
+const balance={requestType:'reschedule_adjustment',groupRescheduleV1:true,status:'awaiting_payment',originalSessions:sessions,proposedSessions:sessions.map(s=>({...s,startsAt:s.startsAt.replace('10-10','10-11'),endsAt:s.endsAt.replace('10-10','10-11')})),totalAmount:850,deadlineAt:'2026-10-09T12:15:00+08:00'};
+test('group extra-payment preview shows separate courts and old/new schedules without flattening',()=>{const html=context.balanceScheduleSummaryHtml(balance);assert.match(html,/Requested schedules/);assert.match(html,/Original schedules — kept until confirmation/);assert.equal((html.match(/<li>/g)||[]).length,4);assert.match(html,/Court 1/);assert.match(html,/Court 2/);assert.match(html,/10:00 AM-12:00 PM/);assert.match(html,/5:00 PM-6:00 PM/);});
+test('expired or cancelled move shows originals as active and targets as not applied',()=>{for(const status of ['expired','cancelled']){const html=context.balanceScheduleSummaryHtml({...balance,status});assert.match(html,/Original schedules kept/);assert.match(html,/Requested move — not applied/);assert.doesNotMatch(html,/Confirmed schedules|New booking total|deadline/);}});
+test('settled move shows final schedules without expired payment deadline',()=>{const html=context.balanceScheduleSummaryHtml({...balance,status:'settled'});assert.match(html,/Confirmed schedules/);assert.match(html,/Previous schedules/);assert.doesNotMatch(html,/deadline|kept until confirmation/);});
+test('court labels are escaped in group payment summary',()=>{const html=context.balanceScheduleSummaryHtml({...balance,proposedSessions:[{...sessions[0],courtName:'<img src=x onerror=alert(1)>'}]});assert.doesNotMatch(html,/<img/);assert.match(html,/&lt;img/);});
+test('single-court additional-payment summary remains supported',()=>{const html=context.balanceScheduleSummaryHtml({...sessions[0],requestType:'reschedule_adjustment',totalAmount:350});assert.match(html,/Court 1/);assert.match(html,/Requested new schedule/);assert.doesNotMatch(html,/balance-session-list/);});

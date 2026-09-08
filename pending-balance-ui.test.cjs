@@ -42,6 +42,7 @@ function balanceViewHarness(statusRequest) {
     balanceStatusCopy:()=>['pending','Payment status'],balanceCanSubmitReceipt:b=>b.canSubmit===true,automaticBalanceReceiptFlow:()=>true,
     balancePaymentMethods:()=>[],esc:v=>String(v??'').replaceAll('<','&lt;'),fmt:n=>`PHP ${n}`,balanceScheduleLabel:()=> 'Fixture schedule',balanceDeadlineLabel:()=> 'Fixture deadline',updateBalancePaymentMethod(){}};
   vm.createContext(c);
+  vm.runInContext(extract('index.html','function balanceScheduleSummaryHtml(balance) {','function automaticBalanceReceiptFlow() {'),c);
   vm.runInContext(extract('index.html','function renderBalancePayment(balance) {','let _balanceReceiptSaving = false;'),c);
   vm.runInContext(extract('index.html','async function openBalancePaymentFromLink() {','function closeBalancePayment() {'),c);
   return {c,elements};

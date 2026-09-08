@@ -358,6 +358,8 @@ function _pbPlatformRescheduleEventToLegacy(event) {
     oldEndsAt: row.oldEndsAt || row.old_ends_at || '',
     newStartsAt: row.newStartsAt || row.new_starts_at || '',
     newEndsAt: row.newEndsAt || row.new_ends_at || '',
+    beforeSessions: Array.isArray(row.beforeSessions) ? row.beforeSessions : Array.isArray(row.before_sessions) ? row.before_sessions : [],
+    sessions: Array.isArray(row.sessions) ? row.sessions : Array.isArray(row.after_sessions) ? row.after_sessions : [],
     rescheduledAt: row.rescheduledAt || row.rescheduled_at || row.createdAt || row.created_at || '',
     rescheduledBy: row.rescheduledBy || row.rescheduled_by || row.actorName || row.actor_name || row.actorEmail || row.actor_email || '',
     notifyCustomer: row.notifyCustomer ?? row.notify_customer ?? false,
@@ -880,6 +882,22 @@ async function _pbPlatformBookingResponseToLegacy(row) {
     new Map(courts.map(court => [String(court.id), court])),
     bootstrap?.tenant?.timezone || 'Asia/Manila',
   );
+}
+
+function _pbFilterCompletePicklestreetManagerBookings(bookings, filters) {
+  if (!filters.date && !filters.courtId) return bookings;
+  if (bookings.length >= 500) {
+    throw new Error('This filtered booking view cannot be verified completely because the protected booking list reached its 500-record limit. No partial results are shown.');
+  }
+  return bookings.filter(booking => {
+    const sessions = Array.isArray(booking.sessions) && booking.sessions.length ? booking.sessions : [booking];
+    return sessions.some(session => {
+      let date = String(session.bookingDate || session.date || '');
+      const start = Date.parse(String(session.startsAt || session.starts_at || ''));
+      if (Number.isFinite(start)) date = new Intl.DateTimeFormat('en-CA', { timeZone:'Asia/Manila', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date(start));
+      return (!filters.date || date === String(filters.date)) && (!filters.courtId || String(session.courtId || session.court_id || '') === String(filters.courtId));
+    });
+  });
 }
 
 function _pbPlatformBookingToLegacy(row, courtMap, timeZone) {
@@ -2220,14 +2238,17 @@ window.DB = {
             .filter(row => !opts.courtId || String(row.courtId) === String(opts.courtId));
         }
 
+        // The shared manager endpoint filters by a booking's original anchor.
+        // Pickle Street groups can have sessions on different dates and courts.
+        const filterActualSessions = PB_TENANT_SLUG === 'pickle-street-tugbok' && Boolean(opts.date || opts.courtId);
         const request = _invokeEdgeFunction(
           `tenant-manager-data?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
           {
             action: 'list-bookings',
             tenantSlug: PB_TENANT_SLUG,
             filters: {
-              ...(opts.date ? { date: opts.date } : {}),
-              ...(opts.courtId ? { courtId: String(opts.courtId) } : {}),
+              ...(!filterActualSessions && opts.date ? { date: opts.date } : {}),
+              ...(!filterActualSessions && opts.courtId ? { courtId: String(opts.courtId) } : {}),
               activeOnly: opts.activeOnly === true,
               archiveState: 'active',
               limit: 500,
@@ -2244,11 +2265,12 @@ window.DB = {
           throw new Error('The tenant booking list could not be loaded.');
         }
         const courtMap = new Map(courts.map(court => [String(court.id), court]));
-        return result.bookings.map(row => _pbPlatformBookingToLegacy(
+        const bookings = result.bookings.map(row => _pbPlatformBookingToLegacy(
           row,
           courtMap,
           bootstrap?.tenant?.timezone || 'Asia/Manila'
         ));
+        return filterActualSessions ? _pbFilterCompletePicklestreetManagerBookings(bookings, opts) : bookings;
       });
     }
     return _pbCached('bookings', opts, PB_FAST_CACHE_MS.bookings, async () => {
@@ -2730,6 +2752,45 @@ window.DB = {
     if (!incident) throw new Error('The payout confirmation returned an invalid response.');
     _pbClearFastCache(['bookings']);
     return incident;
+  },
+
+  async _groupReschedule(action, ref, payload = {}) {
+    if (!PB_PLATFORM_V1 || PB_TENANT_SLUG !== 'pickle-street-tugbok') {
+      throw new Error('Multi-court rescheduling is unavailable for this venue.');
+    }
+    const result = await _invokeEdgeFunction(
+      `picklestreet-reschedule?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      { ...payload, action, tenantSlug: PB_TENANT_SLUG, bookingReference: String(ref || '').trim().toUpperCase() },
+      { preferDirect: true },
+    );
+    if (!result?.ok) {
+      const error = new Error(result?.message || result?.error || 'The schedule change could not be completed.');
+      error.code = result?.code || result?.errorCode;
+      throw error;
+    }
+    if (['reschedule', 'resend'].includes(action)) _pbClearFastCache(['bookings', 'platformAvailability']);
+    return { ...result, ...(result.booking ? { booking: await _pbPlatformBookingResponseToLegacy(result.booking) } : {}) };
+  },
+
+  async groupRescheduleContext(ref) {
+    return this._groupReschedule('context', ref);
+  },
+
+  async groupRescheduleOptions(ref, { sessionId, bookingDate, expectedVersion } = {}) {
+    return this._groupReschedule('options', ref, { sessionId, bookingDate, expectedVersion });
+  },
+
+  async previewGroupReschedule(ref, { changes, expectedVersion, reasonCode } = {}) {
+    return this._groupReschedule('preview', ref, { changes, expectedVersion, reasonCode });
+  },
+
+  async rescheduleGroupBooking(ref, change = {}) {
+    const { changes, expectedVersion, expectedQuoteHash, reasonCode, publicReason, internalNote, notifyCustomer, idempotencyKey } = change;
+    return this._groupReschedule('reschedule', ref, { changes, expectedVersion, expectedQuoteHash, reasonCode, publicReason, internalNote, notifyCustomer: notifyCustomer === true, idempotencyKey });
+  },
+
+  async resendGroupRescheduleEmail(ref, eventId) {
+    return this._groupReschedule('resend', ref, { eventId });
   },
 
   async previewBookingReschedule(ref, bookingDate) {
