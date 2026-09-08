@@ -1,0 +1,173 @@
+{
+  "checkedAt": "2026-09-08T06:27:48.051Z",
+  "migrationHash": "29d506bb3efeda2743cf71df91c1230fe424e6166446d3c7c1e6b145ba221b1e",
+  "rolledBack": true,
+  "results": {
+    "provisional-hold-rollback-tests.sql": [
+      {
+        "name": "Another request cannot occupy the same court slot",
+        "passed": true
+      },
+      {
+        "name": "Capability is bound to booking and actual tenant hostname",
+        "passed": true
+      },
+      {
+        "name": "Completion promotes same capability, stores policy audit once, preserves expiry/key/price and retries safely",
+        "passed": true
+      },
+      {
+        "name": "Completion requires valid customer details and authentic current policy",
+        "passed": true
+      },
+      {
+        "name": "Current event-disabled policy is enforced by unchanged booking core wrapper",
+        "passed": true
+      },
+      {
+        "name": "Every pre-existing public function and other-tenant row fingerprint remains unchanged",
+        "passed": true
+      },
+      {
+        "name": "Existing authorized staff cancellation retains cancellation metadata and releases slots",
+        "passed": true
+      },
+      {
+        "name": "Existing receipt upload claim works after completion and remains unpaid",
+        "passed": true
+      },
+      {
+        "name": "Expired holds cannot complete/restart and shared expiry still records its normal audit metadata",
+        "passed": true
+      },
+      {
+        "name": "Expired rotated or deleted normal access blocks completed status and both retry paths without disclosure",
+        "passed": true
+      },
+      {
+        "name": "Lost create response reuses selection-only key and original price/deadline",
+        "passed": true
+      },
+      {
+        "name": "New capabilities and mutations are service-only; no anonymous/authenticated grants",
+        "passed": true
+      },
+      {
+        "name": "One authoritative15-minute hold exists before customer details; no normal token or policy evidence",
+        "passed": true
+      },
+      {
+        "name": "Pre-details cancellation releases own slots and retries without new hold",
+        "passed": true
+      },
+      {
+        "name": "Private hashed-IP limiter caps new holds while idempotent retries stay reusable",
+        "passed": true
+      },
+      {
+        "name": "Provisional tenant/selection/price/deadline are protected against direct mutation",
+        "passed": true
+      },
+      {
+        "name": "Receipt/payment creation and direct confirmation are blocked while provisional",
+        "passed": true
+      },
+      {
+        "name": "Same request key rejects a changed selection",
+        "passed": true
+      }
+    ],
+    "manual-review-rollback-tests.sql": [
+      {
+        "checks": [
+          {
+            "name": "Actor, tenant lookup and service role enforced",
+            "passed": true
+          },
+          {
+            "name": "Completed paid booking cannot move and survives adjustment rejection",
+            "passed": true
+          },
+          {
+            "name": "Expired original reservation safely reclaimed",
+            "passed": true
+          },
+          {
+            "name": "Expired reschedule adjustment confirmed atomically with staff audit",
+            "passed": true
+          },
+          {
+            "name": "Expired short-payment balance confirms while preserving accepted first payment",
+            "passed": true
+          },
+          {
+            "name": "Initial and balance automatic approvals continue with automatic status",
+            "passed": true
+          },
+          {
+            "name": "Initial rejection records reason and releases reservation",
+            "passed": true
+          },
+          {
+            "name": "Late OCR fenced after explicit approval",
+            "passed": true
+          },
+          {
+            "name": "Occupied original court rolls back confirmation without partial payment",
+            "passed": true
+          },
+          {
+            "name": "Occupied proposed time keeps original booking and pending proof",
+            "passed": true
+          },
+          {
+            "name": "Old paths and fabricated transaction marker denied",
+            "passed": true
+          },
+          {
+            "name": "Released underway initial booking remains pending",
+            "passed": true
+          },
+          {
+            "name": "Replacement upload invalidates stale displayed approval",
+            "passed": true
+          },
+          {
+            "name": "Reschedule rejection closes only adjustment and fences late OCR",
+            "passed": true
+          },
+          {
+            "name": "Service-only RPC and protected audit writer",
+            "passed": true
+          },
+          {
+            "name": "Short-payment rejection releases reservation and preserves accepted first payment",
+            "passed": true
+          },
+          {
+            "name": "Staff confirmation, final audit immutability and idempotency",
+            "passed": true
+          },
+          {
+            "name": "Underway initial confirmation respects shared before-play policy",
+            "passed": true
+          }
+        ]
+      }
+    ],
+    "group": [
+      {
+        "name": "Automatic verification: one receipt covers aggregate total and confirms every session",
+        "passed": true
+      },
+      {
+        "name": "Expired grouped hold restores all free sessions atomically on manual confirmation",
+        "passed": true
+      },
+      {
+        "name": "Manual confirmation: one payer/reference/payment, all court sessions confirmed",
+        "passed": true
+      }
+    ]
+  }
+}

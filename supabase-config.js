@@ -1006,6 +1006,16 @@ function _pbPlatformBookingToLegacy(row, courtMap, timeZone) {
   const platformBookingFeeAmount = Number(
     row.service_fee_amount ?? row.serviceFeeAmount ?? row.serviceFee ?? 0,
   );
+  const sessions=(Array.isArray(row.sessions)?row.sessions:Array.isArray(metadata.sessions)?metadata.sessions:[]).map(session=>{
+    const id=session.courtId||session.court_id;
+    const start=Number(String(session.startTime||'').split(':')[0]);
+    const duration=Number(session.durationHours||session.duration||0);
+    const hours=Array.from({length:duration},(_,i)=>start+i);
+    return {...session,courtId:id,courtName:session.courtName||courtMap.get(String(id))?.name||'Court',date:session.bookingDate||session.date,slots:hours,duration,timeLabel:_bookingSlotsTimeLabel(hours)};
+  });
+  const grouped=sessions.length>1;
+  const combinedTime=sessions.map(session=>session.courtName+': '+session.timeLabel).join('; ');
+
   return {
     id: row.id,
     ref: row.reference || row.ref || row.bookingReference,
@@ -1014,14 +1024,17 @@ function _pbPlatformBookingToLegacy(row, courtMap, timeZone) {
     contactNumber: row.customer_phone || row.customerPhone || row.contactNumber,
     email: row.customer_email || row.customerEmail || row.email,
     courtId,
-    courtName: court?.name || row.courtName || row.court_name || 'Court',
+    courtName: grouped ? [...new Set(sessions.map(session=>session.courtName))].join(', ') : court?.name || row.courtName || row.court_name || 'Court',
+    sessions,
+    atomicMultiSessionBookingV1: metadata.atomicMultiSessionBookingV1 === true || grouped,
+    scheduleLabel: grouped ? combinedTime : _bookingSlotsTimeLabel(slots),
     date: row.local_booking_date || row.localBookingDate || String(startsAt || '').slice(0, 10),
     slots,
     startTime: slots.length ? _fmtBookingHour(slots[0]) : '',
     endTime: slots.length ? _fmtBookingHour(slots[slots.length - 1] + 1) : '',
-    timeLabel: _bookingSlotsTimeLabel(slots),
-    duration,
-    rate: subtotalAmount / duration,
+    timeLabel: grouped ? combinedTime : _bookingSlotsTimeLabel(slots),
+    duration: grouped ? sessions.reduce((sum,session)=>sum+session.duration,0) : duration,
+    rate: subtotalAmount / (grouped ? sessions.reduce((sum,session)=>sum+session.duration,0) : duration),
     total: Number(row.total_amount ?? row.totalAmount ?? row.total ?? 0),
     courtFee: subtotalAmount,
     courtRentalAmount,
@@ -3784,10 +3797,15 @@ window.DB = {
     if (!slots.length || slots.some((hour,index)=>!Number.isInteger(hour) || (index>0 && hour!==slots[index-1]+1))) throw new Error('Booking hours must be consecutive.');
     const clientRequestId = String(booking?.clientRequestId || '').trim().toLowerCase();
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(clientRequestId)) throw new Error('A secure request could not be created. Please refresh.');
+    const sessions=Array.isArray(booking.sessions)&&booking.sessions.length>1?booking.sessions.map(session=>{
+      const hours=[...new Set((session.slots||[]).map(Number))].sort((a,b)=>a-b);
+      if(!hours.length||hours.some((hour,index)=>!Number.isInteger(hour)||(index>0&&hour!==hours[index-1]+1)))throw new Error('Each court block must have consecutive hours.');
+      return {courtId:String(session.courtId),bookingDate:String(session.date),startTime:String(hours[0]).padStart(2,'0')+':00',durationHours:hours.length,bookingType:'regular'};
+    }):null;
     const result = await _invokeEdgeFunction(`picklestreet-booking-hold?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`, {
       action:'create',tenantSlug:PB_TENANT_SLUG,courtId:String(booking.courtId),bookingDate:String(booking.date),
       startTime:`${String(slots[0]).padStart(2,'0')}:00`,durationHours:slots.length,
-      bookingType:booking.bookingType==='event'?'event':'regular',clientRequestId,
+      bookingType:booking.bookingType==='event'?'event':'regular',clientRequestId,...(sessions?{sessions}:{}),
     }, {preferDirect:true});
     if (!result?.ok || !result.booking?.reference || !result.booking?.bookingToken) throw new Error('The court hold did not return secure access.');
     _pbClearFastCache(['bookings','platformAvailability']);
@@ -4218,7 +4236,7 @@ window.DB = {
     if (!booking?.email) return { ok: false, skipped: true, reason: 'No customer email' };
     if (PB_PLATFORM_V1) {
       return _invokeEdgeFunction(
-        `send-booking-email?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+        `${PB_TENANT_SLUG === 'pickle-street-tugbok' ? 'picklestreet-booking-email' : 'send-booking-email'}?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
         {
           tenantSlug: PB_TENANT_SLUG,
           bookingReference: booking.primaryRef || booking.ref,

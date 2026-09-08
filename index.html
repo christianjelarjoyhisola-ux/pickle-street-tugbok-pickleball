@@ -4717,6 +4717,7 @@ function platformCanonicalDraft(draft = {}) {
   const slots = [...new Set((draft.slots || []).map(Number).filter(Number.isInteger))].sort((a, b) => a - b);
   return JSON.stringify({
     tenant: String(window.PB_TENANT_SLUG || '').trim().toLowerCase(),
+    ...(Array.isArray(draft.sessions)?{sessions:draft.sessions.map(session=>({courtId:String(session.courtId).toLowerCase(),date:session.date,slots:[...session.slots].sort((a,b)=>a-b)})).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)))}:{}),
     courtId: String(draft.courtId || '').trim().toLowerCase(),
     date: String(draft.date || '').trim(),
     slots,
@@ -4806,7 +4807,7 @@ function platformRecoveryFragmentRecord(access) {
   return {version:1,tenantSlug:window.PB_TENANT_SLUG,reference:access?.reference,bookingToken:access?.bookingToken,
     expiresAt:access?.expiresAt||booking.expiresAt||null,accessExpiresAt:access?.accessExpiresAt||null,preliminaryHold,
     draft:{courtId:draft.courtId||null,courtName:draft.courtName||booking.courtName||null,date:draft.date||null,
-      slots:Array.isArray(draft.slots)?draft.slots:[],bookingType:draft.bookingType||booking.bookingType||'regular',
+      slots:Array.isArray(draft.slots)?draft.slots:[],...(Array.isArray(draft.sessions)?{sessions:draft.sessions.map(({courtId,courtName,date,slots,courtFee,serviceFee,total})=>({courtId,courtName,date,slots,courtFee,serviceFee,total}))}:{}),bookingType:draft.bookingType||booking.bookingType||'regular',
       courtFee:Number(draft.courtFee||booking.subtotalAmount||0),serviceFee:Number(draft.serviceFee||booking.serviceFeeAmount||0),
       total:Number(draft.total||booking.totalAmount||0)},
     // Deliberately no customer PII or unverified policy acceptance in a shareable URL.
@@ -6288,6 +6289,10 @@ function selectionSummaryText(sel, includeFee = true) {
   const amount = includeFee ? selectionTotal(sel) : selectionCourtFee(sel);
   const splitNote = slotsAreConsecutive(sel.slots) ? '' : ' separate';
   return `${fmtDc(sel.date)} | ${slotsCompactTimeLabel(sel.slots)} | ${hrs}${splitNote} hr${hrs > 1 ? 's' : ''} | ${fmt(amount)}`;
+}
+
+function splitRegularBookingSelections(selections) {
+ return selections.flatMap(sel=>slotGroups([...new Set(sel.slots)]).map(g=>({...sel,slots:Array.from({length:g.end-g.start},(_,i)=>g.start+i)})));
 }
 
 function makeBookingItemFromSelection(sel, ref = null, groupRef = null) {
@@ -7800,18 +7805,6 @@ async function toggleCardSlot(courtId, date, h) {
       return;
     }
   }
-  if (!isEventBooking() && s.length > 0) {
-    const first = Math.min(...s);
-    const last = Math.max(...s);
-    if (i === -1 && h !== first - 1 && h !== last + 1) {
-      toast('Regular booking hours must stay together. Select the hour beside your current block.', 'inf');
-      return;
-    }
-    if (i !== -1 && s.length > 1 && h !== first && h !== last) {
-      toast('Remove an hour from the start or end so the booking remains consecutive.', 'inf');
-      return;
-    }
-  }
   if (i === -1) {
     s.push(h);
     s.sort((a,b) => a-b);
@@ -7863,8 +7856,8 @@ function updateCardUI(courtId) {
   const selections = cardSelectionList();
   if (mobileBar) {
     if (selections.length > 0) {
-      const total = selections.reduce((sum, item) => sum + selectionTotal(item), 0);
       const hrs = selections.reduce((sum, item) => sum + item.slots.length, 0);
+      const total = selections.reduce((sum, item) => sum + selectionCourtFee(item), 0) + calcSvcFee(hrs);
       if (mobileSumEl) mobileSumEl.textContent = `${hrs} hr${hrs !== 1 ? 's' : ''} · ${fmt(total)}`;
       if (mobileSumEl && selections.length === 1) mobileSumEl.textContent = selectionSummaryText(selections[0]);
       if (mobileCtEl) mobileCtEl.textContent = selections.length === 1 ? selections[0].courtName : `${selections.length} courts selected`;
@@ -7875,8 +7868,13 @@ function updateCardUI(courtId) {
         const requiredHours = isEventBooking()
           ? eventRulesForCourt(selectedCourt).minimumHours
           : regularRulesForCourt(selectedCourt).minimumHours;
-        const needsHours = selections.length !== 1 || !Number.isInteger(requiredHours) || requiredHours < 1 ||
-          hrs < requiredHours || !slotsAreConsecutive(selections[0]?.slots || []);
+        const needsHours = isEventBooking()
+          ? selections.length !== 1 || !Number.isInteger(requiredHours) || requiredHours < 1 || hrs < requiredHours || !slotsAreConsecutive(selections[0]?.slots || [])
+          : hrs > 18 || selections.some(sel => {
+              const candidate = _configuredBookingCourts.find(c => String(c.id) === String(sel.courtId));
+              const rules = regularRulesForCourt(candidate);
+              return !rules.configured || slotGroups(sel.slots).some(group => group.end - group.start < rules.minimumHours);
+            });
         mobileBtn.disabled = needsHours;
         mobileBtn.textContent = needsHours && requiredHours > 0
           ? `${hrs}/${requiredHours} required hours`
@@ -8331,8 +8329,10 @@ async function proceedToBookSelection(courtId = null) {
 
   const courts = await DB.getCourts();
   const selectedCourt = courts.find(candidate => String(candidate.id) === String(selections[0].courtId));
-  if (!selectedCourt || !courtOperatingWindow(selectedCourt).configured || !bookingPolicyForCourt(selectedCourt).configured ||
-      selections[0].slots.some(hour => !courtBookingHourAllowed(selectedCourt, selectedDate, hour))) {
+  if (selections.some(sel => {
+ const candidate=courts.find(c=>String(c.id)===String(sel.courtId));
+ return !candidate || !courtOperatingWindow(candidate).configured || !bookingPolicyForCourt(candidate).configured || sel.slots.some(hour=>!courtBookingHourAllowed(candidate,selectedDate,hour));
+ })) {
     toast('The selected court hours are outside the configured booking window.', 'err');
     clearCardSelection();
     await renderCourts();
@@ -8346,14 +8346,13 @@ async function proceedToBookSelection(courtId = null) {
       toast(`Event bookings require at least ${eventMinimumHours || 'the configured number of'} consecutive hours on one event-enabled court.`, 'err');
       return;
     }
-  } else if (window.PB_PLATFORM_V1 && (selections.length !== 1 || !slotsAreConsecutive(selections[0].slots))) {
-    toast('Select one consecutive block of regular court hours.', 'err');
-    return;
   } else if (window.PB_PLATFORM_V1) {
-    const regular = regularRulesForCourt(selectedCourt);
-    if (!regular.configured || selections[0].slots.length < regular.minimumHours) {
-      toast(`Regular bookings require at least ${regular.minimumHours || 'the configured number of'} consecutive hours on this court.`, 'err');
-      return;
+    if (selections.reduce((sum,sel)=>sum+sel.slots.length,0)>18) {toast('Select at most 18 court hours in one booking.','err');return;}
+    for(const sel of selections){
+      const regular=regularRulesForCourt(courts.find(c=>String(c.id)===String(sel.courtId)));
+      if(!regular.configured || slotGroups(sel.slots).some(g=>g.end-g.start<regular.minimumHours)) {
+        toast(sel.courtName+': each block requires at least '+(regular.minimumHours||'the configured number of')+' consecutive hours.','err');return;
+      }
     }
   }
 
@@ -8367,7 +8366,7 @@ async function proceedToBookSelection(courtId = null) {
     return;
   }
 
-  const bookingSelections = uniqueBookingSelections(selections);
+  const bookingSelections = uniqueBookingSelections(window.PB_PLATFORM_V1 && !isEventBooking() ? splitRegularBookingSelections(selections) : selections);
 
   const primary = courtId
     ? selections.find(sel => String(sel.courtId) === String(courtId)) || selections[0]
@@ -10208,7 +10207,10 @@ async function submitPlatformBooking() {
       fullName: $('bName').value.trim(),
       contactNumber: $('bPhone').value.trim(),
       email: $('bEmail').value.trim(),
-      courtName: server.courtName || item.courtName,
+      courtName: activeBookingItems().length > 1 ? bookingItemsCourtLabel() : server.courtName || item.courtName,
+      timeLabel: activeBookingItems().length > 1 ? bookingItemsTimeLabel() : item.timeLabel,
+      duration: activeBookingItems().length > 1 ? bookingItemsDuration() : item.duration,
+      bookingItems: activeBookingItems().map(session=>({...session})),
       bookingType: server.bookingType || item.bookingType || bookingMode,
       total: Number(server.totalAmount || item.total || 0),
       downpayment: Number(server.totalAmount || item.total || 0),
@@ -11003,12 +11005,27 @@ function platformBookingItemFromSaved(draft, booking = {}) {
   };
 }
 
+function platformBookingItemsFromSaved(draft,booking={}) {
+ const sessions=Array.isArray(booking.sessions)&&booking.sessions.length?booking.sessions:draft?.sessions;
+ if(!Array.isArray(sessions)||!sessions.length)return [platformBookingItemFromSaved(draft,booking)];
+ return sessions.map((session,index)=>{
+  const local=draft?.sessions?.find(item=>String(item.courtId)===String(session.courtId)&&(item.date||item.bookingDate)===(session.bookingDate||session.date)&&item.slots?.[0]===Number(String(session.startTime||'').split(':')[0]))||draft?.sessions?.[index]||{};
+  const start=Number(String(session.startTime||'').split(':')[0]);
+  const slots=session.slots||Array.from({length:Number(session.durationHours||0)},(_,n)=>start+n);
+  const subtotal=Number(session.subtotalAmount??session.courtFee??local.courtFee??0);
+  // Allocate the parent booking fee once; never multiply it by session count.
+  const fee=index===0?Number(booking.serviceFeeAmount??session.serviceFee??0):0;
+  return platformBookingItemFromSaved({...local,...session,date:session.bookingDate||session.date||local.date,slots},{reference:booking.reference,courtName:session.courtName||local.courtName,bookingType:'regular',subtotalAmount:subtotal,serviceFeeAmount:fee,totalAmount:subtotal+fee});
+ });
+}
+
 function removePlatformRecoveryPrompt() {
   $('platformRecoveryPrompt')?.remove();
 }
 
 function platformRecoverySchedule(saved = {}, booking = {}) {
   const draft = saved.draft || {};
+  if(draft.sessions?.length||booking.sessions?.length)return platformBookingItemsFromSaved(draft,booking).map(item=>item.courtName+' · '+fmtD(item.date)+' · '+item.timeLabel).join('; ');
   const date = draft.date || String(booking.startsAt || '').slice(0, 10);
   const slots = Array.isArray(draft.slots) ? draft.slots : [];
   const dateLabel = date ? fmtD(date) : 'your selected date';
@@ -11122,8 +11139,8 @@ async function restorePlatformDraftUi(saved, { openModal = true, held = false } 
   const serverBooking = saved?.booking || {};
   bookingMode = (serverBooking.bookingType || draft.bookingType) === 'event' ? 'event' : 'regular';
   syncBookingModeUi();
-  const item = platformBookingItemFromSaved(draft, serverBooking);
-  bookingItems = [item];
+  bookingItems = platformBookingItemsFromSaved(draft, serverBooking);
+  const item = bookingItems[0];
   selSlots = [...item.slots];
   const courts = await DB.getCourts();
   court = courts.find(candidate => String(candidate.id) === String(item.courtId)) || {
@@ -11808,9 +11825,9 @@ async function createPlatformBookingHold() {
   if (_platformBookingAccess?.bookingToken) throw new Error('This hold has ended. Select a new court time.');
   const pending = (async()=>{
     const items = uniqueBookingSelections(activeBookingItems());
-    if (items.length!==1 || !slotsAreConsecutive(items[0]?.slots || [])) throw new Error('Select one consecutive court block.');
+    if (!items.length || items.some(item=>!item.slots?.length || !slotsAreConsecutive(item.slots)) || (isEventBooking() && items.length!==1)) throw new Error('Select valid court time blocks.');
     const item = items[0];
-    const draft = { courtId:item.courtId,date:item.date,slots:[...item.slots],bookingType:isEventBooking()?'event':'regular' };
+    const draft = { ...item,courtId:item.courtId,date:item.date,slots:[...item.slots],bookingType:isEventBooking()?'event':'regular',...(items.length>1?{sessions:items.map(session=>({...session,slots:[...session.slots]}))}:{}) };
     const firstHoldAttempt = !readPlatformPendingDraft();
     const identity = await platformHoldRequestIdentity(draft);
     draft.clientRequestId = identity.clientRequestId;
@@ -11820,9 +11837,8 @@ async function createPlatformBookingHold() {
     {
       const server = await DB.createPublicBookingHold(draft);
       if (!server?.reference || !server?.bookingToken) throw new Error('The hold service did not return secure access. Retry the saved request.');
-      const savedItem = {...item,ref:server.reference,bookingType:draft.bookingType,courtName:server.courtName||item.courtName,
-        courtFee:Number(server.subtotalAmount||0),serviceFee:Number(server.serviceFeeAmount||0),total:Number(server.totalAmount||0)};
-      bookingItems=[savedItem];selSlots=[...savedItem.slots];payFull=server.fullPaymentOnly===true;
+      const savedItems=platformBookingItemsFromSaved(draft,server),savedItem=savedItems[0];
+      bookingItems=savedItems;selSlots=[...savedItem.slots];payFull=server.fullPaymentOnly===true;
       _platformBookingAccess={reference:server.reference,bookingToken:server.bookingToken,expiresAt:server.expiresAt,
         accessExpiresAt:server.accessExpiresAt,preliminaryHold:server.detailsCompleted!==true,booking:server,draft:{...savedItem,...draft},form,
         fingerprint:identity.fingerprint,clientRequestId:identity.clientRequestId};
@@ -11857,6 +11873,7 @@ let _proceedToBookPromise=null;
 function platformCanonicalHold(draft = {}) {
   return JSON.stringify({
     tenant: String(window.PB_TENANT_SLUG || '').trim().toLowerCase(),
+    ...(Array.isArray(draft.sessions)?{sessions:draft.sessions.map(session=>({courtId:String(session.courtId).toLowerCase(),date:session.date,slots:[...session.slots].sort((a,b)=>a-b)})).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)))}:{}),
     courtId: String(draft.courtId || '').trim().toLowerCase(),
     date: String(draft.date || '').trim(),
     slots: [...new Set((draft.slots || []).map(Number).filter(Number.isInteger))].sort((a,b)=>a-b),
@@ -12413,7 +12430,7 @@ async function expireStaleVerifyingBookings() {
 </script>
 <script src="supabase.min.js"></script>
 <script src="tenant-config.js?v=20260908-no-captcha"></script>
-<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260908-no-captcha"></script><script src="receipt-pending.js?v=20260908-routes2"></script>
+<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260908-group-booking"></script><script src="receipt-pending.js?v=20260908-routes2"></script>
 <script src="open-play-data.js?v=20260801-openplay-fee-settings"></script>
 <script src="open-play-public.js?v=20260801-openplay-fee-settings"></script>
 

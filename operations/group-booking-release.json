@@ -1,0 +1,50 @@
+{
+  "releasedAt": "2026-09-08T06:31:13.4780871Z",
+  "deployment": "https://05360cba.picklestreet.pages.dev",
+  "behavior": "Multiple courts and separate time blocks on one date share one person, booking reference, payment, receipt and 15-minute deadline. Fixed booking fee charged once. All-or-nothing holds and all-slot payment confirmation.",
+  "frontendTests": 189,
+  "edgeHoldTests": 45,
+  "browser": {
+    "passed": 26,
+    "cases": [
+      "regular click→hold→Details→method→policy→completion 320",
+      "regular click→hold→Details→method→policy→completion 607",
+      "slow server: no loading screen, then timer → Details 320",
+      "slow server: no loading screen, then timer → Details 607",
+      "Book Now reopening an existing hold shows remaining-time intro first",
+      "lost create explicit retry",
+      "lost create reopen retry",
+      "preliminary recovery remains Details and keeps expiry",
+      "preliminary cancel uses correct route",
+      "lost completion reconciles then reaccepts without duplicate completion",
+      "normal completed hold policy reaccept never invokes preliminary complete",
+      "changed policy submit returns method without automatic popup",
+      "event details collected only on completion",
+      "Escape cannot dismiss pending completion",
+      "inactive future/deadline response {\"status\":\"cancelled\"}",
+      "inactive future/deadline response {\"status\":\"expired\"}",
+      "inactive future/deadline response {\"reservationHeld\":false}",
+      "inactive future/deadline response {\"expiresAt\":\"2026-09-08T06:24:15.601Z\"}",
+      "server receipt POLICY_CHANGED returns Method without popup",
+      "hold expiry closes open policy and wizard",
+      "checkout card for five seconds, then timer animated into banner 320",
+      "checkout card for five seconds, then timer animated into banner 607",
+      "new hold opens at 15:00 then follows unchanged server deadline",
+      "delayed or old hold never gains a new fifteen minutes",
+      "three court blocks keep one reference, one fee, one completion and recover all sessions",
+      "reduced motion restores timer without movement"
+    ]
+  },
+  "liveBrowser": {
+    "twoCourtsSelectable": true,
+    "bookNowEnabled": true,
+    "singleRequestWithTwoSessions": true,
+    "noLiveReservationCreated": true,
+    "errors": []
+  },
+  "liveGroupEndpointValidated": true,
+  "liveTestBookingsCreated": 0,
+  "limits": "Regular bookings on one date, maximum18 court-hours. Group rescheduling is explicitly unavailable; single-court rescheduling remains available.",
+  "tenantScope": "Pickle Street Tugbok only; existing shared functions unchanged",
+  "pricingChanged": false
+}

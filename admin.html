@@ -5493,7 +5493,19 @@ function bookingDetailsButton(b){
   const actionRef = b.primaryRef || b.ref;
   return `<button class="btn btn-sm" style="background:rgba(200,160,96,.15);color:var(--yellow);border:1px solid rgba(200,160,96,.35);font-weight:700" onclick="openBookingDetails('${jsArg(actionRef)}')">Details</button>`;
 }
+function bookingCourtSessions(b) {
+  const sessions = Array.isArray(b?.sessions) ? b.sessions : b?.metadata?.sessions;
+  return Array.isArray(sessions) ? sessions : [];
+}
+function isMultiSessionBooking(b) {
+  return bookingCourtSessions(b).length > 1 || b?.atomicMultiSessionBookingV1 === true || b?.metadata?.atomicMultiSessionBookingV1 === true;
+}
+function multiSessionRescheduleNotice(b) {
+  return isMultiSessionBooking(b) && ['confirmed','pending','payment_review'].includes(String(b?.status || '').toLowerCase())
+    ? '<button class="btn btn-g btn-sm" disabled title="Rescheduling a booking with multiple court sessions is not yet available.">Reschedule unavailable</button>' : '';
+}
 function canRescheduleBooking(b) {
+  if (isMultiSessionBooking(b)) return false;
   if (!b || b.archivedAt || (Array.isArray(b.items) && b.items.length > 1)) return false;
   if (b.playerRainClaim) return false;
   if (weatherRefundIncidents(b).length) return false;
@@ -5527,6 +5539,7 @@ function bookingActionsHtml(b, canDelete){
     return `${bookingDetailsButton(b)}
       ${canReview ? `<button class="btn btn-p btn-sm" onclick="openVerifyModal('${jsArg(actionRef)}',{reviewAction:'approve'})">Confirm</button><button class="btn btn-d btn-sm" onclick="openVerifyModal('${jsArg(actionRef)}',{reviewAction:'reject'})">Reject</button>` : ''}
       ${weatherRefundActionButton(b)}
+      ${multiSessionRescheduleNotice(b)}
       ${canRescheduleBooking(b) ? `<button class="btn btn-sm" style="background:rgba(74,154,220,.12);color:#3f7fb7;border:1px solid rgba(74,154,220,.3);font-weight:700" onclick="openRescheduleModal('${jsArg(actionRef)}')">Reschedule</button>` : ''}
       ${b.status==='confirmed' && b.email ? `<button class="btn btn-sm" style="background:rgba(var(--green-rgb),.12);color:var(--green);border:1px solid rgba(var(--green-rgb),.3)" onclick="resendConfirmationEmail('${jsArg(actionRef)}')">Resend Email</button>` : ''}
       ${canRestoreCancelledBooking(b) ? `<button class="btn btn-sm" style="background:rgba(var(--green-rgb),.12);color:var(--green);border:1px solid rgba(var(--green-rgb),.3);font-weight:700" onclick="restoreCancelledBooking('${jsArg(actionRef)}')">Restore to Confirmed</button>` : ''}
@@ -5975,6 +5988,7 @@ async function openBookingDetails(ref) {
         <div class="booking-detail-row"><span>Host / source</span><strong>${esc(b.hostName || b.hostEmail || bookingSourceMeta(b))}</strong></div>
         <div class="booking-detail-row"><span>Court</span><strong>${esc(b.courtName || '--')}</strong></div>
         <div class="booking-detail-row"><span>Schedule</span><strong>${esc(b.scheduleLabel || `${fmtD(b.date)} · ${b.startTime || ''}-${b.endTime || ''}`)}</strong></div>
+        ${bookingCourtSessions(b).map(session => `<div class="booking-detail-row"><span>${esc(session.courtName || 'Court')}</span><strong>${esc(sessionScheduleLabel(session))}</strong></div>`).join('')}
         <div class="booking-detail-row"><span>Booked on</span><strong>${b.createdAt ? esc(window.BookingBalance.formatDeadline(b.createdAt)) : '--'}</strong></div>
         ${deadlineState.label && !forfeited ? `<div class="booking-detail-row"><span>Time remaining</span><strong>${esc(deadlineState.label)}</strong></div>` : ''}
         ${forfeited ? `<div class="booking-detail-row"><span>Forfeited on</span><strong>${b.forfeitedAt ? esc(window.BookingBalance.formatDeadline(b.forfeitedAt)) : '--'}</strong></div><div class="booking-detail-row"><span>Reason</span><strong>${esc(b.forfeitureReason || 'Remaining balance was not paid by the deadline.')}</strong></div>` : ''}
@@ -8763,6 +8777,29 @@ function calHourFromTime(value) {
   return h;
 }
 
+function sessionScheduleLabel(session) {
+  const start = new Date(session.startsAt || session.starts_at || '');
+  const end = new Date(session.endsAt || session.ends_at || '');
+  if (Number.isFinite(start.getTime()) && Number.isFinite(end.getTime())) {
+    const date = new Intl.DateTimeFormat('en-PH', {timeZone:'Asia/Manila', dateStyle:'medium'}).format(start);
+    const time = new Intl.DateTimeFormat('en-PH', {timeZone:'Asia/Manila', timeStyle:'short'});
+    return `${date} · ${time.format(start)} – ${time.format(end)}`;
+  }
+  return [session.bookingDate || session.date, session.timeLabel || [session.startTime, session.endTime].filter(Boolean).join(' – ')].filter(Boolean).join(' · ');
+}
+function calendarBookingSessions(booking) {
+  const sessions = bookingCourtSessions(booking);
+  if (!sessions.length) return [booking];
+  return sessions.map(session => {
+    const start = new Date(session.startsAt || session.starts_at || '');
+    const end = new Date(session.endsAt || session.ends_at || '');
+    const hasDates = Number.isFinite(start.getTime()) && Number.isFinite(end.getTime()) && end > start;
+    const zone = 'Asia/Manila';
+    const date = hasDates ? new Intl.DateTimeFormat('en-CA', {timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit'}).format(start) : session.bookingDate || session.date || booking.date;
+    const hours = hasDates ? Array.from({length:Math.ceil((end-start)/3600000)}, (_, index) => Number(new Intl.DateTimeFormat('en-GB', {timeZone:zone,hour:'2-digit',hourCycle:'h23'}).format(new Date(start.getTime()+index*3600000)))) : session.slots || [];
+    return {...booking, ...session, date, slots:hours, courtId:session.courtId || session.court_id, courtName:session.courtName || session.court_name || 'Court'};
+  });
+}
 function calBookingSlots(b) {
   if (Array.isArray(b?.slots) && b.slots.length) return b.slots.map(Number).filter(Number.isFinite);
   const start = calHourFromTime(b?.startTime);
@@ -8868,7 +8905,7 @@ function renderCalendarDayPanel(dateStr, bookings = [], bkMap = {}, courts = [])
   }
   if (!boardCourts.length) boardCourts = [{ id: 'court', name: 'Court', rate: 0, blocked: false }];
 
-  const dayBookings = bookings
+  const dayBookings = bookings.flatMap(calendarBookingSessions)
     .filter(b => b.date === dateStr && isScheduleActiveBooking(b))
     .sort((a, b) => bookingStartHour(a) - bookingStartHour(b) || String(a.courtName || '').localeCompare(String(b.courtName || '')));
   const bookingMap = new Map();
@@ -10682,7 +10719,7 @@ async function openRescheduleModal(ref, { returnFocus = null } = {}) {
     return false;
   }
   if (!group || !canRescheduleBooking(group)) {
-    toast('This booking is no longer eligible for rescheduling.', 'err');
+    toast(isMultiSessionBooking(group) ? 'Rescheduling a booking with multiple court sessions is not yet available.' : 'This booking is no longer eligible for rescheduling.', 'err');
     return false;
   }
   const modal = $('rescheduleModal');
@@ -14937,7 +14974,7 @@ async function checkAgreementGate(session) {
 
 <script src="supabase.min.js"></script>
 <script src="tenant-config.js?v=20260908-no-captcha"></script>
-<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260908-no-captcha"></script><script src="payment-source-ui.js?v=20260908-routes2"></script>
+<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260908-group-booking"></script><script src="payment-source-ui.js?v=20260908-routes2"></script>
 <script src="receipt-pending.js?v=20260908-routes2"></script>
 <script src="payment-method-brand.js?v=20260908-routes2"></script>
 <script src="payment-settings.js?v=20260908-routes2"></script>

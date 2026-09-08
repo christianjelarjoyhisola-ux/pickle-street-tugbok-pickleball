@@ -24,7 +24,23 @@
     const ref=document.createElement('p');ref.className='ps-booking-reference';ref.textContent=booking.reference||access.reference;
     const grid=document.createElement('dl');grid.className='ps-detail-grid';
     const date=booking.startsAt?new Date(booking.startsAt):null;
-    grid.append(detail('Court',booking.courtName),detail('Date & time',date && Number.isFinite(date.getTime())?new Intl.DateTimeFormat('en-PH',{timeZone:'Asia/Manila',dateStyle:'medium',timeStyle:'short'}).format(date):booking.bookingDate),detail('Booking total',money(booking.totalAmount)),detail('Payment',String(booking.paymentStatus||'unpaid').replaceAll('_',' ')));
+    const sessions=Array.isArray(booking.sessions)?booking.sessions:Array.isArray(booking.metadata?.sessions)?booking.metadata.sessions:[];
+    if(sessions.length){
+      sessions.forEach(session=>{
+        const localDate=session.bookingDate||session.date;
+        const localStart=localDate&&session.startTime?`${localDate}T${session.startTime.length===5?session.startTime+':00':session.startTime}+08:00`:'';
+        const start=new Date(session.startsAt||session.starts_at||localStart);
+        const end=new Date(session.endsAt||session.ends_at||start.getTime()+Number(session.durationHours||session.duration||0)*3600000);
+        const valid=Number.isFinite(start.getTime())&&Number.isFinite(end.getTime());
+        const dateFormat=new Intl.DateTimeFormat('en-PH',{timeZone:'Asia/Manila',dateStyle:'medium'});
+        const timeFormat=new Intl.DateTimeFormat('en-PH',{timeZone:'Asia/Manila',timeStyle:'short'});
+        const schedule=valid?`${dateFormat.format(start)} · ${timeFormat.format(start)} – ${timeFormat.format(end)}`:[session.bookingDate||session.date,session.timeLabel||[session.startTime,session.endTime].filter(Boolean).join(' – ')].filter(Boolean).join(' · ');
+        grid.append(detail(session.courtName||'Court',schedule));
+      });
+    }else{
+      grid.append(detail('Court',booking.courtName),detail('Date & time',date&&Number.isFinite(date.getTime())?new Intl.DateTimeFormat('en-PH',{timeZone:'Asia/Manila',dateStyle:'medium',timeStyle:'short'}).format(date):booking.bookingDate));
+    }
+    grid.append(detail('Booking total',money(booking.totalAmount)),detail('Payment',String(booking.paymentStatus||'unpaid').replaceAll('_',' ')));
     const actions=document.createElement('div');actions.className='ps-result-actions';
     if(booking.canSubmitReceipt===true){const correction=document.createElement('button');correction.className='btn btn-p';correction.textContent='Upload corrected receipt';correction.addEventListener('click',()=>window.PBReceiptPending.openUpload(access,booking,()=>lookup(access)));actions.append(correction);}
     const resume=document.createElement('a');resume.className='btn btn-p';resume.textContent='Open booking & payment';resume.href='index.html#resume='+encodeURIComponent(JSON.stringify(access));actions.append(resume);

@@ -16,7 +16,7 @@ test('manual buttons target pending proof only for Pickle Street when staff revi
 test('pending booking cards expose Confirm and Reject while settled cards do not',()=>{
  const admin=fs.readFileSync('admin.html','utf8'),start=admin.lastIndexOf('function bookingActionsHtml(');
  const source=admin.slice(start,admin.indexOf('\n}',start)+2);
- const c={window:{PB_PLATFORM_V1:true,PBReceiptPending:manualHelper()},bookingDetailsButton:()=>'<button>Details</button>',weatherRefundActionButton:()=>'',canRescheduleBooking:()=>false,canRestoreCancelledBooking:()=>false,jsArg:s=>s};
+ const c={window:{PB_PLATFORM_V1:true,PBReceiptPending:manualHelper()},bookingDetailsButton:()=>'<button>Details</button>',weatherRefundActionButton:()=>'',multiSessionRescheduleNotice:()=>'',canRescheduleBooking:()=>false,canRestoreCancelledBooking:()=>false,jsArg:s=>s};
  vm.runInNewContext(source,c);
  const html=c.bookingActionsHtml(pendingProof,false);assert.match(html,/>Confirm<\/button>/);assert.match(html,/>Reject<\/button>/);assert.match(html,/reviewAction:'approve'/);assert.match(html,/reviewAction:'reject'/);
  const settled=c.bookingActionsHtml({...pendingProof,status:'confirmed',paymentStatus:'paid'},false);assert.doesNotMatch(settled,/reviewAction/);

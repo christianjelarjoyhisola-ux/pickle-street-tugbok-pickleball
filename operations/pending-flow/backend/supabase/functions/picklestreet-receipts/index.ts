@@ -158,7 +158,7 @@ async function sendConfirmation(db:DB,result:Obj):Promise<void>{
       const delivered=await deliverEmail({store,tenantId:TENANT_ID,eventId:result.rescheduleEventId,forceResend:false,sender:{async send(message){return await sendMailerooEmail({apiKey:env('MAILEROO_API_KEY'),fromAddress:env('MAILEROO_FROM_EMAIL'),fromName:message.fromName,replyTo:message.replyTo,replyToName:message.replyToName,to:message.to,toName:message.toName,subject:message.subject,html:message.html,plainText:message.plainText,referenceId:message.referenceId,tags:message.tags});}}});
       result.confirmationEmail=delivered.status;return;
     }
-    const r=await fetch(env('SUPABASE_URL')+'/functions/v1/send-booking-email',{method:'POST',headers:{'Content-Type':'application/json','x-internal-secret':env('EDGE_INTERNAL_SECRET')},body:JSON.stringify({tenantSlug:TENANT_SLUG,bookingReference:result.bookingReference,emailKind:'booking_confirmed'}),signal:AbortSignal.timeout(15000)});
+    const r=await fetch(env('SUPABASE_URL')+'/functions/v1/picklestreet-booking-email',{method:'POST',headers:{'Content-Type':'application/json','x-internal-secret':env('EDGE_INTERNAL_SECRET')},body:JSON.stringify({tenantSlug:TENANT_SLUG,bookingReference:result.bookingReference,emailKind:'booking_confirmed'}),signal:AbortSignal.timeout(15000)});
     const sent=await r.json().catch(()=>({}));result.confirmationEmail=r.ok&&sent.ok===true?'sent':'pending';
   }catch(_){result.confirmationEmail='pending';}
 }

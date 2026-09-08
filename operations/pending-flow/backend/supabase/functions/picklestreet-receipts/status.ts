@@ -227,7 +227,8 @@ export async function originalBookingStatus(request: Request): Promise<Response>
         ok: true,
         booking: {
           reference: text(booking.reference),
-          courtName: text(joinedCourt.name),
+          courtName: text(metadata.courtName || joinedCourt.name),
+          sessions: Array.isArray(metadata.sessions) ? metadata.sessions : [],
           bookingType: text(booking.booking_type),
           status: effectiveStatus,
           paymentStatus: text(booking.payment_status),

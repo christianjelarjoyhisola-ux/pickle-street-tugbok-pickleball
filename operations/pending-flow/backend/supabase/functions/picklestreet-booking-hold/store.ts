@@ -34,7 +34,7 @@ export function createHoldStore(db:Obj):HoldStore{
       if(row.error||!row.data)throw Error('Original reservation unavailable');
       const booking=await rpc('get_picklestreet_provisional_hold',{p_hostname:hostname,p_booking_reference:row.data.reference,p_access_token_hash:tokenHash});
       const selection:Selection={courtId:booking.courtId,bookingDate:booking.bookingDate,startTime:booking.startTime,durationHours:booking.durationHours,bookingType:booking.bookingType};
-      return {booking,selection};
+      return {booking,selection:Array.isArray(booking.sessions)&&booking.sessions.length ? booking.sessions.map((s:Obj)=>({courtId:s.courtId,bookingDate:s.bookingDate,startTime:s.startTime,durationHours:s.durationHours,bookingType:'regular' as const})).sort((a:Selection,b:Selection)=>a.courtId.localeCompare(b.courtId)||a.startTime.localeCompare(b.startTime)):selection};
     },
     async configuration(courtId){
       const [tenant,court,billing,equipment,activation]=await Promise.all([
@@ -50,7 +50,7 @@ export function createHoldStore(db:Obj):HoldStore{
       return {tenant:tenant.data,court:court.data,billing:billing.data,equipment:equipment.data,ready:object(activation.data).publicBookingEnabled===true};
     },
     async policy(){const r=await db.from('settings').select('value,is_public').eq('tenant_id',TENANT_ID).eq('key','refund_reschedule_policy').maybeSingle();if(r.error)throw new RequestError(503,'BOOKING_POLICY_NOT_CONFIGURED','The current venue policy could not be loaded.');return r.data;},
-    create:args=>rpc('create_picklestreet_provisional_hold',args),
+    create:args=>rpc(args.p_sessions?'create_picklestreet_group_hold':'create_picklestreet_provisional_hold',args),
     status:(args:Access)=>rpc('get_picklestreet_provisional_hold',args),
     cancel:(args:Access)=>rpc('cancel_picklestreet_provisional_hold',args),
     complete:args=>rpc('complete_picklestreet_provisional_hold',args),

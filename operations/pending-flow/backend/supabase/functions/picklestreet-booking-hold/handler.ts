@@ -253,6 +253,7 @@ export function bookingResponse(data: Obj, token?: string): Obj {
     durationHours: b.durationHours,
     tenantTimezone: b.tenantTimezone,
     slots: Array.isArray(b.slots) ? b.slots : [],
+    sessions: Array.isArray(b.sessions) ? b.sessions : [],
     ...(!b.detailsCompleted ? { canSubmitReceipt: false } : {}),
     ...(typeof b.reservationHeld === "boolean"
       ? { reservationHeld: b.reservationHeld }
@@ -260,6 +261,15 @@ export function bookingResponse(data: Obj, token?: string): Obj {
     ...(token ? { bookingToken: token } : {}),
   };
 }
+
+export function parseGroupSelections(raw:unknown):Selection[] {
+ if(!Array.isArray(raw)||raw.length<1||raw.length>18)fail('SELECTION_INVALID','Select up to 18 court-hours.');
+ const selections=raw.map(item=>{const value=obj(item);allowed(value,['courtId','bookingDate','startTime','durationHours','bookingType']);return parseSelection(value)}).sort((a,b)=>a.courtId.localeCompare(b.courtId)||a.startTime.localeCompare(b.startTime));
+ if(selections.some(s=>s.bookingType!=='regular'||s.bookingDate!==selections[0].bookingDate)||selections.reduce((sum,s)=>sum+s.durationHours,0)>18)fail('SELECTION_INVALID','Choose regular court hours on one date, up to 18 court-hours.');
+ for(let i=1;i<selections.length;i++){const a=selections[i-1],b=selections[i];if(a.courtId===b.courtId && Number(a.startTime.slice(0,2))+a.durationHours>Number(b.startTime.slice(0,2)))fail('SELECTION_INVALID','The same court hour cannot be selected twice.');}
+ return selections;
+}
+
 export function createHoldHandler(deps: Dependencies) {
   return async function handleRequest(request: Request): Promise<Response> {
     let origin: string | undefined;
@@ -317,6 +327,7 @@ export function createHoldHandler(deps: Dependencies) {
           "tenantSlug",
           "action",
           "courtId",
+          "sessions",
           "bookingDate",
           "startTime",
           "durationHours",
@@ -324,7 +335,8 @@ export function createHoldHandler(deps: Dependencies) {
           "clientRequestId",
           "turnstileToken", // Accepted but ignored for previously loaded clients.
         ]);
-        const selection = parseSelection(body),
+        const selections = body.sessions === undefined ? [parseSelection(body)] : parseGroupSelections(body.sessions);
+        const selection = selections[0],
           clientRequestId = uuid(body.clientRequestId, true),
           ip = clientAddress(request);
         const token = await deriveBookingAccessToken({
@@ -342,7 +354,7 @@ export function createHoldHandler(deps: Dependencies) {
         );
         if (existing) {
           if (
-            JSON.stringify(existing.selection) !== JSON.stringify(selection)
+            JSON.stringify(existing.selection) !== JSON.stringify(body.sessions === undefined ? selection : selections)
           ) {
             fail(
               "REQUEST_SELECTION_CHANGED",
@@ -356,6 +368,8 @@ export function createHoldHandler(deps: Dependencies) {
             origin,
           );
         }
+        const pricedSessions: Obj[] = [];
+        for (const selection of selections) {
         const { tenant, court, billing, equipment, ready } = await deps.store
           .configuration(selection.courtId);
         if (!ready) {
@@ -414,6 +428,8 @@ export function createHoldHandler(deps: Dependencies) {
           publicConfig: court.public_config,
           now: (deps.now?.() ?? new Date()).toISOString(),
         });
+        pricedSessions.push({courtId:selection.courtId,bookingDate:selection.bookingDate,startTime:selection.startTime,durationHours:selection.durationHours,startsAt:range.startsAt,endsAt:range.endsAt,slots:range.slots,subtotalAmount:quote.courtSubtotalAmount,serviceFeeAmount:quote.serviceFeeAmount,totalAmount:Math.round((quote.courtSubtotalAmount+quote.serviceFeeAmount+Number.EPSILON)*100)/100,currency:quote.currency,metadata:createBookingMetadata(priced,quote)});
+        }
         const clientIpHash = await bookingAccessTokenHash(
           await deriveBookingAccessToken({
             secret: deps.bookingSecret,
@@ -421,22 +437,9 @@ export function createHoldHandler(deps: Dependencies) {
             clientRequestId: `picklestreet-hold-ip:v1:${ip}`,
           }),
         );
-        const result = await deps.store.create({
-          p_hostname: context.hostname,
-          p_client_request_id: clientRequestId,
-          p_access_token_hash: tokenHash,
-          p_client_ip_hash: clientIpHash,
-          p_court_id: selection.courtId,
-          p_booking_type: selection.bookingType,
-          p_starts_at: range.startsAt,
-          p_ends_at: range.endsAt,
-          p_slots: range.slots,
-          p_subtotal_amount: quote.courtSubtotalAmount,
-          p_service_fee_amount: quote.serviceFeeAmount,
-          p_total_amount: Math.round((quote.courtSubtotalAmount + quote.serviceFeeAmount + Number.EPSILON) * 100) / 100,
-          p_currency: quote.currency,
-          p_metadata: createBookingMetadata(priced, quote),
-        });
+        const shared={p_hostname:context.hostname,p_client_request_id:clientRequestId,p_access_token_hash:tokenHash,p_client_ip_hash:clientIpHash};
+        const first=pricedSessions[0];
+        const result=await deps.store.create(body.sessions!==undefined ? {...shared,p_sessions:pricedSessions} : {...shared,p_court_id:selection.courtId,p_booking_type:selection.bookingType,p_starts_at:first.startsAt,p_ends_at:first.endsAt,p_slots:first.slots,p_subtotal_amount:first.subtotalAmount,p_service_fee_amount:first.serviceFeeAmount,p_total_amount:first.totalAmount,p_currency:first.currency,p_metadata:first.metadata});
         return jsonResponse(
           { ok: true, booking: bookingResponse(result, token) },
           201,

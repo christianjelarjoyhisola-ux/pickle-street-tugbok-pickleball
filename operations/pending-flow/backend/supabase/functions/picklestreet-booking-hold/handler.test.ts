@@ -3,6 +3,7 @@ import { bookingAccessTokenHash } from "../_shared/booking-access.ts";
 import { RequestError } from "../_shared/http.ts";
 import { refundPolicySha256 } from "../_shared/picklestreet-hold/refund-policy.ts";
 import {
+  parseGroupSelections,
   bookingResponse,
   createHoldHandler,
   type HoldStore,
@@ -686,3 +687,13 @@ Deno.test("production existing lookup scopes both tables to tenant, key and toke
   assert.equal(calls[0].args.p_access_token_hash, "hash-synthetic");
   assert.equal(calls[0].args.p_hostname, "picklestreet.pages.dev");
 });
+Deno.test('group creation prices all sessions server-side and invokes one atomic create',async()=>{
+ const f=fixture();let received:Obj={};f.store.create=async args=>{received=args;return booking({sessions:args.p_sessions,subtotalAmount:2,courtSubtotalAmount:2,totalAmount:3})};
+ const second={...selection,courtId:'afb62052-cc6b-435e-a8b1-0265b613a771'};
+ const r=await f.invoke({tenantSlug:TENANT_SLUG,action:'create',clientRequestId:CLIENT,sessions:[selection,second]});
+ assert.equal(r.response.status,201);assert.equal(received.p_sessions.length,2);assert.equal(f.calls.configuration,2);assert.equal(r.data.booking.sessions.length,2);assert.equal(received.p_sessions[0].subtotalAmount,1);assert.equal(r.data.booking.reference,'PB-SYNTHETIC-01');
+});
+for(const sessions of [[{...selection,durationHours:10},{...selection,startTime:'22:00',durationHours:9}],[selection,{...selection,startTime:'12:00'}],[selection,{...selection,bookingDate:'2026-09-10'}],[{...selection,totalAmount:.01}],[{...selection,bookingType:'event'}]]){
+ Deno.test('invalid group cannot create slots '+JSON.stringify(sessions),async()=>{const f=fixture();const r=await f.invoke({tenantSlug:TENANT_SLUG,action:'create',clientRequestId:CLIENT,sessions});assert.ok(r.response.status>=400);assert.equal(f.calls.create.length,0)});
+}
+Deno.test('group accepts separate hours and same hour on distinct courts',()=>{assert.equal(parseGroupSelections([selection,{...selection,startTime:'15:00'},{...selection,courtId:'afb62052-cc6b-435e-a8b1-0265b613a771'}]).length,3)});
