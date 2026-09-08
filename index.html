@@ -3497,7 +3497,7 @@ body.dark #splashScreen {
 
 </style>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="pickle-street.css?v=20260908-welcome-display">
+<link rel="stylesheet" href="pickle-street.css?v=20260908-mobile-controls">
 <meta name="robots" content="noindex,nofollow">
 </head>
 <body class="light">
@@ -3522,7 +3522,6 @@ body.dark #splashScreen {
       </div>
     </div>
     <div class="ps-welcome-bottom">
-      <div class="ps-welcome-links"><a href="booking-management.html" data-welcome-link>Manage booking</a><span aria-hidden="true">·</span><a href="login.html" data-welcome-link>Staff login</a></div>
       <p>PICKLE STREET TUGBOK <span aria-hidden="true">·</span> DAVAO CITY</p>
     </div>
   </div>
@@ -3649,11 +3648,11 @@ body.dark #splashScreen {
   <div class="nav-headline" id="navHeadline" hidden>
     🏓 <span class="hl">𝑺𝒆𝒓𝒗𝒆. 𝑺𝒎𝒂𝒔𝒉. 𝑾𝒊𝒏. 𝑹𝒆𝒑𝒆𝒂𝒕.</span>
   </div>
-  <div class="nav-r"><a class="nav-manage-link" href="booking-management.html">Manage booking</a>
+  <div class="nav-r">
     <div class="sw-wrap">
-      <span>☀️</span>
-      <label class="sw"><input type="checkbox" id="darkTog" checked aria-label="Use dark theme"><span class="sw-tr"></span></label>
-      <span>🌙</span>
+      <span aria-hidden="true">☀️</span>
+      <label class="sw"><input type="checkbox" id="darkTog" role="switch" aria-label="Use dark theme"><span class="sw-tr" aria-hidden="true"></span></label>
+      <span aria-hidden="true">🌙</span>
     </div>
   </div>
 </nav>
@@ -3696,6 +3695,9 @@ body.dark #splashScreen {
       <div class="pb-ball" aria-hidden="true"></div>
       <div class="pb-loader-txt">Loading courts</div>
     </div>
+  </div>
+  <div class="ps-courts-actions">
+    <a class="ps-manage-booking" href="booking-management.html">Manage booking <span aria-hidden="true">↗</span></a>
   </div>
 </div>
 
@@ -6796,14 +6798,16 @@ function qrZoomBackdrop(event) {
    ============================================= */
 function initDark() {
   const tog = $('darkTog');
-  const isDark = localStorage.getItem('pb_template_theme') === 'dark';
+  if (!tog) return;
+  let isDark = false;
+  try { isDark = localStorage.getItem('pb_template_theme') === 'dark'; } catch (_) {}
   document.body.classList.toggle('dark', isDark);
   document.body.classList.toggle('light', !isDark);
   tog.checked = isDark;
   tog.addEventListener('change', () => {
     document.body.classList.toggle('dark', tog.checked);
     document.body.classList.toggle('light', !tog.checked);
-    localStorage.setItem('pb_template_theme', tog.checked ? 'dark' : 'light');
+    try { localStorage.setItem('pb_template_theme', tog.checked ? 'dark' : 'light'); } catch (_) {}
   });
 }
 
