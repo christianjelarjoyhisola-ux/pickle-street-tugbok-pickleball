@@ -6,7 +6,7 @@
   const money=value=>new Intl.NumberFormat('en-PH',{style:'currency',currency:'PHP'}).format(Number(value)||0);
   function privateAccess(record){
     if(!record || record.tenantSlug!==slug || !record.reference || !record.bookingToken) return null;
-    return {tenantSlug:slug,reference:String(record.reference),bookingToken:String(record.bookingToken),...(record.draft?{draft:record.draft}:{}),...(record.form?{form:record.form}:{})};
+    return {tenantSlug:slug,reference:String(record.reference),bookingToken:String(record.bookingToken),preliminaryHold:record.booking?.detailsCompleted===true?false:record.preliminaryHold===true||record.booking?.detailsCompleted===false,...(record.draft?{draft:record.draft}:{}),...(record.form?{form:record.form}:{})};
   }
   function parseLink(value){
     const link=new URL(value);
@@ -36,7 +36,8 @@
   async function lookup(access){
     const request=++generation;const button=$('lookupButton');button.disabled=true;$('lookupMessage').className='';$('lookupMessage').textContent='Checking your booking…';$('bookingResult').hidden=true;
     try{
-      const booking=await DB.getPublicBookingStatus({bookingReference:access.reference,bookingToken:access.bookingToken});
+      const booking=await DB.getPublicBookingStatus({bookingReference:access.reference,bookingToken:access.bookingToken,preliminaryHold:access.preliminaryHold===true});
+      if(booking.detailsCompleted===true)access.preliminaryHold=false;
       if(request!==generation)return;
       render(booking,access);$('lookupMessage').textContent='Booking found.';
     }catch(error){if(request===generation){$('lookupMessage').className='ps-error';$('lookupMessage').textContent=error.message||'The booking could not be loaded. Check your private link and try again.';}}

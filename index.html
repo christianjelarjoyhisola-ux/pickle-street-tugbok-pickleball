@@ -3774,7 +3774,7 @@ body.dark #splashScreen {
         <div class="booking-intro-title" id="bookingIntroTitle">Complete payment before the timer ends</div>
         <div class="booking-intro-timer" id="bookingIntroTimer">--:--</div>
         <p class="booking-intro-copy" id="bookingIntroCopy">This is the time remaining on your reserved court. The timer continues if you close this page.</p>
-        <button class="btn btn-p" type="button" onclick="hideBookingIntro({restoreFocus:true})" style="margin-top:16px">Continue to payment</button>
+        <button class="btn btn-p" type="button" onclick="hideBookingIntro({restoreFocus:true})" style="margin-top:16px">Continue booking</button>
       </div>
     </div>
     <div class="booking-countdown-announcer" id="bookingCountdownAnnouncement" role="status" aria-live="polite" aria-atomic="true"></div>
@@ -4786,30 +4786,16 @@ function readPlatformPendingDraft() {
 }
 
 function platformRecoveryFragmentRecord(access) {
-  const draft = access?.draft || {};
-  const booking = access?.booking || {};
-  return {
-    version: 1,
-    tenantSlug: window.PB_TENANT_SLUG,
-    reference: access?.reference,
-    bookingToken: access?.bookingToken,
-    expiresAt: access?.expiresAt || booking.expiresAt || null,
-    accessExpiresAt: access?.accessExpiresAt || null,
-    draft: {
-      courtId: draft.courtId || null,
-      courtName: draft.courtName || booking.courtName || null,
-      date: draft.date || null,
-      slots: Array.isArray(draft.slots) ? draft.slots : [],
-      bookingType: draft.bookingType || booking.bookingType || 'regular',
-      courtFee: Number(draft.courtFee || booking.subtotalAmount || 0),
-      serviceFee: Number(draft.serviceFee || booking.serviceFeeAmount || 0),
-      total: Number(draft.total || booking.totalAmount || 0),
-    },
-    form: {
-      bookingMode: access?.form?.bookingMode || draft.bookingType || 'regular',
-      step: 4,
-      payMethod: access?.form?.payMethod || '',
-    },
+  const draft=access?.draft||{},booking=access?.booking||{};
+  const preliminaryHold=platformAccessIsPreliminary(access);
+  return {version:1,tenantSlug:window.PB_TENANT_SLUG,reference:access?.reference,bookingToken:access?.bookingToken,
+    expiresAt:access?.expiresAt||booking.expiresAt||null,accessExpiresAt:access?.accessExpiresAt||null,preliminaryHold,
+    draft:{courtId:draft.courtId||null,courtName:draft.courtName||booking.courtName||null,date:draft.date||null,
+      slots:Array.isArray(draft.slots)?draft.slots:[],bookingType:draft.bookingType||booking.bookingType||'regular',
+      courtFee:Number(draft.courtFee||booking.subtotalAmount||0),serviceFee:Number(draft.serviceFee||booking.serviceFeeAmount||0),
+      total:Number(draft.total||booking.totalAmount||0)},
+    // Deliberately no customer PII or unverified policy acceptance in a shareable URL.
+    form:{bookingMode:access?.form?.bookingMode||draft.bookingType||'regular',step:preliminaryHold?3:4,payMethod:access?.form?.payMethod||''},
   };
 }
 
@@ -4881,15 +4867,11 @@ function readPlatformRecovery() {
 }
 
 function savePlatformStatusAccess(access) {
-  if (!access?.reference || !access?.bookingToken) return;
-  const value = {
-    reference: access.reference,
-    bookingToken: access.bookingToken,
-    accessExpiresAt: access.accessExpiresAt || null,
-    tenantSlug: window.PB_TENANT_SLUG,
-  };
-  writePlatformJson(sessionStorage, PLATFORM_LAST_ACCESS_KEY, value);
-  writePlatformJson(localStorage, platformTenantStorageKey(PLATFORM_PERSISTED_STATUS_KEY_BASE), value);
+  if(!access?.reference||!access?.bookingToken)return;
+  const value={reference:access.reference,bookingToken:access.bookingToken,accessExpiresAt:access.accessExpiresAt||null,
+    tenantSlug:window.PB_TENANT_SLUG,preliminaryHold:platformAccessIsPreliminary(access)};
+  writePlatformJson(sessionStorage,PLATFORM_LAST_ACCESS_KEY,value);
+  writePlatformJson(localStorage,platformTenantStorageKey(PLATFORM_PERSISTED_STATUS_KEY_BASE),value);
 }
 
 function readPlatformStatusAccess() {
@@ -8210,10 +8192,7 @@ async function cancelReservedBookings(refs = reservedRefs()) {
       clearReservationState();
       return [];
     }
-    const result = await DB.cancelPublicBookingHold({
-      bookingReference: access.reference,
-      bookingToken: access.bookingToken,
-    });
+    const result = await DB.cancelPublicBookingHold(platformAccessRequest(access));
     clearReservationState();
     return [result];
   }
@@ -8253,6 +8232,7 @@ async function releaseReservedBookingViews(items = activeBookingItems()) {
 let _bookingCancelInFlight = false;
 
 async function cancelBookingWizard({ expired = false } = {}) {
+  if(window.PB_PLATFORM_V1 && (_platformHoldCreatePromise || _platformHoldCompletePromise)) return;
   if (_bookingCancelInFlight) return;
   const itemsToRelease = activeBookingItems();
   const platformAccess = window.PB_PLATFORM_V1
@@ -8385,12 +8365,18 @@ async function proceedToBookLegacy(courtId) {
   startSlotCountdown();
 }
 
-async function proceedToBook(courtId = null) {
+async function proceedToBookSelection(courtId = null) {
   if (!window.PB_PUBLIC_BOOKING_ENABLED) {
     toast(bookingOfflineMessage(), 'inf', 'booking-offline');
     return;
   }
-  if (window.PB_PLATFORM_V1 && await restorePlatformBookingHold({ openModal: true, silent: true })) return;
+  if (window.PB_PLATFORM_V1) {
+    if (await restorePlatformBookingHold({ openModal:true, silent:true })) return;
+    if (_platformBookingAccess?.bookingToken || readPlatformRecovery()?.bookingToken) {
+      toast('Your previous hold could not be checked. Reopen it before choosing another time.', 'inf');
+      return;
+    }
+  }
   const selections = cardSelectionList();
   if (selections.length === 0) {
     toast('Please select at least one time slot.', 'inf');
@@ -8477,31 +8463,22 @@ async function proceedToBook(courtId = null) {
   const createdRefs = [];
 
   if (window.PB_PLATFORM_V1) {
-    // The tenant platform creates an atomic server hold only after customer
-    // details and Turnstile verification. Do not write anonymous placeholders.
     bookingItems = reserveItems;
-    _reservedRefs = [];
-    _reservedRef = null;
-    _reservationStartedAt = null;
-    _platformBookingAccess = null;
+    _reservedRefs = []; _reservedRef = null; _reservationStartedAt = null;
     if (!window.crypto?.randomUUID) {
-      toast(`This browser cannot create a secure booking request. Please update your browser${PUBLIC_CONTACT_PHONE ? ` or call ${PUBLIC_CONTACT_PHONE}` : ''}.`, 'err');
-      return;
+      toast('This browser cannot create a secure reservation. Please update it.', 'err'); return;
     }
-    _platformClientRequestId = null;
-    _platformClientRequestFingerprint = null;
     selSlots = [...primary.slots];
     await refreshBookingItemViews(reserveItems);
     $('bDate').value = selectedDate;
     if (isEventBooking()) payFull = EVENT_FULL_PAYMENT_REQUIRED;
     updatePaymentAmountUI();
+    clearRefundPolicyAcceptance();
     wizStartStep = 3;
-    $('bookModal').classList.add('active');
-    document.body.style.overflow = 'hidden';
-    const mobileBar = $('mobileBookBar');
-    if (mobileBar) mobileBar.style.display = 'none';
-    wizGoTo(3);
-    stopSlotCountdown();
+    $('bookModal').classList.add('active'); document.body.style.overflow = 'hidden';
+    const mobileBar=$('mobileBookBar'); if(mobileBar)mobileBar.style.display='none';
+    wizGoTo(3); stopSlotCountdown();
+    await requestPlatformHoldForCurrentSelection();
     return;
   }
 
@@ -8567,6 +8544,8 @@ async function proceedToBook(courtId = null) {
 }
 
 function closeBookModal({ cancel = false } = {}) {
+  if(window.PB_PLATFORM_V1 && ((_platformHoldCreatePromise && !_platformBookingAccess?.bookingToken) || _platformHoldCompletePromise)) return;
+  if ($('refundPolicyModal')?.open) closeRefundPolicy({restoreFocus:false});
   hideBookingIntro();
   const itemsToRelease = activeBookingItems();
   $('bookModal').classList.remove('active');
@@ -8647,9 +8626,7 @@ function configureRefundPolicyMode(requireAcceptance = false) {
   if (note) note.hidden = !_refundPolicyRequiresAcceptance;
   if (later) {
     later.hidden = !_refundPolicyRequiresAcceptance;
-    later.textContent = window.PB_PLATFORM_V1 && wizStep === 3
-      ? 'Back to booking details'
-      : 'Back to payment methods';
+    later.textContent = 'Back to payment methods';
   }
   if (action) {
     action.disabled = !REFUND_POLICY_CONFIGURED;
@@ -8681,6 +8658,7 @@ function openRefundPolicyForBooking(trigger = $('wizNextBtn')) {
 }
 
 function closeRefundPolicy({ restoreFocus = true } = {}) {
+  if(window.PB_PLATFORM_V1 && (_platformHoldCreatePromise || _platformHoldCompletePromise)) return;
   const modal = $('refundPolicyModal');
   if (!modal || !modal.open) return;
   if (modal.contains(document.activeElement)) document.activeElement?.blur?.();
@@ -8706,7 +8684,7 @@ async function refundPolicyPrimaryAction() {
   closeRefundPolicy();
 }
 
-async function acceptRefundPolicyAndContinue() {
+async function acceptRefundPolicyAndContinueLegacy() {
   const modal = $('refundPolicyModal');
   const bookingModal = $('bookModal');
   const acceptingBeforePlatformHold = window.PB_PLATFORM_V1 && wizStep === 3 && !_platformBookingAccess;
@@ -8782,6 +8760,7 @@ function hideBookingIntro({restoreFocus = false} = {}) {
 }
 
 function showBookingIntro() {
+  if(window.PB_PLATFORM_V1 && !platformHoldIsUsable()) return false;
   // The intro describes an existing server hold; it never creates one.
   const modal=$('bookModal'),intro=$('bookingIntro'),card=$('bookingIntroCard');
   if (!window.PB_PLATFORM_V1 || !_platformBookingAccess?.reference || !_platformBookingAccess?.bookingToken ||
@@ -8801,6 +8780,7 @@ function showBookingIntro() {
 
 function startSlotCountdown(initialSeconds = null) {
   stopSlotCountdown();
+  if(window.PB_PLATFORM_V1 && !platformHoldIsUsable()) return false;
   const banner=$('slotCountdown');if(!banner)return false;
   const serverDeadline=bookingReservationDeadlineMs();
   const legacyFallback=!window.PB_PLATFORM_V1 && Number.isFinite(Number(initialSeconds)) && initialSeconds!==null
@@ -8920,7 +8900,7 @@ function wizGoTo(n) {
   if (n === 2) { renderSlots(); }
   if (n === 3) {
     updateWiz3Summary();
-    if ($('bookingSecurityCheck')) $('bookingSecurityCheck').style.display = window.PB_PLATFORM_V1 ? '' : 'none';
+    if ($('bookingSecurityCheck')) $('bookingSecurityCheck').style.display = window.PB_PLATFORM_V1 && !platformHoldIsUsable() ? '' : 'none';
   }
   if (n === 4) {
     updatePrice();
@@ -8937,6 +8917,7 @@ function wizGoTo(n) {
 }
 
 async function wizNext() {
+  if(window.PB_PLATFORM_V1)return platformWizardNext();
   if (wizStep === 1) {
     if (!court) { bookingValidationError('Please select a court.', 'courtDisp', 1); return; }
     wizGoTo(2);
@@ -9011,7 +8992,7 @@ async function wizNext() {
 
 function wizBack() {
   if (wizStep <= wizStartStep) { cancelBookingWizard(); return; }
-  if (window.PB_PLATFORM_V1 && _platformBookingAccess && wizStep === 4) {
+  if (window.PB_PLATFORM_V1 && platformHoldHasDetails() && wizStep === 4) {
     toast('Your slot is already held with these details. Cancel and start again if you need to change them.', 'inf');
     return;
   }
@@ -10292,14 +10273,18 @@ async function submitPlatformBooking() {
     // A later availability refresh must not turn a saved receipt into an upload error.
     await renderCourts().catch(() => {});
   } catch (error) {
+    if (/^POLICY_/i.test(String(error?.code || '')) || /policy.*changed/i.test(String(error?.message || ''))) {
+      clearRefundPolicyAcceptance(); DB.clearCache?.(['settings','platformBootstrap']);
+      await loadOperatingHours().catch(()=>{});
+      wizGoTo(4);
+      toast('The policy changed. Press Next from Payment Method to review it before continuing.', 'inf');
+      return;
+    }
     // The upload may have reached the server even when the browser timed out or
     // lost the response. Reconcile against the protected status endpoint before
     // asking the customer to submit the same payment proof again.
     try {
-      const recovered = await DB.getPublicBookingStatus({
-        bookingReference: access.reference,
-        bookingToken: access.bookingToken,
-      });
+      const recovered = await fetchAndAdoptPlatformBookingStatus(access);
       const recoveredStatus = String(recovered?.status || '').toLowerCase();
       const receiptStatus = String(
         recovered?.receiptStatus || recovered?.receipt?.status || 'none'
@@ -10336,9 +10321,11 @@ async function submitBooking(e) {
     return;
   }
   if (refundPolicyFeatureEnabled() && !currentRefundPolicyAccepted()) {
-    wizGoTo(4);
-    openRefundPolicyForBooking($('wizNextBtn'));
-    return;
+    clearRefundPolicyAcceptance(); wizGoTo(4);
+    toast('Review the current policy by pressing Next from Payment Method.', 'inf'); return;
+  }
+  if (window.PB_PLATFORM_V1 && !platformHoldHasDetails()) {
+    wizGoTo(4); toast('Complete booking details and policy before paying.', 'inf'); return;
   }
   if (window.PB_PLATFORM_V1) return submitPlatformBooking();
   const submitBtn = $('wizNextBtn');
@@ -11143,6 +11130,7 @@ function copyBookingRecoveryLink() {
 }
 
 async function cancelPlatformBookingRecovery() {
+  if(window.PB_PLATFORM_V1 && (_platformHoldCreatePromise || _platformHoldCompletePromise)) return;
   const access = _platformBookingAccess || readPlatformRecovery();
   const hasServerHold = !!(access?.reference && access?.bookingToken);
   if (hasServerHold && !window.confirm('Cancel this booking? Your reserved slot will be released immediately.')) return;
@@ -11150,10 +11138,7 @@ async function cancelPlatformBookingRecovery() {
   prompt?.querySelectorAll('button').forEach(button => { button.disabled = true; });
   try {
     if (hasServerHold) {
-      await DB.cancelPublicBookingHold({
-        bookingReference: access.reference,
-        bookingToken: access.bookingToken,
-      });
+      await DB.cancelPublicBookingHold(platformAccessRequest(access));
     }
     clearReservationState();
     clearPlatformRequestState();
@@ -11192,14 +11177,7 @@ async function restorePlatformDraftUi(saved, { openModal = true, held = false } 
     _reservedRef = saved.reference || item.ref || null;
     _reservedRefs = _reservedRef ? [_reservedRef] : [];
   }
-  restoreGuestResumeDraft(saved.form || {
-    name: draft.fullName,
-    phone: draft.contactNumber,
-    email: draft.email,
-    eventType: draft.eventType,
-    eventGuests: draft.eventGuestCount,
-    eventNotes: draft.eventSetupNotes,
-  });
+  restoreGuestResumeDraft(platformRecoveryForm(saved));
   payFull = held ? serverBooking.fullPaymentOnly === true : isEventBooking();
   updatePaymentAmountUI();
   updatePrice();
@@ -11208,7 +11186,7 @@ async function restorePlatformDraftUi(saved, { openModal = true, held = false } 
     wizStartStep = 3;
     $('bookModal').classList.add('active');
     document.body.style.overflow = 'hidden';
-    wizGoTo(held ? refundPolicySafeWizardStep(saved.form?.step || 4, 4) : 3);
+    wizGoTo(held ? platformHoldRecoveryStep(saved) : 3);
     if (held) {
       const expiresMs = new Date(serverBooking.expiresAt || '').getTime();
       _reservationStartedAt = Number.isFinite(expiresMs)
@@ -11226,12 +11204,9 @@ async function restorePlatformBookingHold({ openModal = false, silent = false } 
   const savedAccess = _platformBookingAccess || readPlatformRecovery();
   if (savedAccess?.reference && savedAccess?.bookingToken) {
     try {
-      const status = await DB.getPublicBookingStatus({
-        bookingReference: savedAccess.reference,
-        bookingToken: savedAccess.bookingToken,
-      });
+      const status = await fetchAndAdoptPlatformBookingStatus(savedAccess);
       savedAccess.booking = { ...(savedAccess.booking || {}), ...status };
-      if (status.status === 'pending_payment' && new Date(status.expiresAt || '').getTime() > Date.now()) {
+      if (platformHoldIsUsable(savedAccess)) {
         _platformBookingAccess = savedAccess;
         savePlatformRecovery(savedAccess);
         if (openModal) {
@@ -11258,7 +11233,13 @@ async function restorePlatformBookingHold({ openModal = false, silent = false } 
     _platformClientRequestFingerprint = request.fingerprint;
     if (openModal) {
       removePlatformRecoveryPrompt();
-      await restorePlatformDraftUi(pending, { openModal: true, held: false });
+      await restorePlatformDraftUi(pending, { openModal:true, held:false });
+      if (pending.kind === 'selection_hold') await requestPlatformHoldForCurrentSelection();
+      else {
+        // Old full-booking attempts cannot be retried under a different request shape.
+        if ($('wizNextBtn')) $('wizNextBtn').textContent='Choose a new time';
+        toast('This older saved attempt cannot be resumed here. Cancel it and choose a new time.', 'inf');
+      }
     } else {
       renderPlatformRecoveryPrompt(pending, {}, { pendingDraft: true });
     }
@@ -11472,8 +11453,9 @@ async function pollSavedPlatformBookingStatus(
     return false;
   }
   try {
-    const booking = await DB.getPublicBookingStatus({ bookingReference: access.reference, bookingToken: access.bookingToken });
+    const booking = await fetchAndAdoptPlatformBookingStatus(access);
     if (!publicStatusPollIsCurrent(generation, accessReference)) return false;
+    savePlatformStatusAccess(access);
     renderPublicBookingStatus(access.reference, booking);
     const refundState = publicWeatherRefundPollingState(booking) || publicPlayerRainClaimPollingState(booking);
     const bookingTerminal = ['confirmed', 'cancelled', 'expired', 'completed'].includes(String(booking.status || '').toLowerCase()) ||
@@ -11857,97 +11839,326 @@ function closeBalancePayment() {
 
 async function createPlatformBookingHold() {
   if (!window.PB_PLATFORM_V1) return null;
-  if (_platformBookingAccess?.bookingToken) return _platformBookingAccess;
-  if (refundPolicyFeatureEnabled() && !currentRefundPolicyAccepted()) {
+  if (_platformHoldCreatePromise) return _platformHoldCreatePromise;
+  if (platformHoldIsUsable()) return _platformBookingAccess;
+  // An expired existing hold must be reconciled/cancelled, not silently replaced.
+  if (_platformBookingAccess?.bookingToken) throw new Error('This hold has ended. Select a new court time.');
+  const pending = (async()=>{
+    const items = uniqueBookingSelections(activeBookingItems());
+    if (items.length!==1 || !slotsAreConsecutive(items[0]?.slots || [])) throw new Error('Select one consecutive court block.');
+    const item = items[0];
+    const draft = { courtId:item.courtId,date:item.date,slots:[...item.slots],bookingType:isEventBooking()?'event':'regular' };
+    const identity = await platformHoldRequestIdentity(draft);
+    draft.clientRequestId = identity.clientRequestId;
+    const form = {...guestResumeFormDraft(),step:3,policyAgreed:false,policyVersion:'',policySignature:''};
+    savePlatformPendingDraft({kind:'selection_hold',draft,form,fingerprint:identity.fingerprint,clientRequestId:identity.clientRequestId,savedAt:new Date().toISOString()});
     clearRefundPolicyAcceptance();
-    throw new Error('Review and accept the current Refund & Reschedule Policy before securing your slot.');
-  }
-  const items = uniqueBookingSelections(activeBookingItems());
-  if (items.length !== 1 || !slotsAreConsecutive(items[0]?.slots || [])) {
-    throw new Error('Select one consecutive block of hours for this booking.');
-  }
-  const item = items[0];
-  if (!window.crypto?.randomUUID) throw new Error('This browser cannot create a secure booking request. Please update it and try again.');
-  const bookingType = isEventBooking() ? 'event' : 'regular';
-  const eventGuests = parseInt($('bEventGuests')?.value || '1', 10);
-  const draft = {
-    ...item,
-    bookingType,
-    fullName: $('bName').value.trim(),
-    contactNumber: $('bPhone').value.trim(),
-    email: $('bEmail').value.trim(),
-    eventType: bookingType === 'event' ? $('bEventType')?.value || null : null,
-    eventGuestCount: bookingType === 'event' ? eventGuests : 1,
-    eventSetupNotes: bookingType === 'event' ? ($('bEventNotes')?.value || '').trim() : null,
-    ...(refundPolicyFeatureEnabled() ? {
-      policyAccepted: true,
-      policyVersion: REFUND_POLICY_ACCEPTED_VERSION,
-    } : {}),
-  };
-  const requestIdentity = await platformRequestIdentity(draft);
-  draft.clientRequestId = requestIdentity.clientRequestId;
-  const form = guestResumeFormDraft();
-  savePlatformPendingDraft({
-    draft,
-    form,
-    fingerprint: requestIdentity.fingerprint,
-    clientRequestId: requestIdentity.clientRequestId,
-    savedAt: new Date().toISOString(),
+    try {
+      // Book Now must already have exposed the security/loading surface.
+      const turnstileToken = await getBookingTurnstileToken();
+      const server = await DB.createPublicBookingHold(draft,{turnstileToken});
+      if (!server?.reference || !server?.bookingToken) throw new Error('The hold service did not return secure access. Retry the saved request.');
+      const savedItem = {...item,ref:server.reference,bookingType:draft.bookingType,courtName:server.courtName||item.courtName,
+        courtFee:Number(server.subtotalAmount||0),serviceFee:Number(server.serviceFeeAmount||0),total:Number(server.totalAmount||0)};
+      bookingItems=[savedItem];selSlots=[...savedItem.slots];payFull=server.fullPaymentOnly===true;
+      _platformBookingAccess={reference:server.reference,bookingToken:server.bookingToken,expiresAt:server.expiresAt,
+        accessExpiresAt:server.accessExpiresAt,preliminaryHold:server.detailsCompleted!==true,booking:server,draft:{...savedItem,...draft},form,
+        fingerprint:identity.fingerprint,clientRequestId:identity.clientRequestId};
+      _reservedRef=server.reference;_reservedRefs=[server.reference];
+      savePlatformRecovery(_platformBookingAccess);
+      const deadline = bookingReservationDeadlineMs();
+      _reservationStartedAt=Number.isFinite(deadline)?new Date(deadline-RESERVATION_MINUTES*60000).toISOString():null;
+      updatePrice();
+      // Deadline always comes from the server. Never start a fresh local 15 minutes.
+      if (!platformHoldIsUsable(_platformBookingAccess)) {
+        savePlatformStatusAccess(_platformBookingAccess); stopSlotCountdown(); hideBookingIntro();
+        startSavedPlatformBookingPolling().catch(()=>{});
+        toast('This reservation is no longer active. Check its booking status before choosing another time.', 'inf');
+        return _platformBookingAccess;
+      }
+      startSlotCountdown();
+      if (reservationSecondsLeft()>0) showBookingIntro();
+      else if (!Number.isFinite(deadline)) toast('Hold saved. Refresh its status to check the payment deadline.','inf');
+      return _platformBookingAccess;
+    } finally { resetBookingTurnstile(); }
+  })();
+  _platformHoldCreatePromise=pending;
+  try {return await pending;} finally {if(_platformHoldCreatePromise===pending)_platformHoldCreatePromise=null;}
+}
+
+// Preliminary hold flow: selection first, identity and consent before payment.
+let _platformHoldCreatePromise=null;
+let _platformHoldCompletePromise=null;
+let _proceedToBookPromise=null;
+
+function platformCanonicalHold(draft = {}) {
+  return JSON.stringify({
+    tenant: String(window.PB_TENANT_SLUG || '').trim().toLowerCase(),
+    courtId: String(draft.courtId || '').trim().toLowerCase(),
+    date: String(draft.date || '').trim(),
+    slots: [...new Set((draft.slots || []).map(Number).filter(Number.isInteger))].sort((a,b)=>a-b),
+    bookingType: draft.bookingType === 'event' ? 'event' : 'regular',
   });
+}
+
+async function platformHoldRequestIdentity(draft) {
+  const bytes = new TextEncoder().encode(platformCanonicalHold(draft));
+  const digest = await window.crypto.subtle.digest('SHA-256', bytes);
+  const fingerprint = [...new Uint8Array(digest)].map(v=>v.toString(16).padStart(2,'0')).join('');
+  const saved = readPlatformJson(localStorage, PLATFORM_REQUEST_KEY);
+  const reusable = saved?.kind === 'selection_hold' && validPlatformRequestRecord(saved, fingerprint);
+  const record = {
+    kind:'selection_hold', fingerprint,
+    clientRequestId: reusable ? saved.clientRequestId : window.crypto.randomUUID(),
+    createdAt: reusable ? saved.createdAt : new Date().toISOString(),
+  };
+  // Persist before sending. Details and policy changes never change this identity.
+  localStorage.setItem(PLATFORM_REQUEST_KEY, JSON.stringify(record));
+  _platformClientRequestId = record.clientRequestId;
+  _platformClientRequestFingerprint = fingerprint;
+  return record;
+}
+
+function platformDetailsFromForm(form = guestResumeFormDraft(), event = isEventBooking()) {
+  const customer = {
+    name:String(form.name || '').trim(),
+    phone:String(form.phone || '').trim(),
+    email:String(form.email || '').trim(),
+  };
+  function invalid(message, field) { const error = new Error(message);error.field=field;throw error; }
+  if (customer.name.length < 3) invalid('Enter your full name (at least 3 characters).','bName');
+  if (!/^(09|\+639)\d{9}$/.test(customer.phone.replace(/\s|-/g,''))) invalid('Enter a valid PH contact number.','bPhone');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer.email)) invalid('Enter a valid email address.','bEmail');
+  const guestCount = event ? Number.parseInt(form.eventGuests || '0',10) : 1;
+  const eventType = event ? String(form.eventType || '').trim() : null;
+  if (event && !eventType) invalid('Select the type of event.','bEventType');
+  if (event && (!Number.isInteger(guestCount) || guestCount<1 || guestCount>EVENT_MAX_GUESTS)) invalid('Enter the allowed number of event guests.','bEventGuests');
+  return { customer,guestCount,eventType,eventSetupNotes:event?String(form.eventNotes || '').trim():null };
+}
+
+function platformHoldHasDetails() {
+  return _platformBookingAccess?.booking?.detailsCompleted === true;
+}
+
+function platformHoldIsUsable(access = _platformBookingAccess) {
+  const booking=access?.booking;
+  return !!(access?.reference && access?.bookingToken && booking?.status==='pending_payment' &&
+    booking.reservationHeld!==false && new Date(booking.expiresAt||access.expiresAt||'').getTime()>Date.now());
+}
+
+function platformPolicyContextStillCurrent(consent) {
+  const modal = $('refundPolicyModal');
+  return !!consent && REFUND_POLICY_CONFIGURED && consent.version === REFUND_POLICY_VERSION &&
+    consent.signature === REFUND_POLICY_SIGNATURE && modal?.dataset.policyConfigured === 'true' &&
+    modal.dataset.policyVersion === consent.version;
+}
+
+function platformPolicyChangedError() {
+  const error = new Error('The policy changed. Review the current policy from Payment Method before continuing.');
+  error.code='POLICY_CHANGED';return error;
+}
+
+async function completePlatformBookingHold(consent = null) {
+  if (_platformHoldCompletePromise) return _platformHoldCompletePromise;
+  const access = _platformBookingAccess;
+  if (!platformHoldIsUsable(access)) throw new Error('The court hold has ended. Check your booking before paying.');
+  const policyEnabled=refundPolicyFeatureEnabled();
+  if (policyEnabled && !platformPolicyContextStillCurrent(consent)) throw platformPolicyChangedError();
+  if (!platformAccessIsPreliminary(access) && platformHoldHasDetails()) {
+    recordPlatformHoldConsent(consent);
+    return access;
+  }
+  const details=platformDetailsFromForm();
+  const deadline=bookingReservationDeadlineMs();
+  const pending=(async()=>{
+    const result=await DB.completePublicBookingHold({
+      bookingReference:access.reference,bookingToken:access.bookingToken,...details,
+      // Consent is captured only by the explicit step-4 Agree action.
+      policyAccepted:policyEnabled && !!consent,policyVersion:policyEnabled?consent.version:'',
+    });
+    if (_platformBookingAccess!==access) throw new Error('This booking changed while details were being saved. Reopen its status.');
+    if (result?.reference!==access.reference || result?.detailsCompleted!==true) throw new Error('Booking details were not confirmed. Retry before paying.');
+    if (result.expiresAt && new Date(result.expiresAt).getTime()!==deadline) throw new Error('The hold deadline changed unexpectedly. Refresh booking status before paying.');
+    access.booking={...access.booking,...result,expiresAt:access.booking?.expiresAt||access.expiresAt};
+    access.preliminaryHold=false;
+    access.form={...guestResumeFormDraft(),step:4};
+    savePlatformRecovery(access);
+    if (!platformHoldIsUsable(access)) throw new Error('The court hold ended while details were being saved. Check booking status.');
+    if (policyEnabled && !platformPolicyContextStillCurrent(consent)) throw platformPolicyChangedError();
+    recordPlatformHoldConsent(consent);
+    return access;
+  })();
+  _platformHoldCompletePromise=pending;
+  try {return await pending;} finally {if(_platformHoldCompletePromise===pending)_platformHoldCompletePromise=null;}
+}
+
+async function acceptRefundPolicyAndContinue() {
+  if(!window.PB_PLATFORM_V1)return acceptRefundPolicyAndContinueLegacy();
+  const modal=$('refundPolicyModal');
+  if(wizStep!==4||!_refundPolicyRequiresAcceptance||!modal?.open||!$('bookModal')?.classList.contains('active'))return;
+  const consent={version:REFUND_POLICY_VERSION,signature:REFUND_POLICY_SIGNATURE};
+  if(!platformPolicyContextStillCurrent(consent)){clearRefundPolicyAcceptance();return;}
+  const action=$('refundPolicyAction');if(action?.disabled||_platformHoldCompletePromise)return;
+  const access=_platformBookingAccess;
+  const controls=[...modal.querySelectorAll('button'),$('wizCancelBtn'),$('wizBackBtn'),$('wizNextBtn')].filter(Boolean);
+  const previous=controls.map(button=>({button,disabled:button.disabled}));
+  controls.forEach(button=>button.disabled=true);
+  const label=action?.textContent;if(action)action.textContent='Saving booking details...';
   try {
-    const turnstileToken = await getBookingTurnstileToken();
-    const serverBooking = await DB.createPublicBooking(draft, { turnstileToken });
-    if (!serverBooking.bookingToken) throw new Error('The booking service did not return secure customer access.');
-    const savedItem = {
-      ...item,
-      ref: serverBooking.reference,
-      bookingType,
-      courtName: serverBooking.courtName || item.courtName,
-      courtFee: Number(serverBooking.subtotalAmount || 0),
-      serviceFee: Number(serverBooking.serviceFeeAmount || 0),
-      total: Number(serverBooking.totalAmount || 0),
-      eventType: draft.eventType,
-      eventGuestCount: draft.eventGuestCount,
-      eventSetupNotes: draft.eventSetupNotes,
-    };
-    bookingItems = [savedItem];
-    selSlots = [...savedItem.slots];
-    payFull = serverBooking.fullPaymentOnly === true;
-    _platformBookingAccess = {
-      reference: serverBooking.reference,
-      bookingToken: serverBooking.bookingToken,
-      expiresAt: serverBooking.expiresAt,
-      accessExpiresAt: serverBooking.accessExpiresAt,
-      booking: serverBooking,
-      draft,
-      form: { ...form, step: 4 },
-      fingerprint: requestIdentity.fingerprint,
-      clientRequestId: requestIdentity.clientRequestId,
-    };
-    _reservedRef = serverBooking.reference;
-    _reservedRefs = [serverBooking.reference];
-    savePlatformRecovery(_platformBookingAccess);
-    const expiresMs = bookingReservationDeadlineMs();
-    _reservationStartedAt = Number.isFinite(expiresMs) ? new Date(expiresMs - RESERVATION_MINUTES * 60 * 1000).toISOString() : null;
-    const secondsLeft = reservationSecondsLeft();
-    startSlotCountdown();
-    updatePrice();
-    if (secondsLeft > 0) showBookingIntro();
-    else if (!Number.isFinite(expiresMs)) toast('Booking saved. Refresh its status to check the payment deadline.', 'inf');
-    return _platformBookingAccess;
-  } catch (error) {
-    const policyRejected = /^POLICY_/i.test(String(error?.code || '')) ||
-      /refund.*reschedule.*policy|policy.*(?:changed|version|accept|approved)/i.test(String(error?.message || ''));
-    if (refundPolicyFeatureEnabled() && policyRejected) {
-      clearRefundPolicyAcceptance();
-      DB.clearCache?.(['settings', 'platformBootstrap']);
-      await loadOperatingHours().catch(() => {});
+    await completePlatformBookingHold(consent);
+    if(!$('bookModal')?.classList.contains('active')||!modal.open)return;
+    closeRefundPolicy({restoreFocus:false});
+    wizGoTo(5);requestAnimationFrame(()=>$('wizPanel5')?.focus({preventScroll:true}));
+  } catch(error) {
+    clearRefundPolicyAcceptance();
+    // A completion can commit before its reply is lost. Reconcile routing only;
+    // payment still waits for a fresh explicit consent action after this error.
+    if(access?.bookingToken&&_platformBookingAccess===access) {
+      await fetchAndAdoptPlatformBookingStatus(access).then(()=>savePlatformRecovery(access)).catch(()=>{});
     }
-    throw error;
+    if(/^POLICY_/i.test(String(error?.code||''))) {
+      DB.clearCache?.(['settings','platformBootstrap']);await loadOperatingHours().catch(()=>{});
+      closeRefundPolicy({restoreFocus:false});wizGoTo(4);
+    }
+    if(error?.field){closeRefundPolicy({restoreFocus:false});bookingValidationError(error.message,error.field,3);}
+    else toast(error?.message||'Booking details could not be saved. Try again.','err');
+    if(!platformHoldIsUsable()){closeRefundPolicy({restoreFocus:false});closeBookModal();}
   } finally {
-    resetBookingTurnstile();
+    previous.forEach(({button,disabled})=>{if(button.isConnected)button.disabled=disabled;});
+    if(action?.isConnected)action.textContent=label||'I Agree & Continue';
   }
 }
+
+async function platformWizardNext() {
+  if(_platformHoldCreatePromise||_platformHoldCompletePromise||_proceedToBookPromise)return;
+  if(wizStep===3) {
+    if(!platformHoldIsUsable()) {
+      if(!_platformBookingAccess?.bookingToken && readPlatformPendingDraft()?.kind==='selection_hold') {
+        await requestPlatformHoldForCurrentSelection();
+      } else if (!_platformBookingAccess?.bookingToken && readPlatformPendingDraft()?.draft) {
+        await cancelBookingWizard();
+        toast('The older saved attempt was cleared. Choose your court time again.','inf');
+      } else toast('Your court hold has ended. Check your booking before selecting another time.','inf');
+      return;
+    }
+    if(!platformHoldHasDetails()) {
+      try{platformDetailsFromForm();}catch(error){bookingValidationError(error.message,error.field,3);return;}
+    }
+    saveGuestBookingResume({step:4});wizGoTo(4);return;
+  }
+  if(wizStep===4) {
+    const method=$('bPay')?.value||'';
+    if(!ALL_PAYMENT_METHODS.some(m=>paymentMethods[m])||!method||!paymentMethods[method]) {bookingValidationError('Select an available payment method.','payMethodBlock',4);return;}
+    if(!platformHoldIsUsable()){toast('The court hold has ended. Check your booking before paying.','inf');return;}
+    if(!platformHoldHasDetails()) {
+      try{platformDetailsFromForm();}catch(error){bookingValidationError(error.message,error.field,3);return;}
+    }
+    if(refundPolicyFeatureEnabled()&&(!currentRefundPolicyAccepted()||!platformHoldHasDetails())) {openRefundPolicyForBooking($('wizNextBtn'));return;}
+    if(!refundPolicyFeatureEnabled()&&!platformHoldHasDetails()) {
+      try{await completePlatformBookingHold();}catch(error){toast(error.message,'err');return;}
+    }
+    if(!platformHoldHasDetails()) {toast('Complete your booking details before paying.','inf');return;}
+    wizGoTo(5);return;
+  }
+  if(wizStep===5)return submitBooking();
+}
+
+async function proceedToBook(courtId=null) {
+  if(_proceedToBookPromise)return _proceedToBookPromise;
+  const controls=[...document.querySelectorAll('#mobileBookBtn,.cc-book-bar .btn')];
+  const prior=controls.map(button=>({button,disabled:button.disabled,text:button.textContent}));
+  controls.forEach(button=>{button.disabled=true;button.textContent='Reserving court...';});
+  const pending=Promise.resolve().then(()=>proceedToBookSelection(courtId));
+  _proceedToBookPromise=pending;
+  try{return await pending;}finally{
+    if(_proceedToBookPromise===pending)_proceedToBookPromise=null;
+    prior.forEach(({button,disabled,text})=>{if(button.isConnected){button.disabled=disabled;button.textContent=text;}});
+  }
+}
+
+function platformRecoveryForm(saved = {}) {
+  const form=saved.form||{},customer=saved.booking?.customer||{},draft=saved.draft||{};
+  return {...form,
+    name:form.name||customer.name||saved.booking?.customerName||draft.fullName||'',
+    email:form.email||customer.email||saved.booking?.customerEmail||draft.email||'',
+    phone:form.phone||customer.phone||saved.booking?.customerPhone||draft.contactNumber||'',
+    eventType:form.eventType||saved.booking?.eventType||draft.eventType||'',
+    eventGuests:form.eventGuests||saved.booking?.guestCount||draft.eventGuestCount||'',
+    eventNotes:form.eventNotes||saved.booking?.eventSetupNotes||draft.eventSetupNotes||'',
+  };
+}
+
+function platformHoldRecoveryStep(saved,accepted=currentRefundPolicyAccepted()) {
+  const form=platformRecoveryForm(saved);
+  // Existing normal access is authoritative proof that customer details already exist.
+  if(saved.booking?.detailsCompleted===true) {
+    if(refundPolicyFeatureEnabled()&&!accepted)return 4;
+    return Math.min(5,Math.max(4,Number(form.step)||4));
+  }
+  try{platformDetailsFromForm(form,(saved.booking?.bookingType||saved.draft?.bookingType)==='event');}catch(_){return 3;}
+  return 4;
+}
+
+function platformAccessIsPreliminary(access) {
+  // A freshly fetched completed status wins over a stale saved routing hint.
+  if(access?.booking?.detailsCompleted===true)return false;
+  return access?.booking?.detailsCompleted===false || access?.preliminaryHold===true;
+}
+
+function platformAccessRequest(access) {
+  return {bookingReference:access.reference,bookingToken:access.bookingToken,preliminaryHold:platformAccessIsPreliminary(access)};
+}
+
+function adoptPlatformBookingStatus(access,status) {
+  access.booking={...(access.booking||{}),...status};
+  if(status?.detailsCompleted===true)access.preliminaryHold=false;
+  else if(status?.detailsCompleted===false)access.preliminaryHold=true;
+  return status;
+}
+
+async function fetchAndAdoptPlatformBookingStatus(access) {
+  const status=await DB.getPublicBookingStatus(platformAccessRequest(access));
+  adoptPlatformBookingStatus(access,status);
+  return status;
+}
+
+function recordPlatformHoldConsent(consent) {
+  if (refundPolicyFeatureEnabled()) {
+    if (!platformPolicyContextStillCurrent(consent)) throw platformPolicyChangedError();
+    REFUND_POLICY_ACCEPTED_VERSION=consent.version;
+    REFUND_POLICY_ACCEPTED_SIGNATURE=consent.signature;
+    $('bookingPolicyAgree').checked=true;
+    syncRefundPolicyAcceptanceUi();
+    $('bookingPolicyAgree').dispatchEvent(new Event('change',{bubbles:true}));
+  }
+  saveGuestBookingResume({step:4,policyAgreed:refundPolicyFeatureEnabled(),
+    policyVersion:refundPolicyFeatureEnabled()?consent.version:'',policySignature:refundPolicyFeatureEnabled()?consent.signature:''});
+}
+
+async function requestPlatformHoldForCurrentSelection() {
+  if (_platformHoldCreatePromise) return _platformHoldCreatePromise;
+  const controls=[...document.querySelectorAll('#bookForm input,#bookForm select,#bookForm textarea,.bk-modal-ft button')];
+  const previous=controls.map(control=>({control,disabled:control.disabled}));
+  controls.forEach(control=>{control.disabled=true;});
+  if($('bookingSecurityCheck'))$('bookingSecurityCheck').style.display='';
+  if($('bookingTurnstileStatus'))$('bookingTurnstileStatus').textContent='Securing your selected court time...';
+  if($('wizNextBtn'))$('wizNextBtn').textContent='Reserving court...';
+  try {
+    const result=await createPlatformBookingHold();
+    if(platformHoldIsUsable(result))return result;
+    return null;
+  } catch(error) {
+    toast(error?.message||'Could not reserve this time. Retry the saved request.','err');
+    if($('bookingTurnstileStatus'))$('bookingTurnstileStatus').textContent='The reservation was not confirmed. Retry the same request before continuing.';
+    return null;
+  } finally {
+    previous.forEach(({control,disabled})=>{if(control.isConnected)control.disabled=disabled;});
+    if($('bookingSecurityCheck'))$('bookingSecurityCheck').style.display=platformHoldIsUsable()?'none':'';
+    if($('wizNextBtn'))$('wizNextBtn').textContent=platformHoldIsUsable()?'Next →':'Retry reservation';
+    if(_platformBookingAccess?.bookingToken && !platformHoldIsUsable())closeBookModal();
+  }
+}
+
 const DEVELOPER_PROMO_SESSION_KEY = 'pickle-street-developer-promo-seen';
 let _developerPromoSeenThisPage = false;
 let _developerPromoPendingMode = null;
@@ -12224,7 +12435,7 @@ async function expireStaleVerifyingBookings() {
 </script>
 <script src="supabase.min.js"></script>
 <script src="tenant-config.js?v=20260908-routes2"></script>
-<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260908-promo-tiers"></script><script src="receipt-pending.js?v=20260908-routes2"></script>
+<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260908-book-now-hold"></script><script src="receipt-pending.js?v=20260908-routes2"></script>
 <script src="open-play-data.js?v=20260801-openplay-fee-settings"></script>
 <script src="open-play-public.js?v=20260801-openplay-fee-settings"></script>
 

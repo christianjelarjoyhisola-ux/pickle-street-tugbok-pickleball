@@ -22,7 +22,12 @@ function harness(status,{uploadError=Object.assign(new TypeError('Load failed'),
     savePlatformStatusAccess:()=>events.statusSaved++,stopSlotCountdown:()=>events.stopped++,
     startSavedPlatformBookingPolling:async()=>events.polling++,resetForm:()=>events.reset++,
   };
-  c.window=c;vm.createContext(c);vm.runInContext(code,c);
+  c.window=c;vm.createContext(c);
+  for(const name of ['platformAccessIsPreliminary','platformAccessRequest','adoptPlatformBookingStatus','fetchAndAdoptPlatformBookingStatus']){
+    const match=new RegExp('^(?:async )?function '+name+'\\s*\\(','m').exec(source);
+    assert.ok(match,name);vm.runInContext(source.slice(match.index,source.indexOf('\n}',match.index)+2),c);
+  }
+  vm.runInContext(code,c);
   return{c,events,file,access,fields};
 }
 function retained(h){

@@ -1558,7 +1558,7 @@ async function _invokePaymentSessionFallback(payload) {
 
 async function _invokeEdgeFunction(name, payload = {}, { allowFailure = false, preferDirect = false } = {}) {
   const endpoint = String(name).split('?')[0];
-  const guestEndpoint = ['create-booking','booking-status','cancel-booking','balance-payment-status','player-rain-report'].includes(endpoint) || (endpoint === 'picklestreet-receipts' && ['status','balance_status'].includes(payload.action));
+  const guestEndpoint = ['create-booking','booking-status','cancel-booking','balance-payment-status','player-rain-report','picklestreet-booking-hold'].includes(endpoint) || (endpoint === 'picklestreet-receipts' && ['status','balance_status'].includes(payload.action));
   if (PB_PLATFORM_V1 && payload.tenantSlug !== PB_TENANT_SLUG) throw new Error('A venue-scoped request is required.');
   if (guestEndpoint) preferDirect = true;
   let data = null;
@@ -3777,6 +3777,45 @@ window.DB = {
     _pbClearFastCache(scopes);
   },
 
+  async createPublicBookingHold(booking, { turnstileToken } = {}) {
+    if (!PB_PLATFORM_V1 || PB_TENANT_SLUG !== 'pickle-street-tugbok') throw new Error('This venue does not support preliminary slot holds.');
+    const bootstrap = await _pbPlatformBootstrap();
+    if (bootstrap?.readiness?.publicBookingEnabled !== true) throw new Error('Online booking is not ready yet.');
+    const slots = [...new Set((booking?.slots || []).map(Number))].sort((a,b)=>a-b);
+    if (!slots.length || slots.some((hour,index)=>!Number.isInteger(hour) || (index>0 && hour!==slots[index-1]+1))) throw new Error('Booking hours must be consecutive.');
+    const token = String(turnstileToken || '').trim();
+    if (!token) throw new Error('Please complete the security check to hold your court time.');
+    const clientRequestId = String(booking?.clientRequestId || '').trim().toLowerCase();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(clientRequestId)) throw new Error('A secure request could not be created. Please refresh.');
+    const result = await _invokeEdgeFunction(`picklestreet-booking-hold?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`, {
+      action:'create',tenantSlug:PB_TENANT_SLUG,courtId:String(booking.courtId),bookingDate:String(booking.date),
+      startTime:`${String(slots[0]).padStart(2,'0')}:00`,durationHours:slots.length,
+      bookingType:booking.bookingType==='event'?'event':'regular',clientRequestId,turnstileToken:token,
+    }, {preferDirect:true});
+    if (!result?.ok || !result.booking?.reference || !result.booking?.bookingToken) throw new Error('The court hold did not return secure access.');
+    _pbClearFastCache(['bookings','platformAvailability']);
+    return result.booking;
+  },
+
+  async completePublicBookingHold({bookingReference,bookingToken,customer,guestCount=1,eventType=null,eventSetupNotes=null,policyAccepted,policyVersion}) {
+    if (!PB_PLATFORM_V1 || PB_TENANT_SLUG !== 'pickle-street-tugbok') throw new Error('This venue does not support preliminary slot holds.');
+    const bootstrap = await _pbPlatformBootstrap();
+    const policy = _pbApprovedRefundPolicyForWrite(bootstrap?.settings?.[PB_REFUND_RESCHEDULE_POLICY_KEY]);
+    if (policyAccepted !== true || String(policyVersion || '') !== policy.version) {
+      const error = new Error('The booking policy changed. Review the current policy before continuing.');
+      error.code = 'POLICY_CHANGED';
+      throw error;
+    }
+    const result = await _invokeEdgeFunction(`picklestreet-booking-hold?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`, {
+      action:'complete',tenantSlug:PB_TENANT_SLUG,bookingReference:String(bookingReference || ''),bookingToken:String(bookingToken || ''),
+      customer:{name:String(customer?.name || '').trim(),email:String(customer?.email || '').trim(),phone:String(customer?.phone || '').trim()},
+      guestCount:Number(guestCount),eventType,eventSetupNotes,policyAccepted:true,policyVersion:policy.version,
+    }, {preferDirect:true});
+    if (!result?.ok || !result.booking?.reference || result.booking.detailsCompleted !== true) throw new Error('Your booking details could not be saved. Try again before the timer ends.');
+    _pbClearFastCache(['bookings','platformAvailability']);
+    return result.booking;
+  },
+
   async createPublicBooking(booking, { turnstileToken } = {}) {
     if (!PB_PLATFORM_V1) throw new Error('The tenant booking service is not enabled.');
     const bootstrap = await _pbPlatformBootstrap();
@@ -4066,8 +4105,17 @@ window.DB = {
     return claim;
   },
 
-  async getPublicBookingStatus({ bookingReference, bookingToken }) {
+  async getPublicBookingStatus({ bookingReference, bookingToken, preliminaryHold = false }) {
     if (!PB_PLATFORM_V1) throw new Error('The tenant booking-status service is not enabled.');
+    if (preliminaryHold && PB_TENANT_SLUG === 'pickle-street-tugbok') {
+      const held = await _invokeEdgeFunction(`picklestreet-booking-hold?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`, {
+        action:'status',tenantSlug:PB_TENANT_SLUG,bookingReference:String(bookingReference || ''),bookingToken:String(bookingToken || ''),
+      }, {preferDirect:true});
+      if (!held?.ok || !held.booking?.reference) throw new Error('Your court hold could not be checked.');
+      if (held.booking.detailsCompleted !== true) return {..._pbNormalizePublicBookingStatus(held.booking),detailsCompleted:false};
+      const booking = await this.getPublicBookingStatus({bookingReference,bookingToken});
+      return {...booking,detailsCompleted:true};
+    }
     const result = await _invokeEdgeFunction(
       `${window.PB_TENANT_CONFIG?.receiptReviewMode === 'auto_pending' && PB_TENANT_SLUG === 'pickle-street-tugbok' ? 'picklestreet-receipts' : 'booking-status'}?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
       {
@@ -4082,7 +4130,7 @@ window.DB = {
     if (!result?.ok || !booking) {
       throw new Error(result?.message || result?.error || 'Booking status is unavailable.');
     }
-    return booking;
+    return {...booking, detailsCompleted:true};
   },
 
   async getPendingReceiptReviewContext(bookingReference, verificationId) {
@@ -4125,11 +4173,12 @@ window.DB = {
     return result;
   },
 
-  async cancelPublicBookingHold({ bookingReference, bookingToken }) {
+  async cancelPublicBookingHold({ bookingReference, bookingToken, preliminaryHold = false }) {
     if (!PB_PLATFORM_V1) throw new Error('The tenant booking-cancellation service is not enabled.');
     const result = await _invokeEdgeFunction(
-      `cancel-booking?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      `${preliminaryHold && PB_TENANT_SLUG === 'pickle-street-tugbok' ? 'picklestreet-booking-hold' : 'cancel-booking'}?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
       {
+        ...(preliminaryHold && PB_TENANT_SLUG === 'pickle-street-tugbok' ? {action:'cancel'} : {}),
         tenantSlug: PB_TENANT_SLUG,
         bookingReference: String(bookingReference || ''),
         bookingToken: String(bookingToken || ''),

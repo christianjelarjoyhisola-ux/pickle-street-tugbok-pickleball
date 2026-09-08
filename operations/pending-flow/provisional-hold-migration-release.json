@@ -1,0 +1,7 @@
+{
+  "appliedAt": "2026-09-08T04:05:14.326Z",
+  "migrationHash": "451736283bee12a97e6f3b7fd6b055a2fd2cddc98f1c02d063912233f5d984bb",
+  "rollbackGroupsPassed": 18,
+  "newTenantOnlyService": "picklestreet-booking-hold",
+  "tenantId": "f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a"
+}

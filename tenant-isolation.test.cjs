@@ -97,6 +97,58 @@ test('guest booking status uses anonymous authorization even when a manager is r
   assert.match(request.url,/picklestreet-receipts/);assert.equal(JSON.parse(request.init.body).action,'status');
 });
 
+test('Book Now creates a selection-only hold using guest authorization',async()=>{
+  const {context:c,calls}=boot({bootstrap:{readiness:{publicBookingEnabled:true}},response:{ok:true,booking:{reference:'PS-HOLD',bookingToken:'test-capability',detailsCompleted:false}}});
+  const result=await c.DB.createPublicBookingHold({courtId:'court-test',date:'2026-10-01',slots:[10,11],bookingType:'regular',clientRequestId:'10000000-0000-4000-8000-000000000001',fullName:'Do not send',policyAccepted:true,total:1},{turnstileToken:'test-challenge'});
+  assert.equal(result.detailsCompleted,false);
+  const request=calls.find(x=>x.kind==='fetch'),body=JSON.parse(request.init.body);
+  assert.match(request.url,/picklestreet-booking-hold/);assert.equal(body.action,'create');
+  assert.equal(body.startTime,'10:00');assert.equal(body.durationHours,2);
+  assert.equal(body.tenantSlug,SLUG);
+  for(const key of ['customer','fullName','policyAccepted','total','metadata'])assert.equal(Object.hasOwn(body,key),false);
+  assert.ok(!new Headers(request.init.headers).get('Authorization').includes('test-manager-token'));
+});
+
+test('hold creation rejects invalid selection or missing challenge before writing',async()=>{
+  const {context:c,calls}=boot({bootstrap:{readiness:{publicBookingEnabled:true}}});
+  await assert.rejects(c.DB.createPublicBookingHold({slots:[10,12]},{turnstileToken:'challenge'}),/consecutive/);
+  await assert.rejects(c.DB.createPublicBookingHold({slots:[10]}),/security check/);
+  assert.equal(calls.filter(x=>x.kind==='fetch').length,0);
+});
+
+test('preliminary status stays private and cannot claim completed details',async()=>{
+  const {context:c,calls}=boot({response:{ok:true,booking:{reference:'PS-HOLD',status:'pending_payment',detailsCompleted:false}}});
+  const result=await c.DB.getPublicBookingStatus({bookingReference:'PS-HOLD',bookingToken:'test-capability',preliminaryHold:true});
+  assert.equal(result.detailsCompleted,false);
+  const request=calls.find(x=>x.kind==='fetch');assert.match(request.url,/picklestreet-booking-hold/);
+  assert.equal(JSON.parse(request.init.body).action,'status');
+});
+
+test('existing normal access remains customer-complete without a preliminary lookup',async()=>{
+  const {context:c,calls}=boot();
+  const result=await c.DB.getPublicBookingStatus({bookingReference:'PS-TEST',bookingToken:'test-capability'});
+  assert.equal(result.detailsCompleted,true);assert.equal(calls.filter(x=>x.kind==='fetch').length,1);
+});
+
+test('preliminary cancellation routes to the isolated hold service',async()=>{
+  const {context:c,calls}=boot({response:{ok:true,cancellation:{cancelled:true}}});
+  const result=await c.DB.cancelPublicBookingHold({bookingReference:'PS-HOLD',bookingToken:'test-capability',preliminaryHold:true});
+  assert.equal(result.cancelled,true);const request=calls.find(x=>x.kind==='fetch');
+  assert.match(request.url,/picklestreet-booking-hold/);assert.equal(JSON.parse(request.init.body).action,'cancel');
+});
+
+test('customer completion requires real current consent and preserves the capability',async()=>{
+  const policy={version:'test-v1',title:'Booking policy',intro:'Please review these test booking terms.',content:'Test booking terms require review and acceptance.',ownerApproved:true};
+  const {context:c,calls}=boot({bootstrap:{settings:{refund_reschedule_policy:policy}},response:{ok:true,booking:{reference:'PS-HOLD',bookingToken:'same-capability',detailsCompleted:true}}});
+  const payload={bookingReference:'PS-HOLD',bookingToken:'same-capability',customer:{name:'Test Guest',email:'test@example.test',phone:'09170000000'},policyVersion:'test-v1'};
+  await assert.rejects(c.DB.completePublicBookingHold({...payload,policyAccepted:false}),e=>e.code==='POLICY_CHANGED');
+  await assert.rejects(c.DB.completePublicBookingHold({...payload,policyAccepted:true,policyVersion:'older-v1'}),e=>e.code==='POLICY_CHANGED');
+  assert.equal(calls.filter(x=>x.kind==='fetch').length,0);
+  const result=await c.DB.completePublicBookingHold({...payload,policyAccepted:true});assert.equal(result.detailsCompleted,true);
+  const body=JSON.parse(calls.find(x=>x.kind==='fetch').init.body);
+  assert.equal(body.action,'complete');assert.equal(body.bookingToken,'same-capability');assert.equal(body.bookingReference,'PS-HOLD');assert.equal(body.policyAccepted,true);assert.equal(body.customer.name,'Test Guest');
+});
+
 test('receipt retry uses staff authorization and a stable caller request id',async()=>{
   const {context:c,calls}=boot({scope:'manager',response:{ok:true,bookingStatus:'payment_review',paymentStatus:'pending'}});
   const result=await c.DB.retryPaymentReceipt('PS-TEST','00000000-0000-4000-8000-000000000001');

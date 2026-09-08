@@ -1,0 +1,194 @@
+{
+  "releasedAt": "2026-09-08T04:14:55.855Z",
+  "site": "https://picklestreet.pages.dev/",
+  "deployment": "https://037321a6.picklestreet.pages.dev",
+  "behavior": [
+    "Selecting slots alone does not hold them. Book Now creates an authoritative server hold and shows the remaining 15-minute window.",
+    "Details Next validates locally; Payment Method Next opens policy. Explicit acceptance saves customer details and promotes the same capability before payment.",
+    "Retries, refresh and policy completion preserve the same booking and deadline. Expired or cancelled holds cannot continue."
+  ],
+  "validation": {
+    "frontendTests": 190,
+    "edgeTests": 44,
+    "databaseRollback": {
+      "checkedAt": "2026-09-08T04:03:02.764Z",
+      "migrationHash": "451736283bee12a97e6f3b7fd6b055a2fd2cddc98f1c02d063912233f5d984bb",
+      "rolledBack": true,
+      "result": [
+        {
+          "name": "Another request cannot occupy the same court slot",
+          "passed": true
+        },
+        {
+          "name": "Capability is bound to booking and actual tenant hostname",
+          "passed": true
+        },
+        {
+          "name": "Completion promotes same capability, stores policy audit once, preserves expiry/key/price and retries safely",
+          "passed": true
+        },
+        {
+          "name": "Completion requires valid customer details and authentic current policy",
+          "passed": true
+        },
+        {
+          "name": "Current event-disabled policy is enforced by unchanged booking core wrapper",
+          "passed": true
+        },
+        {
+          "name": "Every pre-existing public function and other-tenant row fingerprint remains unchanged",
+          "passed": true
+        },
+        {
+          "name": "Existing authorized staff cancellation retains cancellation metadata and releases slots",
+          "passed": true
+        },
+        {
+          "name": "Existing receipt upload claim works after completion and remains unpaid",
+          "passed": true
+        },
+        {
+          "name": "Expired holds cannot complete/restart and shared expiry still records its normal audit metadata",
+          "passed": true
+        },
+        {
+          "name": "Expired rotated or deleted normal access blocks completed status and both retry paths without disclosure",
+          "passed": true
+        },
+        {
+          "name": "Lost create response reuses selection-only key and original price/deadline",
+          "passed": true
+        },
+        {
+          "name": "New capabilities and mutations are service-only; no anonymous/authenticated grants",
+          "passed": true
+        },
+        {
+          "name": "One authoritative15-minute hold exists before customer details; no normal token or policy evidence",
+          "passed": true
+        },
+        {
+          "name": "Pre-details cancellation releases own slots and retries without new hold",
+          "passed": true
+        },
+        {
+          "name": "Private hashed-IP limiter caps new holds while idempotent retries stay reusable",
+          "passed": true
+        },
+        {
+          "name": "Provisional tenant/selection/price/deadline are protected against direct mutation",
+          "passed": true
+        },
+        {
+          "name": "Receipt/payment creation and direct confirmation are blocked while provisional",
+          "passed": true
+        },
+        {
+          "name": "Same request key rejects a changed selection",
+          "passed": true
+        }
+      ]
+    },
+    "browserScenarios": {
+      "passed": 17,
+      "cases": [
+        "regular click→hold→Details→method→policy→completion 320",
+        "regular click→hold→Details→method→policy→completion 607",
+        "lost create explicit retry",
+        "lost create reopen retry",
+        "preliminary recovery remains Details and keeps expiry",
+        "preliminary cancel uses correct route",
+        "lost completion reconciles then reaccepts without duplicate completion",
+        "normal completed hold policy reaccept never invokes preliminary complete",
+        "changed policy submit returns method without automatic popup",
+        "event details collected only on completion",
+        "Escape cannot dismiss pending completion",
+        "inactive future/deadline response {\"status\":\"cancelled\"}",
+        "inactive future/deadline response {\"status\":\"expired\"}",
+        "inactive future/deadline response {\"reservationHeld\":false}",
+        "inactive future/deadline response {\"expiresAt\":\"2026-09-08T04:10:21.461Z\"}",
+        "server receipt POLICY_CHANGED returns Method without popup",
+        "hold expiry closes open policy and wizard"
+      ]
+    },
+    "negativeLiveAccess": {
+      "results": [
+        {
+          "name": "actual frontend preflight",
+          "status": 204,
+          "errorCode": null,
+          "ok": true
+        },
+        {
+          "name": "unregistered origin",
+          "status": 403,
+          "errorCode": "TENANT_ORIGIN_DENIED",
+          "ok": true
+        },
+        {
+          "name": "different URL tenant",
+          "status": 403,
+          "errorCode": "TENANT_ACCESS_DENIED",
+          "ok": true
+        },
+        {
+          "name": "different body tenant",
+          "status": 403,
+          "errorCode": "TENANT_ACCESS_DENIED",
+          "ok": true
+        },
+        {
+          "name": "invalid status capability",
+          "status": 401,
+          "errorCode": "BOOKING_ACCESS_DENIED",
+          "ok": true
+        },
+        {
+          "name": "invalid cancel capability",
+          "status": 401,
+          "errorCode": "BOOKING_ACCESS_DENIED",
+          "ok": true
+        },
+        {
+          "name": "invalid completion capability",
+          "status": 401,
+          "errorCode": "BOOKING_ACCESS_DENIED",
+          "ok": true
+        },
+        {
+          "name": "invalid Turnstile cannot reserve",
+          "status": 403,
+          "errorCode": "SECURITY_CHECK_FAILED",
+          "ok": true
+        }
+      ],
+      "allPassed": true
+    },
+    "liveIsolation": {
+      "checkedAt": "2026-09-08T04:12:36.478Z",
+      "existingEdgeFunctionsUnchanged": 30,
+      "existingSqlFunctionsUnchanged": 244,
+      "newSqlFunctions": 8,
+      "newEdgeFunction": "picklestreet-booking-hold",
+      "newEdgeVersion": 1,
+      "preliminary_holds": 0,
+      "fixtures": 0,
+      "testing_rates_unchanged": true
+    },
+    "productionBrowser": {
+      "state": {
+        "hasHoldAdapter": true,
+        "newFlow": true,
+        "courtCount": 3,
+        "splash": false,
+        "version": "https://picklestreet.pages.dev/supabase-config.js?v=20260908-book-now-hold"
+      },
+      "errors": [],
+      "readOnly": true
+    }
+  },
+  "limits": [
+    "Browser booking flows use simulated backend responses; real database integration was checked in rollback-only fixtures. No live payment or successful production booking was created for verification.",
+    "Per-IP throttling assumes the gateway supplies trusted forwarded IP headers; Turnstile and tenant/capability checks are enforced independently."
+  ]
+}
