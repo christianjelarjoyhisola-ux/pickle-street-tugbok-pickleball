@@ -3959,23 +3959,6 @@ body.dark #splashScreen {
             <span class="bpay-title-amount"><span>Amount to pay</span><strong id="bStepPayAmt">--</strong></span>
           </div>
 
-          <div class="booking-policy-check" id="bookingPolicyCheck" data-refund-policy-feature hidden>
-            <input class="policy-acceptance-state" type="checkbox" id="bookingPolicyAgree" tabindex="-1" aria-hidden="true" />
-            <span class="booking-policy-status-icon" id="bookingPolicyStatusIcon" aria-hidden="true">✓</span>
-            <div class="booking-policy-copy" role="status" aria-live="polite">
-              <span id="bookingPolicyText"><strong>Policy accepted.</strong> You agreed before continuing to payment.</span>
-              <button type="button" class="policy-inline-link" id="bookingRefundPolicyLink" aria-haspopup="dialog" aria-controls="refundPolicyModal" onclick="openRefundPolicy(this)">Review the full Refund &amp; Reschedule Policy</button>
-            </div>
-          </div>
-
-          <div class="payment-recovery-note" id="paymentRecoveryNote">
-            <div class="payment-recovery-note-copy">
-              <strong>Your unfinished payment is recoverable</strong>
-              If this browser closes, reopen the saved recovery link before the payment timer expires.
-            </div>
-            <button class="btn btn-g btn-sm" type="button" onclick="copyBookingRecoveryLink()">Copy recovery link</button>
-          </div>
-
           <!-- Selected digital payment destination -->
           <div class="gcash bpay-card" id="gcashBox">
             <div class="gc-header">
@@ -4177,6 +4160,16 @@ body.dark #splashScreen {
           <div class="down-note" id="downNote" style="margin-top:10px">
             ⚠️ Submit the <strong>required payment amount shown above</strong> to continue. Follow the configured payment instructions.
           </div>
+
+          <div class="booking-policy-check" id="bookingPolicyCheck" data-refund-policy-feature hidden>
+            <input class="policy-acceptance-state" type="checkbox" id="bookingPolicyAgree" tabindex="-1" aria-hidden="true" />
+            <span class="booking-policy-status-icon" id="bookingPolicyStatusIcon" aria-hidden="true">✓</span>
+            <div class="booking-policy-copy" role="status" aria-live="polite">
+              <span id="bookingPolicyText"><strong>Policy accepted.</strong> You agreed before continuing to payment.</span>
+              <button type="button" class="policy-inline-link" id="bookingRefundPolicyLink" aria-haspopup="dialog" aria-controls="refundPolicyModal" onclick="openRefundPolicy(this)">Review the full Refund &amp; Reschedule Policy</button>
+            </div>
+          </div>
+
         </div>
 
       </form>
@@ -8055,6 +8048,10 @@ function initGuestResumePersistence() {
     ['input', 'change'].forEach(evt => el.addEventListener(evt, () => saveGuestBookingResume()));
   });
   window.addEventListener('beforeunload', () => saveGuestBookingResume());
+  window.addEventListener('pagehide', () => saveGuestBookingResume());
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') saveGuestBookingResume();
+  });
 }
 
 async function maybeResumeGuestBooking() {
@@ -12353,9 +12350,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         await expireStaleVerifyingBookings();
         await renderCourts();
         initGuestResumePersistence();
-        if (readPlatformRecoveryFragment?.() || balancePaymentLinkAccess?.()) window.dismissPickleStreetWelcome?.();
+        if (readPlatformRecoveryFragment?.() || balancePaymentLinkAccess?.() ||
+            (window.PB_PLATFORM_V1 && platformHoldIsUsable(readPlatformRecovery()))) window.dismissPickleStreetWelcome?.();
         else await window.PB_WELCOME_DISMISSED;
-        if (window.PB_PLATFORM_V1) await restorePlatformBookingHold({ openModal: true });
+        if (window.PB_PLATFORM_V1) await restorePlatformBookingHold({ openModal: true, silent: true });
         else await maybeResumeGuestBooking();
         await startSavedPlatformBookingPolling();
         startRealtime();
