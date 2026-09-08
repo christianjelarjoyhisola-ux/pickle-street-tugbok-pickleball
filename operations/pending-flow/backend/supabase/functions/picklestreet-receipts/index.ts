@@ -247,7 +247,7 @@ export async function staffReviewResponse(db:DB,body:Obj,actor:string,origin:str
     }
     const canApprove=receiptApprovalTiming(booking.data!,requestDetails);
     return jsonResponse({ok:true,verificationId,attemptId:job.data.current_attempt_id,balanceRequestId:balanceId||null,
-      bookingReference,paymentWindowMinutes:15,canApprove,
+      bookingReference,paymentWindowMinutes:10,canApprove,
       approvalUnavailableReason:canApprove?'':requestDetails?.groupRescheduleV1===true?'The proposed sessions or booking status no longer allow approval. Refresh the booking before reviewing payment.':'This court time has already started or the booking is no longer eligible for payment confirmation.'},200,origin);
   }
   const decision=String(body.decision||'');
@@ -320,7 +320,7 @@ export async function handleRequest(request:Request):Promise<Response>{
       method=String(request.headers.get('x-payment-method')||'').trim().toLowerCase();
       if(!['gcash','maya','bdo','bdo_pay','bdopay','bpi','gotyme','maribank','pnb'].includes(method))fail('PAYMENT_METHOD_UNAVAILABLE','Choose an available payment method.',400);
       submitted=String(request.headers.get('x-payment-reference')||'').trim().toUpperCase();
-      if(!/^[A-Z0-9][A-Z0-9 -]{5,63}$/.test(submitted))fail('PAYMENT_REFERENCE_INVALID','Enter the transaction reference from your receipt.',400);
+      if(submitted && !/^[A-Z0-9][A-Z0-9 -]{5,63}$/.test(submitted))fail('PAYMENT_REFERENCE_INVALID','Enter the transaction reference from your receipt.',400);
       const image=await readImage(request);bytes=image.bytes;type=image.type;
       storagePath=`${TENANT_ID}/receipts/${booking.id}/${key}.${image.extension}`;
       inspectReceiptImage(bytes,parseReceiptObjectPath(storagePath),type,type);

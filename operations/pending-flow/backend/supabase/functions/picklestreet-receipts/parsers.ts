@@ -2,7 +2,7 @@ import { buildSafeReceiptExtraction } from "../_shared/receipt-verification.ts";
 import { parseProviderReceipt, verifyProviderReceipt } from "../_shared/picklestreet-source/receipt-providers/index.ts";
 type Input = Parameters<typeof buildSafeReceiptExtraction>[0];
 type Result = ReturnType<typeof buildSafeReceiptExtraction>;
-export const PICKLESTREET_PAYMENT_WINDOW_MINUTES = 15;
+export const PICKLESTREET_PAYMENT_WINDOW_MINUTES = 10;
 
 function pending(result: Result, flag: string): Result {
   return {...result,autoApprove:false,flags:[...new Set([...result.flags.filter(f=>f!=="auto_approval_eligible"),flag])]};

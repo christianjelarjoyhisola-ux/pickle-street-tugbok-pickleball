@@ -16,7 +16,7 @@
     rainResolutionMode:'reschedule_only',
     receiptReviewMode:'auto_pending',
     manualReceiptReviewEnabled:true,
-    receiptPaymentWindowMinutes:15,
+    receiptPaymentWindowMinutes:10,
     sharedGcashPaymentsEnabled:true,
     onboardingLocked:false,
     // Pickle Street bookings do not use a CAPTCHA.

@@ -9249,7 +9249,7 @@ async function openVerifyModal(ref, { returnFocus = null, reviewAction = null } 
   const automaticOnly = window.PBReceiptPending?.automatic(b) === true;
   $('verifyModal').dataset.receiptManual = automaticOnly ? 'required' : '';
   const notice = $('vmDecisionNotice');
-  if (notice) { notice.hidden = !automaticOnly; notice.textContent = 'Receipt payments have a 15-minute window from reservation. Automatic check failures stay Pending.'; }
+  if (notice) { notice.hidden = !automaticOnly; notice.textContent = 'Receipt payments have a 10-minute window from reservation. Automatic check failures stay Pending.'; }
   if ($('vmRejectPaymentBtn')) { $('vmRejectPaymentBtn').hidden = automaticOnly && !manualTarget; $('vmRejectPaymentBtn').disabled = automaticOnly; }
   if ($('vmManualConfirmBtn')) { $('vmManualConfirmBtn').hidden = automaticOnly && !manualTarget; $('vmManualConfirmBtn').disabled = automaticOnly; }
   if (manualTarget) {
@@ -10788,7 +10788,7 @@ async function openRescheduleModal(ref, { returnFocus = null } = {}) {
       onSaved: async (result, paymentRequired) => {
         await Promise.allSettled([renderBookings(), renderDash()]);
         if (paymentRequired) {
-          toast('The new sessions are held for 15 minutes. The original booking stays reserved until the additional payment is verified.', 'inf');
+          toast('The new sessions are held for 10 minutes. The original booking stays reserved until the additional payment is verified.', 'inf');
         } else {
           toast('Court sessions rescheduled under the same booking reference.');
         }
@@ -15062,8 +15062,8 @@ async function checkAgreementGate(session) {
 </script>
 
 <script src="supabase.min.js"></script>
-<script src="tenant-config.js?v=20260908-no-captcha"></script>
-<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260908-group-booking"></script><script src="payment-source-ui.js?v=20260909-native-maya"></script>
+<script src="tenant-config.js?v=20260909-receipt-only"></script>
+<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260909-receipt-only"></script><script src="payment-source-ui.js?v=20260909-native-maya"></script>
 <script src="receipt-pending.js?v=20260908-routes2"></script>
 <script src="payment-method-brand.js?v=20260908-routes2"></script>
 <script src="payment-settings.js?v=20260909-native-maya"></script>

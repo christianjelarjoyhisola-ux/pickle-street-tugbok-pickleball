@@ -18,7 +18,7 @@ import type {
 
 export const SOURCE_ROUTE_TENANT_ID = "f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a";
 export const SOURCE_ROUTE_TENANT_SLUG = "pickle-street-tugbok";
-export const SOURCE_ROUTE_WINDOW_MINUTES = 15;
+export const SOURCE_ROUTE_WINDOW_MINUTES = 10;
 export const SOURCE_ROUTE_MIN_NATIVE_CONFIDENCE = 0.90;
 export type SecondaryReference = {
   kind: "instapay" | "maya_instapay" | "bdopay_invoice" | "bpi_transaction";
@@ -280,11 +280,18 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
   let ageMinutes: number | null = null;
   if (source) {
     try {
-      const parsed = parseProviderReceipt(source, text, {
+      let parsed = parseProviderReceipt(source, text, {
         typedReference: String(input.payment?.submittedReference || ""),
       });
+      // Receipt-only checkout: a high-confidence provider reference replaces manual entry.
+      // Reparse with that observed value so existing provider format checks still run.
+      const typed = String(input.payment?.submittedReference || "");
+      const observedReference = parsed.receipt.reference.confidence === "high"
+        ? parsed.receipt.reference.value : null;
+      const comparedReference = typed || (observedReference ? String(observedReference) : "");
+      if (!typed && comparedReference) parsed = parseProviderReceipt(source,text,{typedReference:comparedReference});
       const context = {
-        typedReference: String(input.payment?.submittedReference || ""),
+        typedReference: comparedReference,
         expectedAmount: expected,
         pricingAvailable: Number.isFinite(expected) && expected > 0,
         amountTolerance: 0.001,

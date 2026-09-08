@@ -47,3 +47,10 @@ test('unreadable receipt results still display pending and verified receipts sti
     assert.equal(h.events.messages[0].type,'ok');
   }
 });
+
+test('receipt-only checkout submits without a typed transaction reference',async()=>{
+ const h=harness({status:'manual_review',bookingStatus:'payment_review',paymentStatus:'pending'});
+ h.c.$('bGcashRef').value='';let submitted;
+ h.c.DB.submitPublicPaymentReceipt=async args=>{submitted=args;return {status:'manual_review',bookingStatus:'payment_review',paymentStatus:'pending'};};
+ await h.c.submitPlatformBooking();assert(submitted);assert.equal(submitted.paymentReference,'');assert.equal(submitted.receiptFile,h.c._receiptFile);
+});

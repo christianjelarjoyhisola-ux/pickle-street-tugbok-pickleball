@@ -1,0 +1,26 @@
+[
+  {
+    "name": "One owner/reference/total; simultaneous courts and nonadjacent hours; one original deadline",
+    "passed": true
+  },
+  {
+    "name": "Idempotent retry keeps same reference and deadline",
+    "passed": true
+  },
+  {
+    "name": "Changed selection rejected",
+    "passed": true
+  },
+  {
+    "name": "Unavailable session rolls back every newly requested slot",
+    "passed": true
+  },
+  {
+    "name": "One real customer and policy complete all sessions with same capability",
+    "passed": true
+  },
+  {
+    "name": "Other venue origin cannot create a group",
+    "passed": true
+  }
+]

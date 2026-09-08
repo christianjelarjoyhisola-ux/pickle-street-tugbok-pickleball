@@ -1,0 +1,66 @@
+[
+  {
+    "name": "One authoritative15-minute hold exists before customer details; no normal token or policy evidence",
+    "passed": true
+  },
+  {
+    "name": "Lost create response reuses selection-only key and original price/deadline",
+    "passed": true
+  },
+  {
+    "name": "Same request key rejects a changed selection",
+    "passed": true
+  },
+  {
+    "name": "Another request cannot occupy the same court slot",
+    "passed": true
+  },
+  {
+    "name": "Capability is bound to booking and actual tenant hostname",
+    "passed": true
+  },
+  {
+    "name": "Provisional tenant/selection/price/deadline are protected against direct mutation",
+    "passed": true
+  },
+  {
+    "name": "Receipt/payment creation and direct confirmation are blocked while provisional",
+    "passed": true
+  },
+  {
+    "name": "Completion requires valid customer details and authentic current policy",
+    "passed": true
+  },
+  {
+    "name": "Completion promotes same capability, stores policy audit once, preserves expiry/key/price and retries safely",
+    "passed": true
+  },
+  {
+    "name": "Existing receipt upload claim works after completion and remains unpaid",
+    "passed": true
+  },
+  {
+    "name": "Expired rotated or deleted normal access blocks completed status and both retry paths without disclosure",
+    "passed": true
+  },
+  {
+    "name": "Pre-details cancellation releases own slots and retries without new hold",
+    "passed": true
+  },
+  {
+    "name": "Expired holds cannot complete/restart and shared expiry still records its normal audit metadata",
+    "passed": true
+  },
+  {
+    "name": "Existing authorized staff cancellation retains cancellation metadata and releases slots",
+    "passed": true
+  },
+  {
+    "name": "Current event-disabled policy is enforced by unchanged booking core wrapper",
+    "passed": true
+  },
+  {
+    "name": "Private hashed-IP limiter caps new holds while idempotent retries stay reusable",
+    "passed": true
+  }
+]

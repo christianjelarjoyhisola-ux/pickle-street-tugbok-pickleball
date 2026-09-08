@@ -3794,14 +3794,14 @@ body.dark #splashScreen {
 
     <!-- Slot reservation countdown -->
     <div id="slotCountdown">
-      <span class="scd-text">⏳ Slot reserved — complete booking within <span id="scdTime" class="scd-inline-time">15:00</span></span>
-      <span class="scd-timer" id="scdTimerBig">15:00</span>
+      <span class="scd-text">⏳ Slot reserved — complete booking within <span id="scdTime" class="scd-inline-time">10:00</span></span>
+      <span class="scd-timer" id="scdTimerBig">10:00</span>
     </div>
 
     <div class="booking-intro" id="bookingIntro" aria-hidden="true" inert>
       <div id="bookingIntroCard" tabindex="-1" role="group" aria-labelledby="bookingIntroTitle" aria-describedby="bookingIntroCopy">
-        <p class="booking-intro-kicker">15-MINUTE CHECKOUT</p>
-        <h2 class="booking-intro-title" id="bookingIntroTitle">Complete your booking within 15 minutes</h2>
+        <p class="booking-intro-kicker">10-MINUTE CHECKOUT</p>
+        <h2 class="booking-intro-title" id="bookingIntroTitle">Complete your booking within 10 minutes</h2>
         <div class="booking-intro-timer" id="bookingIntroTimer">--:--</div>
         <p class="booking-intro-copy" id="bookingIntroCopy">Keep an eye on the timer at the top of the booking form.</p>
       </div>
@@ -4119,7 +4119,7 @@ body.dark #splashScreen {
                   <span class="bpay-window-copy">Pay and upload your receipt by <strong class="bpay-window-deadline" id="bPayWindowEnd">--</strong> PH.</span>
                 </div>
               </div>
-              <div class="bpay-ref-head">
+              <div hidden aria-hidden="true" id="receiptOnlyReferenceLegacy"><div class="bpay-ref-head">
                 <label class="bpay-ref-label">
                   🔖 Reference # <span id="refMethodLabel" style="color:var(--muted);text-transform:none;font-size:.68rem;font-weight:500;letter-spacing:0"></span>
                 </label>
@@ -4135,6 +4135,7 @@ body.dark #splashScreen {
                 GCash reference must be exactly 13 digits.
               </div>
 
+              </div><p class="bpay-help">Upload your complete receipt. We read the payment reference automatically.</p>
               <!-- Receipt screenshot upload (auto-verification) -->
               <div class="bpay-receipt">
                 <label class="bpay-ref-label" style="display:block;margin-bottom:6px">
@@ -7906,7 +7907,7 @@ let _reservationStartedAt = null;
 let _countdownInterval = null;
 let _countdownTick = null;
 let _reservationIntroTimeout = null;
-const RESERVATION_MINUTES = 15;
+const RESERVATION_MINUTES = 10;
 const GUEST_RESUME_KEY = 'pb_guest_booking_resume_v1';
 let _refundPolicyReturnFocus = null;
 let _refundPolicyPreviousBodyOverflow = '';
@@ -8766,11 +8767,11 @@ function startSlotCountdown(initialSeconds = null) {
     const current=window.PB_PLATFORM_V1?bookingReservationDeadlineMs():deadline;
     if(!Number.isFinite(current)){stopSlotCountdown();return;}
     const remaining=Math.max(0,Math.ceil((current-Date.now())/1000));
-    // Give a newly acknowledged hold its 15:00 opening frame. Subsequent ticks
+    // Give a newly acknowledged hold its 10:00 opening frame. Subsequent ticks
     // use the unchanged server deadline; recovered holds never get this frame.
     const opening=window._bookingTimerOpening;
-    const openingFrame=opening?.reference===_platformBookingAccess?.reference && Date.now()<opening.until && remaining>=895 && remaining<=900;
-    const shown=openingFrame?900:remaining;
+    const openingFrame=opening?.reference===_platformBookingAccess?.reference && Date.now()<opening.until && remaining>=595 && remaining<=600;
+    const shown=openingFrame?600:remaining;
     const display=String(Math.floor(shown/60)).padStart(2,'0')+':'+String(shown%60).padStart(2,'0');
     for(const id of ['scdTime','scdTimerBig','bookingIntroTimer'])if($(id))$(id).textContent=display;
     updatePaymentWindowText();
@@ -9734,7 +9735,7 @@ function syncDigitalPaymentPanel(method) {
   const guide = [
     qrImage ? (sharedGcash ? 'Scan this QR if your app supports it, or use Bank Transfer to GCash with the account number shown.' : 'Scan the configured QR in '+label+'.') : 'Copy the configured receiving account reference.',
     'Send the exact payment amount shown; any transfer fee is separate.',
-    paymentRefHelpText(method),
+'Keep the payment reference, recipient, amount, and timestamp visible.',
     'Upload the complete '+label+' receipt.',
   ];
   $('gcashBox')?.querySelectorAll('.payment-guide-step span span.payment-guide-long').forEach((el,i)=>{if(guide[i])el.textContent=guide[i];});
@@ -10184,16 +10185,10 @@ async function submitPlatformBooking() {
     return;
   }
   const payMethod = $('bPay')?.value || '';
-  const paymentReference = normalizePaymentRef($('bGcashRef')?.value || '', payMethod).trim();
+  const paymentReference = '';
   const checks = [
     [!isDigitalPayMethod(payMethod), 'Please select an available online full-payment method.', 'payMethodBlock', 4],
-    [!!window.PaymentSourceUI.referenceError(paymentReference,payMethod), window.PaymentSourceUI.referenceError(paymentReference,payMethod), 'bGcashRef', 5],
     [refundPolicyFeatureEnabled() && !currentRefundPolicyAccepted(), 'Please read and agree to the Refund & Reschedule Policy before confirming.', $('bookingPolicyAgree')?.closest('.booking-policy-check'), 5],
-    [!paymentReference, payMethod === 'bpi' ? 'Please enter your BPI Confirmation No. after paying.' : 'Please enter your payment reference number after paying.', 'bGcashRef', 5],
-    [payMethod === 'gcash' && !isGcashRefValid(paymentReference), 'GCash reference number must be exactly 13 digits.', 'bGcashRef', 5],
-    [payMethod === 'bdopay' && !isBdoPayRefValid(paymentReference), 'BDO Pay reference must look like BN-YYYYMMDD-########.', 'bGcashRef', 5],
-    [payMethod === 'maya' && !isMayaRefValid(paymentReference), 'Enter the complete transaction reference from your Maya-to-Maya receipt.', 'bGcashRef', 5],
-    [payMethod === 'bpi' && !isBpiConfirmationValid(paymentReference), 'Enter the BPI Confirmation No. from the receipt.', 'bGcashRef', 5],
     [!_receiptFile, 'Please upload your receipt screenshot before confirming.', 'bReceiptDrop', 5],
   ];
   for (const [failed, message, target, step] of checks) {
@@ -11636,7 +11631,7 @@ function renderBalancePayment(balance) {
       <div class="balance-pay-section">
         <h3 class="balance-pay-step"><span class="balance-step-number">2</span><span>${correction ? 'Upload corrected proof of your existing payment' : 'Submit the new receipt'}</span></h3>
         ${automaticBalanceReceiptFlow() ? '<p>Do not pay again because verification is pending. Upload a clear receipt of the payment you already made.</p>' : ''}
-        <div class="fg" style="margin:0 0 10px">
+        <div class="fg" hidden aria-hidden="true" style="display:none">
           <label class="fl" for="balancePayReference">Payment reference number</label>
           <input class="fi" id="balancePayReference" type="text" maxlength="64" autocomplete="off" aria-describedby="balanceReferenceHelp" placeholder="Enter the reference shown on the new receipt">
           <p id="balanceReferenceHelp" style="font-size:.76rem;color:var(--muted);margin-top:5px"></p>
@@ -11707,8 +11702,8 @@ async function submitBalanceReceipt() {
   if (!automaticBalanceReceiptFlow()) return submitBalanceReceiptLegacy();
   if (_balanceReceiptSaving || !_balancePaymentAccess || !balanceCanSubmitReceipt(_balancePaymentState)) return;
   const method = $('balancePayMethod')?.value || '';
-  const paymentReference = window.PaymentSourceUI.normalizeReference($('balancePayReference')?.value,method).trim();
-  const referenceError = window.PaymentSourceUI.referenceError(paymentReference,method);
+  const paymentReference = '';
+  const referenceError = '';
   const file = _balanceReceiptFile;
   if (referenceError || !file || !method) {
     toast(referenceError || 'Choose a method and attach the receipt image.', 'err');
@@ -11879,7 +11874,7 @@ async function createPlatformBookingHold() {
       const deadline = bookingReservationDeadlineMs();
       _reservationStartedAt=Number.isFinite(deadline)?new Date(deadline-RESERVATION_MINUTES*60000).toISOString():null;
       updatePrice();
-      // Deadline always comes from the server. Never start a fresh local 15 minutes.
+      // Deadline always comes from the server. Never start a fresh local 10 minutes.
       if (!platformHoldIsUsable(_platformBookingAccess)) {
         savePlatformStatusAccess(_platformBookingAccess); stopSlotCountdown(); hideBookingIntro();
         startSavedPlatformBookingPolling().catch(()=>{});
@@ -12462,8 +12457,8 @@ async function expireStaleVerifyingBookings() {
 
 </script>
 <script src="supabase.min.js"></script>
-<script src="tenant-config.js?v=20260908-no-captcha"></script>
-<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260908-group-booking"></script><script src="receipt-pending.js?v=20260908-routes2"></script>
+<script src="tenant-config.js?v=20260909-receipt-only"></script>
+<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260909-receipt-only"></script><script src="receipt-pending.js?v=20260908-routes2"></script>
 <script src="open-play-data.js?v=20260801-openplay-fee-settings"></script>
 <script src="open-play-public.js?v=20260801-openplay-fee-settings"></script>
 

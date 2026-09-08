@@ -161,7 +161,7 @@ for (const provider of Object.keys(receipts) as Provider[]) {
       `${provider}_to_gcash`,
     );
     assert.equal(r.extractedData.comparison.amountMatched, true);
-    assert.equal(r.extractedData.timing.allowedWindowMinutes, 15);
+    assert.equal(r.extractedData.timing.allowedWindowMinutes, 10);
     assert.equal(
       r.extractedData.timing.receiptDateTime,
       "2026-09-08T02:05:00Z",
@@ -327,9 +327,9 @@ Deno.test("removing a secondary reference stays pending even with matching prima
     assert.equal(verifySourceRoute(f).autoApprove, false, provider);
   }
 });
-Deno.test("fifteen-minute bounds are inclusive and the status-bar clock cannot replace transaction time", () => {
+Deno.test("ten-minute bounds are inclusive and the status-bar clock cannot replace transaction time", () => {
   for (
-    const [time, passed] of [["10:15 am", true], ["10:16 am", false]] as const
+    const [time, passed] of [["10:10 am", true], ["10:11 am", false]] as const
   ) {
     const f = fixture("maya");
     f.vision.text = f.vision.text.replace("10:05 am", time);
@@ -441,3 +441,16 @@ Deno.test("impossible calendar dates and wrong server timezone cannot pass timin
   g.timing.tenantTimezone = "UTC";
   assert.equal(verifySourceRoute(g).autoApprove, false);
 });
+
+for (const provider of Object.keys(receipts) as Provider[]) {
+ Deno.test(provider+' receipt-only checkout reads a high-confidence reference',()=>{
+  const f=fixture(provider);f.payment.submittedReference='';
+  const result=verifySourceRoute(f);
+  assert.equal(result.autoApprove,true,JSON.stringify(result.flags));
+  assert.equal(result.paymentReference,receipts[provider].reference);
+ });
+ Deno.test(provider+' unreadable receipt-only reference remains pending',()=>{
+  const f=fixture(provider);f.payment.submittedReference='';f.vision.text='Unreadable image';
+  assert.equal(verifySourceRoute(f).autoApprove,false);
+ });
+}

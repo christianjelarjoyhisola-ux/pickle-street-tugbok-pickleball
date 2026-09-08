@@ -80,3 +80,9 @@ test('an invalid private payment link displays only Close and never stale submis
   assert.equal((elements.balancePayActions.innerHTML.match(/<button /g)||[]).length,1);
   assert.match(elements.balancePayActions.innerHTML,/>Close</);assert.doesNotMatch(elements.balancePayActions.innerHTML,/balancePaySubmit/);
 });
+
+test('balance receipt upload also needs no typed reference',async()=>{
+ const h=submitContext({status:'manual_review',balanceStatus:'payment_review'});
+ h.c.$('balancePayReference').value='';await h.c.submitBalanceReceipt();
+ assert.equal(h.calls.length,1);assert.equal(h.calls[0].paymentReference,'');
+});

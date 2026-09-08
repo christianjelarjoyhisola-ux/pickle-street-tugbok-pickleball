@@ -1831,7 +1831,7 @@ function rowToDeletedBookingArchive(r) {
   };
 }
 
-const PB_RESERVATION_HOLD_MINUTES = 15;
+const PB_RESERVATION_HOLD_MINUTES = 10;
 
 function bookingHoldsSlotForConflict(b) {
   if (b?.receiptPending && b.reservationHeld === false) return false;

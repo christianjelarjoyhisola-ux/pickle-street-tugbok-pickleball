@@ -1,0 +1,23 @@
+{
+  "at": "2026-09-08T17:37:29.681Z",
+  "hash": "18923acff5f6fb9faf82b630cb16a6418ab3c6f995380146b83b5faa622598e3",
+  "rolledBack": true,
+  "result": [
+    {
+      "name": "No typed reference: matching receipt confirms booking",
+      "passed": true
+    },
+    {
+      "name": "OCR duplicate reference rejects entire booking without typed entry",
+      "passed": true
+    },
+    {
+      "name": "Unreadable reference saved for review",
+      "passed": true
+    },
+    {
+      "name": "Additional-payment receipt confirms without typed reference",
+      "passed": true
+    }
+  ]
+}

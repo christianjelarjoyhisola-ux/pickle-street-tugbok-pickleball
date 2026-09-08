@@ -19,11 +19,11 @@ Deno.test('masked recipient number remains pending',()=>{const f=fixture();f.vis
 Deno.test('matching total cannot hide a different principal payment',()=>{const f=fixture();f.vision.text=f.vision.text.replace('Amount: PHP 215.00','Amount: PHP 200.00');assert.equal(verifyByMethod(f).autoApprove,false);});
 Deno.test('missing and mismatched references remain pending',()=>{for(const reference of ['','9999999999999']){const f=fixture();f.payment.submittedReference=reference;assert.equal(verifyByMethod(f).autoApprove,false);}});
 Deno.test('payment outside original booking window remains pending on retry',()=>{const f=fixture();f.vision.text=f.vision.text.replace('10:05 AM','10:30 AM');assert.equal(verifyByMethod(f).autoApprove,false);});
-for (const [time,passed] of [['10:11 AM',true],['10:14 AM',true],['10:15 AM',true],['10:16 AM',false]] as const) {
-  Deno.test('Pickle Street accepts payments through 15 minutes: '+time,()=>{
+for (const [time,passed] of [['10:09 AM',true],['10:10 AM',true],['10:11 AM',false],['10:16 AM',false]] as const) {
+  Deno.test('Pickle Street accepts payments through 10 minutes: '+time,()=>{
     const f=fixture();f.vision.text=f.vision.text.replace('10:05 AM',time);
     const r=verifyByMethod(f);assert.equal(r.autoApprove,passed,JSON.stringify(r.flags));
-    assert.equal(r.extractedData.timing.allowedWindowMinutes,15);
+    assert.equal(r.extractedData.timing.allowedWindowMinutes,10);
     assert.equal(r.flags.includes('payment_window_expired'),!passed);
   });
 }
@@ -49,7 +49,7 @@ function reviewDatabase(overrides:Record<string,unknown>={}) {
 }
 Deno.test('staff review context returns the active attempt without disclosing storage paths',async()=>{
  const h=reviewDatabase();const r=await staffReviewResponse(h.db as any,{action:'review_context',verificationId:reviewId,bookingReference:'PS-TEST'},'verified-staff','https://picklestreet.pages.dev');
- const body=await r.json();assert.equal(body.attemptId,attemptId);assert.equal(body.paymentWindowMinutes,15);assert.equal(body.storage_path,undefined);assert.equal(h.calls.length,0);
+ const body=await r.json();assert.equal(body.attemptId,attemptId);assert.equal(body.paymentWindowMinutes,10);assert.equal(body.storage_path,undefined);assert.equal(h.calls.length,0);
  for(const q of h.queries)assert.ok(q.filters.some((f:any)=>f[0]==='tenant_id'&&f[1]==='f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a'));
 });
 Deno.test('manual decision RPC uses verified actor and caller attempt/idempotency, ignoring injected actors',async()=>{
