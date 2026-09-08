@@ -1,0 +1,14 @@
+{
+  "checkedAt": "2026-09-08T17:21:57.549Z",
+  "domain": "picklestreetcourt.com",
+  "status": "pending",
+  "validation": {
+    "status": "pending",
+    "method": "http"
+  },
+  "httpsVerified": true,
+  "dnsTarget": "picklestreet.pages.dev",
+  "tenantDomainRegistered": true,
+  "existingTenantDomainsPreserved": true,
+  "loginReturnUrlAdded": "https://picklestreetcourt.com/login.html"
+}
