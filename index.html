@@ -3497,7 +3497,7 @@ body.dark #splashScreen {
 
 </style>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="pickle-street.css?v=20260908-mobile-controls">
+<link rel="stylesheet" href="pickle-street.css?v=20260908-slim-date-bar">
 <meta name="robots" content="noindex,nofollow">
 </head>
 <body class="light">
@@ -3679,11 +3679,10 @@ body.dark #splashScreen {
   <div class="shared-date-entry">
     <div class="shared-date-title">
       <strong>Booking date</strong>
-      <span>Choose a court below</span>
     </div>
     <div class="shared-date-control">
       <button class="shared-date-nav" type="button" onclick="shiftSharedCourtDate(-1)" aria-label="Previous day">‹</button>
-      <button class="shared-date-display" id="courtSharedDateDisplay" type="button" onclick="openSharedCourtDatePicker()">Today</button>
+      <button class="shared-date-display" id="courtSharedDateDisplay" type="button" onclick="openSharedCourtDatePicker()" aria-label="Choose booking date">Today</button>
       <button class="shared-date-nav" type="button" onclick="shiftSharedCourtDate(1)" aria-label="Next day">›</button>
       <button class="shared-date-today" type="button" onclick="setSharedCourtDateToday()">Today</button>
       <input class="shared-date-native" type="date" id="courtSharedDate" onchange="onSharedCourtDate(this.value)" aria-label="Booking date" />

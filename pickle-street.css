@@ -29,7 +29,7 @@ button,input,select,textarea,.btn {font-family:'DM Sans',sans-serif!important}
 button,a,input,select,textarea {touch-action:manipulation}
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible {outline:3px solid #568eaf;outline-offset:4px}
 .nav,.topnav,.navbar {background:var(--card)!important;border-color:var(--border)!important;box-shadow:none!important}
-.nav {height:84px;padding:0 max(28px,calc((100vw - 1280px)/2));gap:24px}
+.nav {position:relative;top:auto;height:84px;padding:0 max(28px,calc((100vw - 1280px)/2));gap:24px}
 /* Preserve the complete portrait crest, including its Tugbok wordmark. */
 .logo-img,.nav .logo-img,.topnav .logo-img,.logo-ic,.admin-boot-logo,.sp-logo-img {
   object-fit:contain!important;object-position:center!important;filter:none!important;
@@ -76,8 +76,13 @@ footer .logo-img {width:72px;height:88px}
 .find-time-entry {float:right;width:44%;margin-top:-77px;padding:15px 18px}
 .find-time-entry strong,.shared-date-title strong {font-size:.94rem!important}
 .find-time-entry span,.shared-date-title span {font-size:.8125rem!important;color:var(--muted)!important}
-.shared-date-entry {clear:both;margin-bottom:24px;padding:18px 22px}
-.shared-date-display {font-family:'DM Sans',sans-serif!important;font-size:1rem!important;font-weight:600}
+.shared-date-entry {display:flex;clear:both;top:0;flex-wrap:nowrap;margin:0 0 16px;padding:calc(4px + env(safe-area-inset-top,0px)) 8px 4px;gap:12px;border-radius:10px}
+.shared-date-title strong {font-size:.875rem!important;white-space:nowrap}
+.shared-date-control {flex:0 1 440px;width:min(100%,440px);min-width:0;grid-template-columns:44px minmax(120px,1fr) 44px 60px;gap:4px}
+.shared-date-nav,.shared-date-today,.shared-date-display {min-height:44px;border-radius:7px;line-height:1.2;font-weight:600}
+.shared-date-nav {width:44px}
+.shared-date-display {font-family:'DM Sans',sans-serif!important;font-size:.875rem!important;font-weight:600}
+.shared-date-today {padding:0 8px;font-size:12px}
 .courts {gap:22px}
 .court-card,.card,.shell,.chart-card,.stat-card {border:1px solid var(--border)!important;box-shadow:0 4px 20px rgba(25,54,66,.04)!important;border-radius:18px}
 .court-card {overflow:hidden;background:var(--card)!important;transition:transform .2s,box-shadow .2s}
@@ -100,8 +105,9 @@ input,select,textarea {font-size:1rem!important}
 .tenant-setup-note {padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--card);color:var(--text);line-height:1.6}
 @media(max-width:1340px) {.venue-intro,.sec {margin-left:28px;margin-right:28px}.sec{max-width:none}}
 @media(max-width:900px) {.nav-headline{display:none}.venue-intro-copy{padding:28px}.venue-intro h1{font-size:2.15rem}.venue-intro-meta{flex-wrap:wrap;gap:8px 16px}.find-time-entry{float:none;width:100%;margin:0 0 18px}.venue-intro{min-height:280px}.venue-photo span{display:none}}
-@media(max-width:620px) {.nav{height:72px;padding:0 16px;gap:8px}.nav .logo-tx{display:block}.logo-tx .logo-name{font-size:.91rem!important}.logo-tx .logo-sub{font-size:.65rem!important}.nav .logo-img{width:39px;height:39px}.nav-manage-link{font-size:.75rem!important;padding:9px!important}.venue-intro{margin:18px 16px 24px;grid-template-columns:1fr;min-height:0;border-radius:17px}.venue-intro-copy{padding:24px}.venue-intro h1{font-size:2.25rem;margin:12px 0}.venue-intro p{font-size:.94rem}.venue-intro-meta{margin-top:16px}.venue-photo{min-height:150px}.sec{margin:0 16px;padding-bottom:28px!important}.sec-hd h2{font-size:1.6rem}.shared-date-entry{flex-wrap:wrap;gap:14px;padding:16px}.shared-date-control{width:100%;justify-content:space-between}.preview-notice{padding:10px 16px;text-align:left}.courts{gap:18px}}
+@media(max-width:620px) {.nav{height:72px;padding:0 16px;gap:8px}.nav .logo-tx{display:block}.logo-tx .logo-name{font-size:.91rem!important}.logo-tx .logo-sub{font-size:.65rem!important}.nav .logo-img{width:39px;height:39px}.nav-manage-link{font-size:.75rem!important;padding:9px!important}.venue-intro{margin:18px 16px 24px;grid-template-columns:1fr;min-height:0;border-radius:17px}.venue-intro-copy{padding:24px}.venue-intro h1{font-size:2.25rem;margin:12px 0}.venue-intro p{font-size:.94rem}.venue-intro-meta{margin-top:16px}.venue-photo{min-height:150px}.sec{margin:0 16px;padding-bottom:28px!important}.sec-hd h2{font-size:1.6rem}.shared-date-entry{gap:6px}.shared-date-control{width:100%;justify-content:space-between}.preview-notice{padding:10px 16px;text-align:left}.courts{gap:18px}}
 @media(max-width:620px) {.nav .logo-img{width:38px;height:48px}.topnav .logo-img{width:34px;height:42px}}
+@media(max-width:700px) {.shared-date-title{display:none}.shared-date-control{flex:1;width:100%;grid-template-columns:44px minmax(0,1fr) 44px 58px}}
 @media(max-width:700px) {.nav .logo-tx{display:block}.nav .logo-tx .logo-name{white-space:normal;overflow:visible;text-overflow:clip}.nav-r{margin-left:0}}
 @media(max-width:380px) {.nav{height:auto;min-height:82px;padding-top:8px;padding-bottom:8px}}
 @media(prefers-reduced-motion:reduce) {*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
@@ -110,7 +116,7 @@ input,select,textarea {font-size:1rem!important}
 :where([hidden]) { display: none !important; }
 /* A centered venue welcome, with the working booking surface directly behind it. */
 html.ps-welcome-open {overflow:hidden}
-#courts.sec {padding-top:32px!important;scroll-margin-top:100px}
+#courts.sec {padding-top:32px!important;scroll-margin-top:12px}
 .ps-welcome {position:fixed;inset:0;margin:0;width:100%;height:100dvh;max-width:none;max-height:none;padding:0;border:0;background:#081a21;color:#f5faf8;overflow:auto;overscroll-behavior:contain;color-scheme:dark}
 .ps-welcome::backdrop {background:#081a21}
 .ps-welcome-scene {position:absolute;inset:0;overflow:hidden;pointer-events:none}
