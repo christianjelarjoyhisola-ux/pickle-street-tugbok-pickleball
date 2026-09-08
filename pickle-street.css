@@ -127,6 +127,48 @@ input,select,textarea {font-size:1rem!important}
 
 .ps-nav-button{font:600 .9rem DM Sans,sans-serif;background:none;border:0;color:var(--text);cursor:pointer;padding:10px}.cc{background:var(--card)!important;border:1px solid var(--border)!important;border-radius:18px!important;box-shadow:0 5px 22px rgba(25,54,66,.045)!important;overflow:hidden}.cc-mobile-name,.cc-times-title{font-family:Manrope,sans-serif!important;font-weight:750;letter-spacing:-.02em!important}.cc-photo{background-color:#dce6e9!important}.cc-times{background:var(--card)!important}.booking-mode-btn{box-shadow:none!important;border-color:var(--border)!important}.booking-mode-btn.active{background:var(--court-header)!important;color:var(--accent)!important}.developer-promo-dialog,.bg-grid,.bg-glow{display:none!important}.ps-staff-link{white-space:nowrap}.empty h3{font-size:1.4rem;margin-bottom:8px}.empty p{font-size:1rem;line-height:1.6;margin-bottom:20px}@media(max-width:620px){.ps-staff-link{display:none}}
 :where([hidden]) { display: none !important; }
+/* Keep every dialog action inside its container, including intermediate widths. */
+.modal .m-hd {background-color:var(--surface)!important;z-index:2;gap:12px}
+.modal .m-hd > :is(h2,div) {min-width:0;overflow-wrap:anywhere}
+.modal .m-x {width:44px;height:44px;flex:0 0 44px}
+.modal .m-foot {min-width:0;max-width:100%;flex-wrap:wrap;align-items:stretch;gap:10px;z-index:2;padding-bottom:max(16px,env(safe-area-inset-bottom,0px))}
+.modal .m-foot > .btn {min-width:0;max-width:100%;min-height:44px;height:auto;white-space:normal;overflow-wrap:anywhere;line-height:1.35;text-align:center;justify-content:center;border-radius:9px}
+.modal .m-foot > .btn:disabled {opacity:.45;cursor:not-allowed;transform:none;box-shadow:none}
+.reschedule-modal #rsSaveHelp {flex:1 0 100%;order:-1;min-width:0;margin:0;overflow-wrap:anywhere}
+.reschedule-modal #rsSaveHelp:empty {display:none}
+.verify-payment-modal .m-foot {flex-direction:row}
+.verify-payment-modal .m-foot > .btn {flex:1 1 calc(50% - 5px);width:auto;padding:10px 12px}
+.bk-modal-ft {min-width:0;max-width:100%;flex-wrap:wrap;gap:10px}
+.bk-modal-ft > .btn {min-width:0;max-width:100%;min-height:44px;height:auto;white-space:normal;overflow-wrap:anywhere;line-height:1.35;padding:10px 12px;text-align:center;border-radius:9px}
+.gc-copy-btn,#bReceiptPreviewWrap > button {min-height:44px;min-width:44px;max-width:100%;padding:10px 12px;line-height:1.35;white-space:normal;overflow-wrap:anywhere;justify-content:center;border-radius:9px}
+.payment-recovery-note > .btn,.booking-recovery-actions > .btn {min-height:44px;min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere;line-height:1.35;justify-content:center}
+.ps-receipt-dialog {margin:auto}
+.ps-receipt-actions {flex-wrap:wrap;align-items:stretch}
+.ps-receipt-actions > .btn,.ps-result-actions > .btn {flex:1 1 10rem;min-width:0;max-width:100%;min-height:44px;height:auto;margin:0;white-space:normal;overflow-wrap:anywhere;line-height:1.35;text-align:center;justify-content:center}
+.balance-pay-close {width:44px;height:44px}
+.balance-pay-head h2 {margin-right:44px}
+#balancePayActions {margin:0;min-width:0;max-width:100%;padding:16px 26px max(16px,env(safe-area-inset-bottom,0px));border-top:1px solid var(--border);background:var(--surface);position:sticky;bottom:0;flex-wrap:wrap;gap:10px;align-items:stretch}
+#balancePayActions > .btn {flex:1 1 10rem;min-width:0;max-width:100%;min-height:44px;height:auto;white-space:normal;overflow-wrap:anywhere;line-height:1.35;text-align:center;justify-content:center;padding:10px 12px}
+.ps-payment-card .platform-qr-actions > .btn {min-width:0;max-width:100%;min-height:44px;white-space:normal;overflow-wrap:anywhere;justify-content:center;line-height:1.35}
+.ps-payment-settings-actions {display:flex;align-items:stretch;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:16px;min-width:0}
+.ps-payment-settings-actions > .btn {min-width:0;max-width:100%;min-height:44px;white-space:normal;overflow-wrap:anywhere;justify-content:center;line-height:1.35}
+.ps-payment-settings-actions > .btn:disabled {opacity:.45;cursor:not-allowed;transform:none}
+.ps-payment-settings-actions > :is(#platformPaymentSaveStatus,#platformActivationSummary) {flex:1 0 100%;min-width:0;overflow-wrap:anywhere}
+.ps-payment-settings-actions > #platformPaymentSaveStatus {order:2}
+.ps-payment-settings-actions > #platformActivationSummary {order:3}
+.ps-payment-settings-actions > #platformPaymentSaveStatus:empty {display:none}
+@media(max-width:600px) {
+  .bk-modal-ft {display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .bk-modal-ft #wizBackBtn:not([hidden]) + #wizNextBtn {grid-column:1 / -1}
+  .ps-payment-settings-actions > .btn {width:100%}
+  #balancePayActions {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));padding-left:18px;padding-right:18px}
+  #balancePayActions > .btn:only-child,#balancePayActions > #balancePaySubmit:nth-child(3) {grid-column:1 / -1}
+}
+@media(max-width:400px) {
+  #platformTenantSettingsPanel .ps-payment-card .platform-qr-upload {grid-template-columns:minmax(0,1fr)}
+  #platformTenantSettingsPanel .ps-payment-card .platform-qr-preview {justify-self:center}
+  .ps-payment-card .platform-qr-actions > .btn {width:100%}
+}
 /* Court browsing uses one restrained palette, with explicit labels for each slot state. */
 #courts .shared-date-control button {background:var(--surface2);border:1px solid var(--border);box-shadow:none}
 #courts .shared-date-control .shared-date-display {background:var(--card)}

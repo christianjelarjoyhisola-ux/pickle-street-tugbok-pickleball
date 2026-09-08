@@ -3497,7 +3497,7 @@ body.dark #splashScreen {
 
 </style>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="pickle-street.css?v=20260908-promo-tiers">
+<link rel="stylesheet" href="pickle-street.css?v=20260908-action-layout">
 <meta name="robots" content="noindex,nofollow">
 </head>
 <body class="light">
@@ -4372,6 +4372,7 @@ body.dark #splashScreen {
     <div class="balance-pay-body" id="balancePayBody">
       <div class="balance-pay-loading">Checking your secure payment link...</div>
     </div>
+    <footer class="balance-pay-actions" id="balancePayActions" hidden></footer>
   </section>
 </div>
 
@@ -11656,8 +11657,8 @@ function renderBalancePayment(balance) {
   `;
   actions.innerHTML = active
     ? `<button class="btn btn-g" type="button" onclick="closeBalancePayment()">Close</button>
-       <button class="btn btn-p" id="balancePaySubmit" type="button" onclick="submitBalanceReceipt()">${correction ? 'Submit corrected receipt' : `Submit ${adjustment?'additional':'balance'} payment`}</button>
-       ${automaticBalanceReceiptFlow() ? '<button class="btn btn-g" type="button" onclick="refreshBalancePayment()">Check status</button>' : ''}`
+       ${automaticBalanceReceiptFlow() ? '<button class="btn btn-g" type="button" onclick="refreshBalancePayment()">Check status</button>' : ''}
+       <button class="btn btn-p" id="balancePaySubmit" type="button" onclick="submitBalanceReceipt()">${correction ? 'Submit corrected receipt' : `Submit ${adjustment?'additional':'balance'} payment`}</button>`
     : `<button class="btn btn-g" type="button" onclick="closeBalancePayment()">Close</button>
        ${balance.status === 'payment_review' ? `<button class="btn btn-p" type="button" onclick="refreshBalancePayment()">Check status</button>` : ''}`;
   actions.hidden = false;
@@ -11820,19 +11821,25 @@ async function openBalancePaymentFromLink() {
   const access = balancePaymentLinkAccess();
   if (!access || !window.PB_PLATFORM_V1) return false;
   _balancePaymentAccess = access;
+  _balancePaymentState = null;
   const overlay = $('balancePayOverlay');
   if (!overlay) return false;
   overlay.classList.add('show');
   overlay.setAttribute('aria-hidden', 'false');
   document.body.style.overflow = 'hidden';
+  const actions = $('balancePayActions');
+  if (actions) { actions.hidden = true; actions.replaceChildren(); }
   $('balancePayBody').innerHTML = '<div class="balance-pay-loading">Checking your secure payment link...</div>';
   try {
     const balance = await DB.getPublicBalancePaymentStatus(access);
     renderBalancePayment(balance);
   } catch (error) {
     $('balancePayBody').innerHTML = `
-      <div class="balance-pay-status danger">${esc(error?.message || 'This remaining-balance link is invalid or expired.')}</div>
-      <div class="balance-pay-actions"><button class="btn btn-g" type="button" onclick="closeBalancePayment()">Close</button></div>`;
+      <div class="balance-pay-status danger">${esc(error?.message || 'This remaining-balance link is invalid or expired.')}</div>`;
+    if (actions) {
+      actions.innerHTML = '<button class="btn btn-g" type="button" onclick="closeBalancePayment()">Close</button>';
+      actions.hidden = false;
+    }
   }
   return true;
 }

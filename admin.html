@@ -2662,7 +2662,7 @@ tr:hover td { background: var(--bg2); }
 
 </style>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="pickle-street.css?v=20260908-promo-tiers">
+<link rel="stylesheet" href="pickle-street.css?v=20260908-action-layout">
 <meta name="robots" content="noindex,nofollow">
 <link rel="stylesheet" href="payment-method-brand.css?v=20260908-routes2" />
 <link rel="stylesheet" href="payment-settings.css?v=20260908-routes2" />
@@ -3610,7 +3610,7 @@ tr:hover td { background: var(--bg2); }
         </div>
         <div id="platformPaymentMethodsBody" style="display:grid;gap:10px"></div>
 
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:16px">
+        <div class="ps-payment-settings-actions">
           <button class="btn btn-p" id="savePlatformActivationBtn" type="button" onclick="savePlatformActivationSettings()">Save Payment Settings</button>
           <span id="platformPaymentSaveStatus" role="status" aria-live="polite" aria-atomic="true" style="font-size:.78rem;color:var(--muted)"></span>
           <button class="btn btn-s" id="activateTenantInitiallyBtn" type="button" hidden onclick="activateTenantInitially()">Activate Public Booking</button>
@@ -9051,15 +9051,25 @@ let _verifyModalLastFocus = null;
 let _vmReceiptLoadSeq = 0;
 let _verifyModalOpenSeq = 0;
 let _verifyPaymentSaving = false;
+let _verifyPaymentDisabledBeforeSave = null;
 let _verifyModalReviewContext = null;
 const _manualReceiptDecisionKeys = new Map();
 
 function setVerifyPaymentSaving(saving) {
+  const buttons = [...document.querySelectorAll('#verifyModal .m-foot button')];
+  if (saving && !_verifyPaymentSaving) {
+    _verifyPaymentDisabledBeforeSave = new Map(buttons.map(button => [button, button.disabled]));
+  }
   _verifyPaymentSaving = saving;
-  document.querySelectorAll('#verifyModal .m-foot button').forEach(button => { button.disabled = saving; });
-  if (!saving && $('verifyModal')?.dataset.receiptManual === 'required') {
-    if ($('vmRejectPaymentBtn')) $('vmRejectPaymentBtn').disabled = !_verifyModalReviewContext;
-    if ($('vmManualConfirmBtn')) $('vmManualConfirmBtn').disabled = !_verifyModalReviewContext || _verifyModalReviewContext.canApprove === false;
+  buttons.forEach(button => {
+    button.disabled = saving || (_verifyPaymentDisabledBeforeSave?.get(button) ?? button.disabled);
+  });
+  if (!saving) {
+    _verifyPaymentDisabledBeforeSave = null;
+    if ($('verifyModal')?.dataset.receiptManual === 'required') {
+      if ($('vmRejectPaymentBtn')) $('vmRejectPaymentBtn').disabled = !_verifyModalReviewContext;
+      if ($('vmManualConfirmBtn')) $('vmManualConfirmBtn').disabled = !_verifyModalReviewContext || _verifyModalReviewContext.canApprove === false;
+    }
   }
 }
 

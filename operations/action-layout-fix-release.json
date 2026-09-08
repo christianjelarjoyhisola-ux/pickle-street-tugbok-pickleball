@@ -1,0 +1,66 @@
+{
+  "releasedAt": "2026-09-08T03:34:10.120Z",
+  "origin": "https://picklestreet.pages.dev",
+  "deployment": "https://7a0e21e5.picklestreet.pages.dev",
+  "changes": [
+    "Contained, consistently spaced modal buttons with wrapping labels and 44px minimum action height",
+    "Two-column payment-review actions; primary booking action gets its own row on narrow screens",
+    "Reschedule help separated from action buttons; QR replacement/removal and receipt correction controls fit narrow screens",
+    "Restored missing additional-payment footer and cleared stale actions while loading or after invalid links",
+    "Preserved disabled Retry and Confirm eligibility after saving"
+  ],
+  "validation": {
+    "frontendTests": 184,
+    "verificationLayoutCases": 150,
+    "otherAdminLayoutCases": 262,
+    "publicLayoutCases": 144,
+    "publicLinkLifecycleChecks": 4,
+    "finalPublicCssChecks": 3,
+    "verificationDisabledStates": 6,
+    "viewportWidths": [
+      320,
+      393,
+      480,
+      520,
+      600,
+      607,
+      768,
+      900,
+      1440
+    ],
+    "enlargedVerificationText": "200%",
+    "lightAndDarkVerificationThemes": true,
+    "productionFilesMatchBuild": [
+      {
+        "file": "admin.html",
+        "sha256": "7da6138627217c92010ccb313730758c4767e1163e30bbc39e63bb529c4eea8f"
+      },
+      {
+        "file": "index.html",
+        "sha256": "a1655c6565b82cfd655745678b5d4a96fbfe8620dc5dc92f2cda14e3eb610793"
+      },
+      {
+        "file": "booking-management.html",
+        "sha256": "e62629f0293a87ccb880625993a48f28f94d51514117a7fbd4b278e5172479fd"
+      },
+      {
+        "file": "login.html",
+        "sha256": "e5538f8e29c03767142cc4309b67a7e297ab58fcf0a28d19442d27442ef1f203"
+      },
+      {
+        "file": "pickle-street.css",
+        "sha256": "b30df0174015c71afbf4151dd9bc0df95f7f595cd991e10391b5c279f228b0db"
+      }
+    ]
+  },
+  "scope": {
+    "frontendOnly": true,
+    "databaseChanges": false,
+    "edgeFunctionDeployments": false,
+    "realBookingsCreated": false,
+    "paymentsSubmitted": false,
+    "otherTenantChanges": false,
+    "slimBookingDateUnchanged": true
+  },
+  "note": "Responsive evidence uses real page markup and functions with synthetic data and blocked payment calls. Public production routes and published file contents are verified separately."
+}

@@ -110,3 +110,24 @@ test('display rounding preserves sub-minute timing and does not mutate evidence'
   assert.equal(c.receiptWindowAgeText(1.23395),'1.2');assert.equal(c.receiptWindowAgeText(-1.9999),'2');
   assert.equal(c.receiptWindowAgeText(null),'');assert.equal(c.receiptWindowAgeText(0),'0');
 });
+
+function actionSavingHarness({canApprove=true,hasContext=true,retryDisabled=true}={}) {
+  const buttons={vmRejectPaymentBtn:{disabled:!hasContext,hidden:false},vmManualConfirmBtn:{disabled:!hasContext||!canApprove,hidden:false},vmShortPaymentBtn:{disabled:false,hidden:true},vmPendingCloseBtn:{disabled:false,hidden:false},vmRetryReceiptBtn:{disabled:retryDisabled,hidden:false}};
+  const c={_verifyPaymentSaving:false,_verifyPaymentDisabledBeforeSave:null,_verifyModalReviewContext:hasContext?{canApprove}:null,document:{querySelectorAll:()=>Object.values(buttons)},$:id=>id==='verifyModal'?{dataset:{receiptManual:'required'}}:buttons[id]};
+  vm.createContext(c);vm.runInContext(part(admin,'function setVerifyPaymentSaving(','function canIssueShortPayment('),c);return {c,buttons};
+}
+
+test('leaving saving mode preserves an unavailable Retry action and hidden actions',()=>{
+  const {c,buttons}=actionSavingHarness();c.setVerifyPaymentSaving(true);assert.ok(Object.values(buttons).every(b=>b.disabled));c.setVerifyPaymentSaving(false);
+  assert.equal(buttons.vmRetryReceiptBtn.disabled,true);assert.equal(buttons.vmPendingCloseBtn.disabled,false);assert.equal(buttons.vmShortPaymentBtn.hidden,true);
+});
+
+test('repeated saving notifications restore enabled actions without enabling restricted Confirm',()=>{
+  const {c,buttons}=actionSavingHarness({canApprove:false,retryDisabled:false});c.setVerifyPaymentSaving(true);c.setVerifyPaymentSaving(true);c.setVerifyPaymentSaving(false);
+  assert.equal(buttons.vmRejectPaymentBtn.disabled,false);assert.equal(buttons.vmRetryReceiptBtn.disabled,false);assert.equal(buttons.vmManualConfirmBtn.disabled,true);
+});
+
+test('missing review context keeps financial actions disabled after saving',()=>{
+  const {c,buttons}=actionSavingHarness({hasContext:false,retryDisabled:false});c.setVerifyPaymentSaving(true);c.setVerifyPaymentSaving(false);
+  assert.equal(buttons.vmRejectPaymentBtn.disabled,true);assert.equal(buttons.vmManualConfirmBtn.disabled,true);assert.equal(buttons.vmRetryReceiptBtn.disabled,false);
+});

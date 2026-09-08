@@ -29,3 +29,53 @@ test('balance network failures give retry guidance without requesting another pa
   assert.match(messages[0][0],/Check your connection/);assert.match(messages[0][0],/Do not pay again/);
   assert.doesNotMatch(messages[0][0],/Load failed/);assert.equal(c._balanceReceiptFile,file);
 });
+
+function balanceViewHarness(statusRequest) {
+  // Mount only IDs that exist in the real overlay, so a missing footer fails this test.
+  const markup=extract('index.html','<div class="balance-pay-overlay"','<!-- QR ZOOM MODAL -->');
+  const elements=Object.fromEntries([...markup.matchAll(/id="([^"]+)"/g)].map(m=>[m[1],{innerHTML:'',textContent:'',hidden:true,classList:{add(){},toggle(){}},setAttribute(){},replaceChildren(){this.innerHTML='';}}]));
+  elements.balancePayBody.innerHTML='Checking your secure payment link...';
+  elements.balancePayBody.closest=()=>({classList:{toggle(){}}});
+  const c={_balancePaymentState:{status:'old'},_balancePaymentAccess:null,$:id=>elements[id],window:{PB_PLATFORM_V1:true,PaymentSourceUI:{label:(code,label)=>label}},
+    document:{body:{style:{}}},balancePaymentLinkAccess:()=>({balanceRequestId:'fixture-only',balanceToken:'fixture-token'}),
+    DB:{getPublicBalancePaymentStatus:statusRequest||(async()=>({status:'expired',canSubmit:false}))},
+    balanceStatusCopy:()=>['pending','Payment status'],balanceCanSubmitReceipt:b=>b.canSubmit===true,automaticBalanceReceiptFlow:()=>true,
+    balancePaymentMethods:()=>[],esc:v=>String(v??'').replaceAll('<','&lt;'),fmt:n=>`PHP ${n}`,balanceScheduleLabel:()=> 'Fixture schedule',balanceDeadlineLabel:()=> 'Fixture deadline',updateBalancePaymentMethod(){}};
+  vm.createContext(c);
+  vm.runInContext(extract('index.html','function renderBalancePayment(balance) {','let _balanceReceiptSaving = false;'),c);
+  vm.runInContext(extract('index.html','async function openBalancePaymentFromLink() {','function closeBalancePayment() {'),c);
+  return {c,elements};
+}
+
+test('real additional-payment overlay renders all action states instead of staying on loading',()=>{
+  const {c,elements}=balanceViewHarness();
+  for(const [balance,label,count] of [
+    [{status:'awaiting_payment',canSubmit:true},'Submit balance payment',3],
+    [{status:'awaiting_payment',canSubmit:true,requestType:'reschedule_adjustment'},'Submit additional payment',3],
+    [{status:'payment_review',canSubmit:true,receipt:{status:'manual_review'}},'Submit corrected receipt',3],
+    [{status:'payment_review',canSubmit:false},'Check status',2],
+    [{status:'expired',canSubmit:false},'Close',1],
+  ]) {
+    c.renderBalancePayment(balance);const actions=elements.balancePayActions;
+    assert.ok(actions,'The overlay must contain its action footer');assert.equal(actions.hidden,false);
+    assert.doesNotMatch(elements.balancePayBody.innerHTML,/Checking your secure payment link/);
+    assert.equal((actions.innerHTML.match(/<button /g)||[]).length,count);assert.ok(actions.innerHTML.includes(label));
+    assert.equal(actions.innerHTML.includes('id="balancePaySubmit"'),balance.canSubmit);
+  }
+});
+
+test('opening a new private payment link clears stale actions while status loads',async()=>{
+  let resolve;const {c,elements}=balanceViewHarness(()=>new Promise(r=>{resolve=r;}));
+  c.renderBalancePayment({status:'awaiting_payment',canSubmit:true});const pending=c.openBalancePaymentFromLink();
+  assert.equal(elements.balancePayActions.hidden,true);assert.equal(elements.balancePayActions.innerHTML,'');assert.equal(c._balancePaymentState,null);
+  resolve({status:'payment_review',canSubmit:false});await pending;
+  assert.equal(elements.balancePayActions.hidden,false);assert.doesNotMatch(elements.balancePayActions.innerHTML,/balancePaySubmit/);
+});
+
+test('an invalid private payment link displays only Close and never stale submission controls',async()=>{
+  const {c,elements}=balanceViewHarness(async()=>{throw Error('This link expired');});
+  c.renderBalancePayment({status:'awaiting_payment',canSubmit:true});await c.openBalancePaymentFromLink();
+  assert.match(elements.balancePayBody.innerHTML,/This link expired/);assert.equal(c._balancePaymentState,null);
+  assert.equal((elements.balancePayActions.innerHTML.match(/<button /g)||[]).length,1);
+  assert.match(elements.balancePayActions.innerHTML,/>Close</);assert.doesNotMatch(elements.balancePayActions.innerHTML,/balancePaySubmit/);
+});
