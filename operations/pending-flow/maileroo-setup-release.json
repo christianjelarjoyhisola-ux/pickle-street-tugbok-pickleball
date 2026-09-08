@@ -1,0 +1,33 @@
+{
+  "at": "2026-09-08T18:40:55.990Z",
+  "domain": "picklestreetcourt.com",
+  "domainVerified": true,
+  "from": "bookings@picklestreetcourt.com",
+  "replyTo": "christianjelarjoyhisola@gmail.com",
+  "dedicatedSecrets": true,
+  "testReference": "8809fc121bc8443e89293711",
+  "testStatus": "delivered",
+  "functions": [
+    {
+      "name": "picklestreet-receipts",
+      "status": "ACTIVE",
+      "version": 19
+    },
+    {
+      "name": "picklestreet-booking-email",
+      "status": "ACTIVE",
+      "version": 5
+    },
+    {
+      "name": "picklestreet-email-dispatch",
+      "status": "ACTIVE",
+      "version": 6
+    },
+    {
+      "name": "picklestreet-reschedule",
+      "status": "ACTIVE",
+      "version": 5
+    }
+  ],
+  "deliveryVerifiedAt": "2026-09-08T18:41:21.455Z"
+}

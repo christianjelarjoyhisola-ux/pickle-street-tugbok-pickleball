@@ -188,7 +188,7 @@ async function sendConfirmation(db:DB,result:Obj):Promise<void>{
         result.confirmationEmail=delivered.status;return;
       }
       const store=createSupabaseRescheduleBookingStore({db,supabaseUrl:env('SUPABASE_URL'),anonKey:env('SUPABASE_ANON_KEY'),bookingAccessTokenSecret:env('BOOKING_ACCESS_TOKEN_SECRET')});
-      const delivered=await deliverEmail({store,tenantId:TENANT_ID,eventId:result.rescheduleEventId,forceResend:false,sender:{async send(message){return await sendMailerooEmail({apiKey:env('MAILEROO_API_KEY'),fromAddress:env('MAILEROO_FROM_EMAIL'),fromName:message.fromName,replyTo:message.replyTo,replyToName:message.replyToName,to:message.to,toName:message.toName,subject:message.subject,html:message.html,plainText:message.plainText,referenceId:message.referenceId,tags:message.tags});}}});
+      const delivered=await deliverEmail({store,tenantId:TENANT_ID,eventId:result.rescheduleEventId,forceResend:false,sender:{async send(message){return await sendMailerooEmail({apiKey:env('PICKLESTREET_MAILEROO_API_KEY'),fromAddress:env('PICKLESTREET_MAILEROO_FROM_EMAIL'),fromName:message.fromName,replyTo:message.replyTo,replyToName:message.replyToName,to:message.to,toName:message.toName,subject:message.subject,html:message.html,plainText:message.plainText,referenceId:message.referenceId,tags:message.tags});}}});
       result.confirmationEmail=delivered.status;return;
     }
     const r=await fetch(env('SUPABASE_URL')+'/functions/v1/picklestreet-booking-email',{method:'POST',headers:{'Content-Type':'application/json','x-internal-secret':env('EDGE_INTERNAL_SECRET')},body:JSON.stringify({tenantSlug:TENANT_SLUG,bookingReference:result.bookingReference,emailKind:'booking_confirmed'}),signal:AbortSignal.timeout(15000)});

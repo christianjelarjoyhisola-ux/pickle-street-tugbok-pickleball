@@ -1,6 +1,11 @@
 # Dedicated Pickle Street functions. Deploy only explicitly named functions.
 project_id = "pickle-street-tugbok"
 
+[functions.picklestreet-booking-email]
+verify_jwt = false
+entrypoint = "./functions/picklestreet-booking-email/index.ts"
+import_map = "./functions/deno.json"
+
 [functions.picklestreet-reschedule]
 verify_jwt = false
 entrypoint = "./functions/picklestreet-reschedule/index.ts"

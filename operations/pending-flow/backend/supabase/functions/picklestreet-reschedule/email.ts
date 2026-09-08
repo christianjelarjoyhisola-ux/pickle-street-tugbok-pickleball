@@ -386,8 +386,8 @@ export function createGroupedRescheduleEmailSender(): RescheduleEmailSender {
     async send(message) {
       return await sendMailerooEmail({
         ...message,
-        apiKey: env("MAILEROO_API_KEY"),
-        fromAddress: env("MAILEROO_FROM_EMAIL"),
+        apiKey: env("PICKLESTREET_MAILEROO_API_KEY"),
+        fromAddress: env("PICKLESTREET_MAILEROO_FROM_EMAIL"),
       });
     },
   };

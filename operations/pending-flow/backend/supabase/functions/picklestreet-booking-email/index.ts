@@ -456,8 +456,8 @@ Deno.serve(async (request: Request): Promise<Response> => {
     let delivery: Awaited<ReturnType<typeof sendMailerooEmail>>;
     try {
       delivery = await sendMailerooEmail({
-        apiKey: requiredEnvironment("MAILEROO_API_KEY"),
-        fromAddress: requiredEnvironment("MAILEROO_FROM_EMAIL"),
+        apiKey: requiredEnvironment("PICKLESTREET_MAILEROO_API_KEY"),
+        fromAddress: requiredEnvironment("PICKLESTREET_MAILEROO_FROM_EMAIL"),
         fromName: tenantName,
         replyTo,
         replyToName: tenantName,
