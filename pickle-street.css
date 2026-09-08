@@ -248,6 +248,11 @@ html.ps-welcome-open {overflow:hidden}
 .ps-welcome-promotion small {display:block;font-size:11px;font-weight:400;letter-spacing:.06em;color:#b6c5cc}
 .csl-promo {display:flex;align-items:center;justify-content:center;gap:5px;flex-wrap:wrap}
 .csl-promo s {font-size:.72em;font-weight:400;opacity:.65}
+.cc-slot-btn:has(.csl-promo-badge) {position:relative;padding-top:22px;min-height:64px}
+.csl-promo-badge {position:absolute;top:4px;right:5px;overflow:hidden;isolation:isolate;padding:2px 5px;border:1px solid #64c5cf;border-radius:4px;background:linear-gradient(115deg,#175a6b,#167b88);color:#fff;font-size:8px;font-weight:800;line-height:1.2;letter-spacing:.09em;white-space:nowrap;box-shadow:0 1px 4px #123a4520;pointer-events:none}
+.csl-promo-badge::after {content:"";position:absolute;inset:-2px;background:linear-gradient(110deg,transparent 25%,#ffffff50 50%,transparent 75%);transform:translateX(-130%);animation:slot-promo-shimmer 6s ease-in-out infinite;pointer-events:none}
+@keyframes slot-promo-shimmer {0%,70% {transform:translateX(-130%)}90%,100% {transform:translateX(130%)}}
+@media(prefers-reduced-motion:reduce) {.csl-promo-badge::after {animation:none;display:none}}
 .ps-welcome-enter {display:flex;justify-content:center;align-items:center;gap:16px;width:min(100%,280px);min-height:52px;margin:0 auto;padding:12px 18px;background:linear-gradient(115deg,#245f7c,#157f91 92%);color:#fff;border:1px solid #a4d4dd59;border-radius:9px;cursor:pointer;box-shadow:inset 0 1px 0 #ffffff14,0 10px 35px #00182080;transition:filter .2s,transform .2s,box-shadow .2s}
 .ps-welcome-cta-label {font:400 24px/1.15 'Bebas Neue','Barlow Condensed','Arial Narrow',sans-serif;letter-spacing:.1em;text-indent:.1em;white-space:nowrap}
 .ps-welcome-enter:hover {filter:brightness(1.16);transform:translateY(-2px);box-shadow:inset 0 1px 0 #ffffff25,0 14px 40px #001820a0}

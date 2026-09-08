@@ -3496,7 +3496,7 @@ body.dark #splashScreen {
 
 </style>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="pickle-street.css?v=20260908-no-slot-checkmark">
+<link rel="stylesheet" href="pickle-street.css?v=20260908-promo-badge">
 <meta name="robots" content="noindex,nofollow">
 </head>
 <body class="light">
@@ -7450,7 +7450,7 @@ function courtSlotPriceHtml(hour, tiers, rate) {
   const tier = matches.length === 1 ? matches[0] : null;
   const promo = tier?.promoEnabled === true && !PBCourtPricing.validationError(tier);
   return promo
-    ? `<span class="csl-promo">${esc(courtPriceLabel(rate))}<s aria-label="Regular price ${esc(courtPriceLabel(tier.standardRate))}">${esc(courtPriceLabel(tier.standardRate))}</s></span>`
+    ? `<span class="csl-promo"><span class="csl-promo-badge">PROMO</span>${esc(courtPriceLabel(rate))}<s aria-label="Regular price ${esc(courtPriceLabel(tier.standardRate))}">${esc(courtPriceLabel(tier.standardRate))}</s></span>`
     : esc(courtPriceLabel(rate));
 }
 
