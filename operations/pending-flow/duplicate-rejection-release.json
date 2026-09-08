@@ -1,0 +1,6 @@
+{
+  "appliedAt": "2026-09-08T07:52:28.834Z",
+  "migrationHash": "d9eda422109bc26968d0f33373d6a872b60c0e0fd18cfa2b5d1029cc7cac8373",
+  "tenantId": "f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a",
+  "scope": "Unpaid initial booking duplicate reference cancellation; existing accepted payments preserved"
+}

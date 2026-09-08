@@ -10223,8 +10223,8 @@ async function submitPlatformBooking() {
       downpayment: Number(server.totalAmount || item.total || 0),
       paymentMethod: payMethod,
       gcashRef: paymentReference,
-      paymentStatus: automaticallyApproved ? 'paid' : 'for_verification',
-      status: automaticallyApproved ? 'confirmed' : 'pending',
+      paymentStatus: result.rejected ? 'rejected' : automaticallyApproved ? 'paid' : 'for_verification',
+      status: result.rejected ? 'cancelled' : automaticallyApproved ? 'confirmed' : 'pending',
       createdAt: new Date().toISOString(),
       _receiptResult: {
         status: result.status || 'manual_review',
@@ -10723,7 +10723,7 @@ function showInvoice(b) {
     const flags = b._receiptResult.flags || [];
     const noteEl = $('iDownNote');
 
-    if (s === 'rejected' && window.PB_TENANT_CONFIG?.receiptReviewMode !== 'auto_pending') {
+    if (s === 'rejected' && isRejected) {
       // Red hero
       if (heroEl) heroEl.classList.add('inv-hero--rejected');
       if (checkIconEl) checkIconEl.textContent = '✕';
@@ -10735,7 +10735,7 @@ function showInvoice(b) {
       }
       if (noteEl) {
         const flagText = flags.length ? ' Reason: ' + flags.map(f => f.replace(/_/g,' ')).join(', ') + '.' : '';
-        noteEl.textContent = `❌ Your booking has been cancelled. Please make a new booking and upload a valid ${payLabel} receipt.` + flagText;
+        noteEl.textContent = b._receiptResult.message || ('Your booking has been cancelled. Contact the venue if you believe this is a mistake.' + flagText);
       }
     } else if (s === 'auto_approved' && isConfirmed) {
       if (heroEl) heroEl.classList.add('inv-hero--approved');

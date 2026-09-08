@@ -1,3 +1,4 @@
+import {duplicateRejectionReason,sendDuplicateRejectionEmail} from './duplicate-rejection.ts';
 import { createClient } from "@supabase/supabase-js";
 import { errorResponse,jsonResponse,readJsonObject,RequestError } from "../_shared/http.ts";
 import { receiptPreflightResponse } from "./cors.ts";
@@ -79,6 +80,7 @@ async function statusResponse(request:Request,db:DB,body:Obj,origin:string):Prom
   const {data:booking,error}=await db.from('bookings').select('id,metadata,status,payment_status,expires_at,payment_sessions(provider_payload,created_at),receipt_verifications(id,status,flags,created_at,balance_request_id),booking_slots(status,hold_expires_at,balance_request_id)').eq('tenant_id',TENANT_ID).eq('reference',reference(body.bookingReference)).single();
   if(error||!booking)fail('STATUS_UNAVAILABLE','Booking status could not be refreshed.',503);
   const metadata=obj(booking!.metadata);
+  if(metadata.duplicateReferenceRejected===true)await sendDuplicateRejectionEmail(db,booking!.id);
   const upload=await db.from('picklestreet_receipt_attempts').select('idempotency_key').eq('tenant_id',TENANT_ID).eq('booking_id',booking!.id).in('action',['upload','replace']).order('version',{ascending:false}).limit(1).maybeSingle();
   if(upload.error)fail('STATUS_UNAVAILABLE','Receipt upload status could not be refreshed.',503);
   const receipt=[...(booking!.receipt_verifications||[])].filter(r=>!r.balance_request_id).sort((a,b)=>b.created_at.localeCompare(a.created_at))[0];
@@ -92,7 +94,7 @@ async function statusResponse(request:Request,db:DB,body:Obj,origin:string):Prom
     status:pending?'payment_review':result.booking.status,
     canSubmitReceipt:pending && !!flow && ['manual_review','pending'].includes(receipt?.status),
     paymentMethod:obj(session?.provider_payload).paymentMethod||'',submittedReference:obj(session?.provider_payload).submittedReference||'',
-    publicReason:pending?publicPendingReason(flags,String(metadata.receiptPendingReason||'')):'',
+    publicReason:metadata.duplicateReferenceRejected===true?duplicateRejectionReason:pending?publicPendingReason(flags,String(metadata.receiptPendingReason||'')):'',
   };
   return jsonResponse(result,200,origin);
 }
@@ -146,7 +148,12 @@ async function verificationResult(db:DB,job:Obj,bytes:Uint8Array,type:string,fin
   } catch(error){errorCode=error instanceof RequestError?error.code.toLowerCase():'verifier_unavailable';flags=['verification_unavailable'];}
   const finished=await db.rpc(finishRpc,{p_attempt_id:job.attemptId,p_lease_token:job.leaseToken,p_extracted_data:extracted,p_flags:flags,p_payment_reference:paymentReference,p_confidence:confidence,p_auto_approve:autoApprove,p_error_code:errorCode,p_receiver_snapshot:receiverSnapshot});
   if(finished.error||!finished.data)fail('VERIFICATION_PENDING','Your receipt is saved. Verification has not completed; check booking status before retrying.',503);
-  return obj(finished.data);
+  let result=obj(finished.data);
+  if(finishRpc==='finish_picklestreet_receipt_attempt' && result.attemptId){
+    const rejected=await db.rpc('reject_picklestreet_duplicate',{p_attempt_id:result.attemptId});
+    if(!rejected.error&&rejected.data?.rejected){result={...result,...rejected.data};result.rejectionEmail=await sendDuplicateRejectionEmail(db,result.bookingId);}
+  }
+  return result;
 }
 async function sendConfirmation(db:DB,result:Obj):Promise<void>{
   if(result.balanceRequestId && !(['auto_approved','approved'].includes(result.status)&&result.balanceStatus==='settled'))return;
@@ -292,7 +299,7 @@ export async function handleRequest(request:Request):Promise<Response>{
     }
     const result=await verificationResult(db,job,bytes,type,finishRpc);
     await sendConfirmation(db,result);
-    return jsonResponse({ok:true,...result,publicReason:passed(result)?successMessage:publicPendingReason(result.flags||[],result.errorCode||'')},200,origin);
+    return jsonResponse({ok:true,...result,publicReason:result.rejected?duplicateRejectionReason:passed(result)?successMessage:publicPendingReason(result.flags||[],result.errorCode||'')},200,origin);
   }catch(error){
     if(error instanceof RequestError)return errorResponse(error.status,error.code,error.message,origin);
     console.error('Pickle Street receipt service error',{type:error instanceof Error?error.name:'unknown'});
