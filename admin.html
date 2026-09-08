@@ -12854,7 +12854,6 @@ function platformActivationReadinessChecks(activation) {
   return [
     { label: 'Tenant setup activated', ok: readiness.setupActive === true },
     { label: 'Production domain active', ok: readiness.domainConfigured === true },
-    { label: 'Website booking security configured', ok: Boolean(String(window.PB_TENANT_CONFIG?.turnstileSiteKey || '').trim()) },
     { label: 'Active court and rates', ok: readiness.courtPricingConfigured === true },
     { label: 'Booking fee saved', ok: readiness.billingConfigured ?? !!activation.billing },
     { label: 'Payment destination saved', ok: readiness.paymentConfigured ?? paymentReady },
@@ -12886,15 +12885,14 @@ async function renderPlatformActivationSettings(activation = null, { preserveInp
   const checks = platformActivationReadinessChecks(_platformActivation);
   const list = $('platformBookingReadinessList');
   list.innerHTML = checks.map(check => `<div style="display:flex;align-items:center;gap:8px;padding:9px 10px;background:${check.ok ? 'rgba(var(--green-rgb),.08)' : 'rgba(255,160,0,.07)'};border:1px solid ${check.ok ? 'rgba(var(--green-rgb),.24)' : 'rgba(255,160,0,.24)'};border-radius:9px;font-size:.76rem;color:var(--text2)"><span aria-hidden="true" style="color:${check.ok ? 'var(--green)' : 'var(--yellow)'}">${check.ok ? '&#10003;' : '&#8226;'}</span><span>${esc(check.label)}</span></div>`).join('');
-  const securityReady = Boolean(String(window.PB_TENANT_CONFIG?.turnstileSiteKey || '').trim());
-  const serverReady = _platformActivation.readiness?.publicBookingEnabled === true && securityReady;
+  const serverReady = _platformActivation.readiness?.publicBookingEnabled === true;
   const activationButton = $('activateTenantInitiallyBtn');
   if (activationButton) {
     activationButton.hidden = !canActivate || _platformActivation.setupStatus === 'active';
     const readyForInitialActivation = [
       'domainConfigured', 'courtPricingConfigured', 'billingConfigured',
       'paymentConfigured', 'remittanceConfigured',
-    ].every(key => _platformActivation.readiness?.[key] === true) && securityReady;
+    ].every(key => _platformActivation.readiness?.[key] === true);
     activationButton.disabled = !readyForInitialActivation;
     activationButton.title = readyForInitialActivation
       ? 'Activate this tenant for public booking'
@@ -12916,7 +12914,6 @@ async function renderPlatformActivationSettings(activation = null, { preserveInp
       readinessReasonLabels[String(reason)] || String(reason).replace(/[_-]+/g, ' ').toLowerCase().trim()
     ).filter(Boolean)
     : [];
-  if (!securityReady) reasons.push('website booking security setup');
   $('platformActivationSummary').textContent = serverReady
     ? 'The server has approved this tenant for online booking.'
     : reasons.length
