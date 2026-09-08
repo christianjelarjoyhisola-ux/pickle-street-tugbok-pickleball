@@ -68,8 +68,6 @@ export interface HoldStore {
 export type Dependencies = {
   store: HoldStore;
   bookingSecret: string;
-  turnstileSecret: string;
-  fetcher?: typeof fetch;
   now?: () => Date;
 };
 const obj = (v: unknown): Obj =>
@@ -180,17 +178,6 @@ export function parseCompletion(body: Obj): Obj {
       : text(body.eventSetupNotes, "Event notes", 1, 1000),
   };
 }
-export async function validationId(
-  clientRequestId: string,
-  token: string,
-): Promise<string> {
-  const hash = await bookingAccessTokenHash(
-    `picklestreet-turnstile:v1:${clientRequestId}:${token}`,
-  );
-  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${
-    hash.slice(17, 20)
-  }-${hash.slice(20, 32)}`;
-}
 export function clientAddress(request: Request): string {
   const raw = (request.headers.get("cf-connecting-ip") ||
     request.headers.get("x-real-ip") ||
@@ -203,68 +190,6 @@ export function clientAddress(request: Request): string {
     );
   }
   return raw;
-}
-export async function verifyTurnstile(
-  options: {
-    token: string;
-    clientRequestId: string;
-    ip: string;
-    hostname: string;
-    secret: string;
-    fetcher: typeof fetch;
-  },
-): Promise<void> {
-  if (!options.secret) {
-    fail(
-      "SECURITY_NOT_CONFIGURED",
-      "Online booking security is unavailable.",
-      503,
-    );
-  }
-  let response: Response, data: Obj;
-  try {
-    response = await options.fetcher(
-      "https://challenges.cloudflare.com/turnstile/v0/siteverify",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          secret: options.secret,
-          response: options.token,
-          remoteip: options.ip,
-          idempotency_key: await validationId(
-            options.clientRequestId,
-            options.token,
-          ),
-        }),
-        signal: AbortSignal.timeout(10000),
-      },
-    );
-    data = obj(await response.json());
-  } catch {
-    fail(
-      "SECURITY_CHECK_UNAVAILABLE",
-      "The security check could not finish. Retry with the same court selection.",
-      503,
-    );
-  }
-  if (!response!.ok) {
-    fail(
-      "SECURITY_CHECK_UNAVAILABLE",
-      "The security check is unavailable. Retry with the same court selection.",
-      503,
-    );
-  }
-  if (
-    data!.success !== true || data!.hostname !== options.hostname ||
-    data!.action !== "booking_create"
-  ) {
-    fail(
-      "SECURITY_CHECK_FAILED",
-      "Please refresh the security check and retry the same court selection.",
-      403,
-    );
-  }
 }
 function amount(v: unknown): number {
   if (v === null || v === undefined || v === "") {
@@ -397,27 +322,18 @@ export function createHoldHandler(deps: Dependencies) {
           "durationHours",
           "bookingType",
           "clientRequestId",
-          "turnstileToken",
+          "turnstileToken", // Accepted but ignored for previously loaded clients.
         ]);
         const selection = parseSelection(body),
           clientRequestId = uuid(body.clientRequestId, true),
-          turnstileToken = text(body.turnstileToken, "Security check", 1, 2048),
           ip = clientAddress(request);
-        await verifyTurnstile({
-          token: turnstileToken,
-          clientRequestId,
-          ip,
-          hostname: context.hostname,
-          secret: deps.turnstileSecret,
-          fetcher: deps.fetcher ?? fetch,
-        });
         const token = await deriveBookingAccessToken({
             secret: deps.bookingSecret,
             tenantId: TENANT_ID,
             clientRequestId: `picklestreet-provisional:v1:${clientRequestId}`,
           }),
           tokenHash = await bookingAccessTokenHash(token);
-        // A verified retry authenticates first and then uses the stored selection,
+        // A tenant-scoped retry uses its capability and stored selection,
         // quote and deadline, even when live prices or lead-time rules changed.
         const existing = await deps.store.existing(
           clientRequestId,

@@ -1,0 +1,97 @@
+{
+  "releasedAt": "2026-09-08T04:34:28.180Z",
+  "site": "https://picklestreet.pages.dev/",
+  "deployment": "https://6fce2bc0.picklestreet.pages.dev",
+  "request": "Remove Turnstile from Pickle Street booking",
+  "changes": [
+    "Booking frontend does not load the Turnstile script, render a widget or request a challenge token.",
+    "Isolated Pickle Street hold service no longer requires the Turnstile secret or calls Siteverify; older optional token fields are ignored.",
+    "Booking activation follows authoritative venue readiness without a CAPTCHA key.",
+    "Existing slot exclusion, tenant/access controls, original hold deadline and private capability handling remain unchanged."
+  ],
+  "validation": {
+    "frontendTests": 189,
+    "backendTests": 38,
+    "browserFlowScenarios": 20,
+    "liveAccess": {
+      "results": [
+        {
+          "name": "actual frontend preflight",
+          "status": 204,
+          "errorCode": null,
+          "ok": true
+        },
+        {
+          "name": "unregistered origin",
+          "status": 403,
+          "errorCode": "TENANT_ORIGIN_DENIED",
+          "ok": true
+        },
+        {
+          "name": "different URL tenant",
+          "status": 403,
+          "errorCode": "TENANT_ACCESS_DENIED",
+          "ok": true
+        },
+        {
+          "name": "different body tenant",
+          "status": 403,
+          "errorCode": "TENANT_ACCESS_DENIED",
+          "ok": true
+        },
+        {
+          "name": "invalid status capability",
+          "status": 401,
+          "errorCode": "BOOKING_ACCESS_DENIED",
+          "ok": true
+        },
+        {
+          "name": "invalid cancel capability",
+          "status": 401,
+          "errorCode": "BOOKING_ACCESS_DENIED",
+          "ok": true
+        },
+        {
+          "name": "invalid completion capability",
+          "status": 401,
+          "errorCode": "BOOKING_ACCESS_DENIED",
+          "ok": true
+        },
+        {
+          "name": "old challenge field is ignored; nonexistent court still rejected",
+          "status": 404,
+          "errorCode": "COURT_NOT_FOUND",
+          "ok": true
+        },
+        {
+          "name": "no CAPTCHA token required; nonexistent court still rejected",
+          "status": 404,
+          "errorCode": "COURT_NOT_FOUND",
+          "ok": true
+        }
+      ],
+      "allPassed": true
+    },
+    "isolation": {
+      "checkedAt": "2026-09-08T04:32:48.012Z",
+      "holdServiceVersion": 2,
+      "otherServicesUnchanged": 30,
+      "databaseFunctionsUnchanged": 252,
+      "databaseWrites": false
+    },
+    "productionBrowser": {
+      "state": {
+        "captchaKey": "",
+        "captchaWidget": false,
+        "courtCount": 3,
+        "hasHoldAdapter": true,
+        "version": "https://picklestreet.pages.dev/supabase-config.js?v=20260908-no-captcha"
+      },
+      "errors": [],
+      "captchaRequests": 0,
+      "readOnly": true
+    }
+  },
+  "noSharedSecretsRemoved": true,
+  "noLivePaymentOrBookingCreatedForTests": true
+}

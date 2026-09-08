@@ -10,7 +10,6 @@ import {
   type Selection,
   TENANT_ID,
   TENANT_SLUG,
-  validationId,
 } from "./handler.ts";
 import { createHoldStore, databaseFailure } from "./store.ts";
 
@@ -38,7 +37,6 @@ const createBody = {
   action: "create",
   ...selection,
   clientRequestId: CLIENT,
-  turnstileToken: "synthetic-challenge-one",
 };
 function booking(extra: Obj = {}): Obj {
   return {
@@ -247,18 +245,9 @@ function fixture() {
       return b;
     },
   };
-  const fetcher = (async (_input: unknown, init?: RequestInit) => {
-    calls.siteverify.push(JSON.parse(String(init?.body)));
-    if (state.securityFailure) {
-      throw new DOMException("Synthetic network interruption", "AbortError");
-    }
-    return Response.json(state.security);
-  }) as typeof fetch;
   const handler = createHoldHandler({
     store,
     bookingSecret: SECRET,
-    turnstileSecret: "synthetic-siteverify-secret",
-    fetcher,
     now: () => new Date("2026-09-08T04:00:00Z"),
   });
   async function invoke(
@@ -356,31 +345,9 @@ Deno.test("OPTIONS covers actual adapter request headers and never creates holds
   assert.equal(f.calls.create.length, 0);
   assert.equal(f.calls.siteverify.length, 0);
 });
-for (
-  const [name, security] of [
-    ["failed", { success: false }],
-    ["wrong host", { hostname: "elsewhere.invalid" }],
-    ["wrong action", { action: "other_action" }],
-    ["truthy string", { success: "true" }],
-  ] as const
-) {
-  Deno.test(`Turnstile ${name} never issues a capability or hold`, async () => {
-    const f = fixture();
-    Object.assign(f.state.security, security);
-    const r = await f.invoke();
-    assert.equal(r.response.status, 403);
-    assert.equal(f.calls.existing, 0);
-    assert.equal(f.calls.create.length, 0);
-    assert.equal(r.data.booking, undefined);
-  });
-}
-Deno.test("Turnstile network interruption is actionable and makes no hold", async () => {
-  const f = fixture();
-  f.state.securityFailure = true;
-  const r = await f.invoke();
-  assert.equal(r.response.status, 503);
-  assert.match(r.data.error.message, /retry.*same court selection/i);
-  assert.equal(f.calls.create.length, 0);
+Deno.test("new and previously loaded clients book without any CAPTCHA request", async () => {
+  const f=fixture();const first=await f.invoke();assert.equal(first.response.status,201);assert.equal(f.calls.siteverify.length,0);
+  const retry=await f.invoke({...createBody,turnstileToken:'expired-old-widget-token'});assert.equal(retry.response.status,200);assert.equal(retry.data.booking.bookingToken,first.data.booking.bookingToken);assert.equal(f.calls.create.length,1);assert.equal(f.calls.siteverify.length,0);
 });
 for (
   const [name, body, options] of [["foreign body", {
@@ -464,25 +431,11 @@ Deno.test("lost create reply retries the same token, stored selection, price and
   assert.equal(second.data.booking.expiresAt, original.expiresAt);
   assert.equal(f.calls.create.length, 1);
   assert.equal(f.calls.configuration, 1);
-  assert.equal(f.calls.siteverify.length, 2);
+  assert.equal(f.calls.siteverify.length, 0);
   assert.equal(
     await bookingAccessTokenHash(second.data.booking.bookingToken),
     f.state.stored!.tokenHash,
   );
-  assert.notEqual(
-    f.calls.siteverify[0].idempotency_key,
-    f.calls.siteverify[1].idempotency_key,
-  );
-});
-Deno.test("known request ID never bypasses fresh security verification", async () => {
-  const f = fixture();
-  await f.created();
-  f.state.security.success = false;
-  const r = await f.invoke();
-  assert.equal(r.response.status, 403);
-  assert.equal(r.data.booking, undefined);
-  assert.equal(f.calls.existing, 1);
-  assert.equal(f.calls.create.length, 1);
 });
 Deno.test("same request ID with changed selection cannot create a second hold", async () => {
   const f = fixture(),
@@ -492,15 +445,6 @@ Deno.test("same request ID with changed selection cannot create a second hold", 
   assert.equal(r.data.error.code, "REQUEST_SELECTION_CHANGED");
   assert.equal(f.calls.create.length, 1);
   assert.equal(f.state.stored!.booking.expiresAt, b.expiresAt);
-});
-Deno.test("validation idempotency scopes to challenge and request without exposing them", async () => {
-  const a = await validationId(CLIENT, "challenge-a");
-  assert.equal(a, await validationId(CLIENT, "challenge-a"));
-  assert.notEqual(a, await validationId(CLIENT, "challenge-b"));
-  assert.match(
-    a,
-    /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-8[a-f0-9]{3}-[a-f0-9]{12}$/,
-  );
 });
 Deno.test("complete promotes the same capability using real approved policy evidence", async () => {
   const f = fixture(), b = await f.created(), r = await f.invoke(completion(b));

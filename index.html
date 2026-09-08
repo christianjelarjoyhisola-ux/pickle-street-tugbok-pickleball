@@ -25,7 +25,6 @@
 <script src="payment-method-brand.js?v=20260908-source-methods"></script>
 <script src="payment-source-ui.js?v=20260908-source-methods"></script>
 <script src="booking-balance.js?v=20260907-pickle-street"></script>
-<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;family=League+Spartan:wght@600;700;800&amp;display=swap" rel="stylesheet" />
 <link href="open-play.css?v=20260801-openplay-fee-settings" rel="stylesheet" />
 <style>
@@ -3784,9 +3783,8 @@ body.dark #splashScreen {
         <div class="booking-intro-kicker">Your court time</div>
         <h2 class="booking-intro-title" id="bookingPreparationTitle" role="status" aria-live="polite">Reserving your court…</h2>
         <p class="booking-intro-copy">Your 15-minute window starts once your slot is secured.</p>
-        <div id="bookingSecurityCheck" style="display:none;margin-top:16px;color:var(--muted);font-size:.84rem;line-height:1.5">
-          <div id="bookingTurnstile" style="width:100%;max-width:420px"></div>
-          <span id="bookingTurnstileStatus">Checking your reservation…</span>
+        <div id="bookingReservationProgress" style="display:none;margin-top:16px;color:var(--muted);font-size:.84rem;line-height:1.5">
+          <span id="bookingReservationStatus">Checking your reservation…</span>
         </div>
         <div class="booking-preparation-actions" id="bookingPreparationActions" hidden>
           <button class="btn btn-g" type="button" onclick="closeBookModal()">Back to courts</button>
@@ -4470,10 +4468,6 @@ function syncRefundPolicyFeatureUi() {
 }
 const PLATFORM_PERSISTED_STATUS_KEY_BASE = 'pb_last_booking_access_v2';
 const PLATFORM_RESUME_HASH_PARAM = 'resume';
-let _bookingTurnstileWidgetId = null;
-let _bookingTurnstileToken = '';
-let _bookingTurnstileResolve = null;
-let _bookingTurnstileReject = null;
 let _playerRainTurnstileWidgetId = null;
 let _playerRainTurnstileToken = '';
 let _playerRainTurnstileResolve = null;
@@ -5923,47 +5917,15 @@ function clearPlatformRequestState({ clearAccess = true } = {}) {
   }
 }
 
-function bookingTurnstileCallback(token) {
-  _bookingTurnstileToken = String(token || '');
-  if ($('bookingTurnstileStatus')) $('bookingTurnstileStatus').textContent = 'Security check complete.';
-  const resolve = _bookingTurnstileResolve;
-  if (resolve) resolve(_bookingTurnstileToken);
-}
 
-function bookingTurnstileExpired() {
-  _bookingTurnstileToken = '';
-  const reject = _bookingTurnstileReject;
-  if (reject) reject(new Error('Security verification expired. Please try again.'));
-}
 
-function bookingTurnstileError(errorCode) {
-  _bookingTurnstileToken = '';
-  const code = String(errorCode || '');
-  const isConfigurationError = /^(110100|110110|110200|400020|400070)$/.test(code);
-  if ($('bookingTurnstileStatus')) {
-    $('bookingTurnstileStatus').textContent = isConfigurationError
-      ? 'Security verification is temporarily unavailable.'
-      : 'Security verification is retrying. Please wait a moment.';
-  }
-  const reject = _bookingTurnstileReject;
-  if (isConfigurationError && reject) {
-    reject(new Error('Security verification is temporarily unavailable. Please try again shortly.'));
-  }
-  return isConfigurationError;
-}
 
-function bookingTurnstileTimeout() {
-  _bookingTurnstileToken = '';
-  if ($('bookingTurnstileStatus')) $('bookingTurnstileStatus').textContent = 'Security check timed out. Please try again.';
-  const reject = _bookingTurnstileReject;
-  if (reject) reject(new Error('Security verification timed out. Please try again.'));
-}
 
-function bookingTurnstileUnsupported() {
-  _bookingTurnstileToken = '';
-  const reject = _bookingTurnstileReject;
-  if (reject) reject(new Error('This browser cannot run the security check. Please update your browser or try another device.'));
-}
+
+
+
+
+
 
 async function waitForTurnstile(timeoutMs = 10000) {
   const started = Date.now();
@@ -5974,62 +5936,9 @@ async function waitForTurnstile(timeoutMs = 10000) {
   return window.turnstile;
 }
 
-async function getBookingTurnstileToken() {
-  if (!window.PB_PLATFORM_V1) return '';
-  const sitekey = String(window.PB_TENANT_CONFIG?.turnstileSiteKey || '').trim();
-  if (!sitekey) throw new Error('Online booking security is not configured yet.');
-  const turnstile = await waitForTurnstile();
-  if ($('bookingTurnstileStatus')) $('bookingTurnstileStatus').textContent = 'Checking your browser securely...';
-  if (_bookingTurnstileWidgetId === null) {
-    _bookingTurnstileWidgetId = turnstile.render('#bookingTurnstile', {
-      sitekey,
-      action: 'booking_create',
-      size: window.innerWidth < 380 ? 'compact' : 'flexible',
-      appearance: 'interaction-only',
-      execution: 'execute',
-      retry: 'auto',
-      'retry-interval': 1500,
-      'refresh-expired': 'auto',
-      'refresh-timeout': 'auto',
-      callback: bookingTurnstileCallback,
-      'expired-callback': bookingTurnstileExpired,
-      'error-callback': bookingTurnstileError,
-      'timeout-callback': bookingTurnstileTimeout,
-      'unsupported-callback': bookingTurnstileUnsupported,
-    });
-  }
-  if (_bookingTurnstileToken) return _bookingTurnstileToken;
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (handler, value) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (_bookingTurnstileResolve === finishResolve || _bookingTurnstileReject === finishReject) {
-        _bookingTurnstileResolve = null;
-        _bookingTurnstileReject = null;
-      }
-      handler(value);
-    };
-    const finishResolve = token => finish(resolve, token);
-    const finishReject = error => finish(reject, error);
-    const timer = setTimeout(
-      () => finishReject(new Error('Security verification timed out. Please try again.')),
-      30000
-    );
-    _bookingTurnstileResolve = finishResolve;
-    _bookingTurnstileReject = finishReject;
-    try { turnstile.execute(_bookingTurnstileWidgetId); }
-    catch (error) { finishReject(error); }
-  });
-}
 
-function resetBookingTurnstile() {
-  _bookingTurnstileToken = '';
-  if (_bookingTurnstileWidgetId !== null && window.turnstile) {
-    try { window.turnstile.reset(_bookingTurnstileWidgetId); } catch (_) {}
-  }
-}
+
+
 function bookingTiersForCourt(c) { return isEventBooking() ? eventPricingTiers(c) : getPricingTiersForCourt(c); }
 
 function syncConfiguredBookingUi(courts = []) {
@@ -8583,7 +8492,6 @@ function closeBookModal({ cancel = false } = {}) {
   if (savedPlatformFlow && !cancel) {
     // Escape/minimize keeps the server hold recoverable. The explicit Cancel
     // button and timeout path clear the local retry identity.
-    resetBookingTurnstile();
     return;
   }
   clearRefundPolicyAcceptance();
@@ -8592,7 +8500,6 @@ function closeBookModal({ cancel = false } = {}) {
   if (reservedRefs().length) releaseReservedBookingViews(itemsToRelease).catch(() => {});
   else clearSelectedBookingUi();
   if (window.PB_PLATFORM_V1 && cancel) clearPlatformRequestState();
-  resetBookingTurnstile();
 }
 
 function currentRefundPolicyAccepted() {
@@ -8926,7 +8833,7 @@ function wizGoTo(n) {
   if (n === 2) { renderSlots(); }
   if (n === 3) {
     updateWiz3Summary();
-    if ($('bookingSecurityCheck')) $('bookingSecurityCheck').style.display = window.PB_PLATFORM_V1 && !platformHoldIsUsable() ? '' : 'none';
+    if ($('bookingReservationProgress')) $('bookingReservationProgress').style.display = window.PB_PLATFORM_V1 && !platformHoldIsUsable() ? '' : 'none';
   }
   if (n === 4) {
     updatePrice();
@@ -11879,10 +11786,8 @@ async function createPlatformBookingHold() {
     const form = {...guestResumeFormDraft(),step:3,policyAgreed:false,policyVersion:'',policySignature:''};
     savePlatformPendingDraft({kind:'selection_hold',draft,form,fingerprint:identity.fingerprint,clientRequestId:identity.clientRequestId,savedAt:new Date().toISOString()});
     clearRefundPolicyAcceptance();
-    try {
-      // Book Now must already have exposed the security/loading surface.
-      const turnstileToken = await getBookingTurnstileToken();
-      const server = await DB.createPublicBookingHold(draft,{turnstileToken});
+    {
+      const server = await DB.createPublicBookingHold(draft);
       if (!server?.reference || !server?.bookingToken) throw new Error('The hold service did not return secure access. Retry the saved request.');
       const savedItem = {...item,ref:server.reference,bookingType:draft.bookingType,courtName:server.courtName||item.courtName,
         courtFee:Number(server.subtotalAmount||0),serviceFee:Number(server.serviceFeeAmount||0),total:Number(server.totalAmount||0)};
@@ -11906,7 +11811,7 @@ async function createPlatformBookingHold() {
       if (reservationSecondsLeft()>0) showBookingIntro();
       else if (!Number.isFinite(deadline)) toast('Hold saved. Refresh its status to check the payment deadline.','inf');
       return _platformBookingAccess;
-    } finally { resetBookingTurnstile(); }
+    }
   })();
   _platformHoldCreatePromise=pending;
   try {return await pending;} finally {if(_platformHoldCreatePromise===pending)_platformHoldCreatePromise=null;}
@@ -12179,8 +12084,8 @@ async function requestPlatformHoldForCurrentSelection() {
   const controls=[...document.querySelectorAll('#bookForm input,#bookForm select,#bookForm textarea,.bk-modal-ft button')];
   const previous=controls.map(control=>({control,disabled:control.disabled}));
   controls.forEach(control=>{control.disabled=true;});
-  if($('bookingSecurityCheck'))$('bookingSecurityCheck').style.display='';
-  if($('bookingTurnstileStatus'))$('bookingTurnstileStatus').textContent='Securing your selected court time...';
+  if($('bookingReservationProgress'))$('bookingReservationProgress').style.display='';
+  if($('bookingReservationStatus'))$('bookingReservationStatus').textContent='Securing your selected court time...';
   if($('wizNextBtn'))$('wizNextBtn').textContent='Reserving court...';
   try {
     const result=await createPlatformBookingHold();
@@ -12188,12 +12093,12 @@ async function requestPlatformHoldForCurrentSelection() {
     return null;
   } catch(error) {
     toast(error?.message||'Could not reserve this time. Retry the saved request.','err');
-    if($('bookingTurnstileStatus'))$('bookingTurnstileStatus').textContent='The reservation was not confirmed. Retry the same request before continuing.';
+    if($('bookingReservationStatus'))$('bookingReservationStatus').textContent='The reservation was not confirmed. Retry the same request before continuing.';
     return null;
   } finally {
     setBookingPreparation(platformHoldIsUsable()?'hidden':'error');
     previous.forEach(({control,disabled})=>{if(control.isConnected)control.disabled=disabled;});
-    if($('bookingSecurityCheck'))$('bookingSecurityCheck').style.display=platformHoldIsUsable()?'none':'';
+    if($('bookingReservationProgress'))$('bookingReservationProgress').style.display=platformHoldIsUsable()?'none':'';
     if($('wizNextBtn'))$('wizNextBtn').textContent=platformHoldIsUsable()?'Next →':'Retry reservation';
     if(_platformBookingAccess?.bookingToken && !platformHoldIsUsable())closeBookModal();
   }
@@ -12474,8 +12379,8 @@ async function expireStaleVerifyingBookings() {
 
 </script>
 <script src="supabase.min.js"></script>
-<script src="tenant-config.js?v=20260908-routes2"></script>
-<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260908-book-now-hold"></script><script src="receipt-pending.js?v=20260908-routes2"></script>
+<script src="tenant-config.js?v=20260908-no-captcha"></script>
+<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260908-no-captcha"></script><script src="receipt-pending.js?v=20260908-routes2"></script>
 <script src="open-play-data.js?v=20260801-openplay-fee-settings"></script>
 <script src="open-play-public.js?v=20260801-openplay-fee-settings"></script>
 

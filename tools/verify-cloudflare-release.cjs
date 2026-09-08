@@ -9,7 +9,7 @@ async function check(){
   for(const [route,marker] of [['/','https://picklestreet.pages.dev/'],['/login','data-pb-data-scope="auth"'],['/admin','data-pb-data-scope="manager"'],['/booking-management','Manage your booking']]){
     const r=await fetch(origin+route,{signal:AbortSignal.timeout(20000)});const body=await r.text();assert.equal(r.status,200,route);assert.ok(body.includes(marker),route+' must serve the current app');pages.push({route,status:r.status});
   }
-  const config=await fetch(origin+'/tenant-config.js',{signal:AbortSignal.timeout(20000)});const source=await config.text();assert.equal(config.status,200);assert.ok(source.includes("'picklestreet.pages.dev'"));assert.ok(source.includes('0x4AAAAAAD4f_jPZuqET5eVD'));
+  const config=await fetch(origin+'/tenant-config.js',{signal:AbortSignal.timeout(20000)});const source=await config.text();assert.equal(config.status,200);assert.ok(source.includes("'picklestreet.pages.dev'"));assert.ok(source.includes("turnstileSiteKey:''"),'Pickle Street must not require a CAPTCHA key');
   for(const route of ['/feature-preview/supabase-config.js','/supabase/migrations','/.env','/operations/register-pages-domain.sql']){const r=await fetch(origin+route,{signal:AbortSignal.timeout(20000)});assert.equal(r.status,404,'Non-public source must not be served: '+route);}
   const own=await bootstrap('pickle-street-tugbok');assert.equal(own.status,200);assert.equal(own.data.tenant.id,'f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a');assert.equal(own.data.readiness.domainConfigured,true);
   const wrong=await bootstrap('backyard-pickle');assert.ok(wrong.status>=400 || !wrong.data?.tenant,'Another tenant must not resolve from this origin');

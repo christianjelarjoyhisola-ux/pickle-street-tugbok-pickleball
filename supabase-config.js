@@ -234,7 +234,7 @@ async function _pbPlatformBootstrap() {
       : {};
     window.PB_PLATFORM_READINESS = Object.freeze({ ...readiness });
     window.PB_PUBLIC_BOOKING_ENABLED =
-      PB_PUBLIC_BOOKING_REQUESTED && readiness.publicBookingEnabled === true && Boolean(String(PB_RUNTIME_CONFIG.turnstileSiteKey || '').trim());
+      PB_PUBLIC_BOOKING_REQUESTED && readiness.publicBookingEnabled === true;
     return data;
   });
 }
@@ -3760,7 +3760,6 @@ window.DB = {
   },
 
   async activateTenantInitially() {
-    if (!String(PB_RUNTIME_CONFIG.turnstileSiteKey || '').trim()) throw new Error('The website booking security check must be configured before activation.');
     if (!PB_PLATFORM_V1) throw new Error('Initial tenant activation requires the protected platform backend.');
     const { data, error } = await _sb.rpc('activate_tenant_initially', {
       p_tenant_slug: PB_TENANT_SLUG,
@@ -3777,20 +3776,18 @@ window.DB = {
     _pbClearFastCache(scopes);
   },
 
-  async createPublicBookingHold(booking, { turnstileToken } = {}) {
+  async createPublicBookingHold(booking) {
     if (!PB_PLATFORM_V1 || PB_TENANT_SLUG !== 'pickle-street-tugbok') throw new Error('This venue does not support preliminary slot holds.');
     const bootstrap = await _pbPlatformBootstrap();
     if (bootstrap?.readiness?.publicBookingEnabled !== true) throw new Error('Online booking is not ready yet.');
     const slots = [...new Set((booking?.slots || []).map(Number))].sort((a,b)=>a-b);
     if (!slots.length || slots.some((hour,index)=>!Number.isInteger(hour) || (index>0 && hour!==slots[index-1]+1))) throw new Error('Booking hours must be consecutive.');
-    const token = String(turnstileToken || '').trim();
-    if (!token) throw new Error('Please complete the security check to hold your court time.');
     const clientRequestId = String(booking?.clientRequestId || '').trim().toLowerCase();
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(clientRequestId)) throw new Error('A secure request could not be created. Please refresh.');
     const result = await _invokeEdgeFunction(`picklestreet-booking-hold?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`, {
       action:'create',tenantSlug:PB_TENANT_SLUG,courtId:String(booking.courtId),bookingDate:String(booking.date),
       startTime:`${String(slots[0]).padStart(2,'0')}:00`,durationHours:slots.length,
-      bookingType:booking.bookingType==='event'?'event':'regular',clientRequestId,turnstileToken:token,
+      bookingType:booking.bookingType==='event'?'event':'regular',clientRequestId,
     }, {preferDirect:true});
     if (!result?.ok || !result.booking?.reference || !result.booking?.bookingToken) throw new Error('The court hold did not return secure access.');
     _pbClearFastCache(['bookings','platformAvailability']);

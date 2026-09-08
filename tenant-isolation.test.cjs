@@ -99,20 +99,20 @@ test('guest booking status uses anonymous authorization even when a manager is r
 
 test('Book Now creates a selection-only hold using guest authorization',async()=>{
   const {context:c,calls}=boot({bootstrap:{readiness:{publicBookingEnabled:true}},response:{ok:true,booking:{reference:'PS-HOLD',bookingToken:'test-capability',detailsCompleted:false}}});
-  const result=await c.DB.createPublicBookingHold({courtId:'court-test',date:'2026-10-01',slots:[10,11],bookingType:'regular',clientRequestId:'10000000-0000-4000-8000-000000000001',fullName:'Do not send',policyAccepted:true,total:1},{turnstileToken:'test-challenge'});
+  const result=await c.DB.createPublicBookingHold({courtId:'court-test',date:'2026-10-01',slots:[10,11],bookingType:'regular',clientRequestId:'10000000-0000-4000-8000-000000000001',fullName:'Do not send',policyAccepted:true,total:1});
   assert.equal(result.detailsCompleted,false);
   const request=calls.find(x=>x.kind==='fetch'),body=JSON.parse(request.init.body);
   assert.match(request.url,/picklestreet-booking-hold/);assert.equal(body.action,'create');
   assert.equal(body.startTime,'10:00');assert.equal(body.durationHours,2);
   assert.equal(body.tenantSlug,SLUG);
-  for(const key of ['customer','fullName','policyAccepted','total','metadata'])assert.equal(Object.hasOwn(body,key),false);
+  for(const key of ['customer','fullName','policyAccepted','total','metadata','turnstileToken'])assert.equal(Object.hasOwn(body,key),false);
   assert.ok(!new Headers(request.init.headers).get('Authorization').includes('test-manager-token'));
 });
 
-test('hold creation rejects invalid selection or missing challenge before writing',async()=>{
+test('hold creation rejects invalid selection or missing request ID before writing',async()=>{
   const {context:c,calls}=boot({bootstrap:{readiness:{publicBookingEnabled:true}}});
   await assert.rejects(c.DB.createPublicBookingHold({slots:[10,12]},{turnstileToken:'challenge'}),/consecutive/);
-  await assert.rejects(c.DB.createPublicBookingHold({slots:[10]}),/security check/);
+  await assert.rejects(c.DB.createPublicBookingHold({slots:[10]}),/secure request/);
   assert.equal(calls.filter(x=>x.kind==='fetch').length,0);
 });
 
@@ -291,15 +291,11 @@ test('fee forms show persistent validation, pending, success, and server error f
   elements.openPlayServiceFeeInput.value='7.25';await context.saveOpenPlayServiceFee();assert.match(elements.openPlayFeeSaveStatus.textContent,/Saved:.*7.25/);
 });
 
-test('customer booking activation stays closed until a real security widget is configured',async()=>{
-  const {context:c}=boot({hostname:'pickle-street-tugbok.boothsandbeyondoffic.chatgpt.site',scope:'manager',bootstrap:{readiness:{publicBookingEnabled:true}}});
-  await c.DB.getResolvedTenantId();assert.equal(c.PB_PUBLIC_BOOKING_ENABLED,false);
-  await assert.rejects(c.DB.activateTenantInitially(),/security check/);
-});
-
-test('Pages uses the approved security widget and keeps the Sites preview gated',()=>{
-  assert.equal(boot().context.PB_TENANT_CONFIG.turnstileSiteKey,'0x4AAAAAAD4f_jPZuqET5eVD');
-  assert.equal(boot({hostname:'pickle-street-tugbok.boothsandbeyondoffic.chatgpt.site'}).context.PB_TENANT_CONFIG.turnstileSiteKey,'');
+test('booking availability follows server readiness without a CAPTCHA key',async()=>{
+  for(const hostname of [HOST,'pickle-street-tugbok.boothsandbeyondoffic.chatgpt.site']) {
+    const {context:c}=boot({hostname,bootstrap:{readiness:{publicBookingEnabled:true}}});await c.DB.getResolvedTenantId();assert.equal(c.PB_PUBLIC_BOOKING_ENABLED,true);assert.equal(c.PB_TENANT_CONFIG.turnstileSiteKey,'');
+  }
+  const {context:c}=boot({bootstrap:{readiness:{publicBookingEnabled:false}}});await c.DB.getResolvedTenantId();assert.equal(c.PB_PUBLIC_BOOKING_ENABLED,false);
 });
 
 test('Open Play is hidden only in the dashboard and makes no dashboard data requests',async()=>{

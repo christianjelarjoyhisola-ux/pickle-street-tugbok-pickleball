@@ -19,8 +19,8 @@
     receiptPaymentWindowMinutes:15,
     sharedGcashPaymentsEnabled:true,
     onboardingLocked:false,
-    // The public widget is approved for this Pages origin; secrets stay server-side.
-    turnstileSiteKey:currentHost==='picklestreet.pages.dev'?'0x4AAAAAAD4f_jPZuqET5eVD':'',
+    // Pickle Street bookings do not use a CAPTCHA.
+    turnstileSiteKey:'',
   });
   Object.defineProperty(global,'PB_TENANT_CONFIG',{value:config,enumerable:true,writable:false,configurable:false});
 })(window);
