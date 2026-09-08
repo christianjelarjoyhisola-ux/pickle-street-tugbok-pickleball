@@ -1,0 +1,38 @@
+{
+  "releasedAt": "2026-09-08T05:44:45.3185298Z",
+  "deployment": "https://60ba8551.picklestreet.pages.dev",
+  "behavior": "Keep court selection visible with disabled Securing slot button while awaiting hold; remove overlay from rendering until confirmed countdown is ready. Avoid rebuilding court buttons before the request.",
+  "frontendTests": 189,
+  "browser": {
+    "passed": 25,
+    "cases": [
+      "regular click→hold→Details→method→policy→completion 320",
+      "regular click→hold→Details→method→policy→completion 607",
+      "slow server: no loading screen, then timer → Details 320",
+      "slow server: no loading screen, then timer → Details 607",
+      "Book Now reopening an existing hold shows remaining-time intro first",
+      "lost create explicit retry",
+      "lost create reopen retry",
+      "preliminary recovery remains Details and keeps expiry",
+      "preliminary cancel uses correct route",
+      "lost completion reconciles then reaccepts without duplicate completion",
+      "normal completed hold policy reaccept never invokes preliminary complete",
+      "changed policy submit returns method without automatic popup",
+      "event details collected only on completion",
+      "Escape cannot dismiss pending completion",
+      "inactive future/deadline response {\"status\":\"cancelled\"}",
+      "inactive future/deadline response {\"status\":\"expired\"}",
+      "inactive future/deadline response {\"reservationHeld\":false}",
+      "inactive future/deadline response {\"expiresAt\":\"2026-09-08T05:43:58.982Z\"}",
+      "server receipt POLICY_CHANGED returns Method without popup",
+      "hold expiry closes open policy and wizard",
+      "checkout card for five seconds, then timer animated into banner 320",
+      "checkout card for five seconds, then timer animated into banner 607",
+      "new hold opens at 15:00 then follows unchanged server deadline",
+      "delayed or old hold never gains a new fifteen minutes",
+      "reduced motion restores timer without movement"
+    ]
+  },
+  "liveSourceVerified": true,
+  "backendChanges": false
+}

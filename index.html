@@ -3486,7 +3486,7 @@ body.dark #splashScreen {
 #bookModal.booking-intro-active .bk-modal-body,
 #bookModal.booking-intro-active .bk-modal-ft,
 #bookModal.booking-intro-active #slotCountdown { visibility:hidden;opacity:0;pointer-events:none; }
-#bookModal.booking-hold-preparing { visibility:hidden;pointer-events:none; }
+#bookModal.booking-hold-preparing { display:none!important;visibility:hidden;pointer-events:none;backdrop-filter:none!important;-webkit-backdrop-filter:none!important; }
 .booking-timer-flight { position:fixed;z-index:2147483646;pointer-events:none;transform-origin:top left;margin:0; }
 .booking-countdown-announcer { position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0; }
 @media (prefers-reduced-motion:reduce) { .booking-intro { transition:none; } }
@@ -8399,14 +8399,14 @@ async function proceedToBookSelection(courtId = null) {
       toast('This browser cannot create a secure reservation. Please update it.', 'err'); return;
     }
     selSlots = [...primary.slots];
-    await refreshBookingItemViews(reserveItems);
+    // Keep the selected court and its busy Book Now button in place while securing it.
     $('bDate').value = selectedDate;
     if (isEventBooking()) payFull = EVENT_FULL_PAYMENT_REQUIRED;
     updatePaymentAmountUI();
     clearRefundPolicyAcceptance();
     wizStartStep = 3;
-    $('bookModal').classList.add('active'); document.body.style.overflow = 'hidden';
-    const mobileBar=$('mobileBookBar'); if(mobileBar)mobileBar.style.display='none';
+    setBookingPreparation('loading');
+    $('bookModal').classList.add('active');
     wizGoTo(3); stopSlotCountdown();
     await requestPlatformHoldForCurrentSelection();
     return;
@@ -12029,12 +12029,12 @@ async function proceedToBook(courtId=null) {
   if(_proceedToBookPromise)return _proceedToBookPromise;
   const controls=[...document.querySelectorAll('#mobileBookBtn,.cc-book-bar .btn')];
   const prior=controls.map(button=>({button,disabled:button.disabled,text:button.textContent}));
-  controls.forEach(button=>{button.disabled=true;button.textContent='Reserving court...';});
+  controls.forEach(button=>{button.disabled=true;button.textContent='Securing slot…';button.setAttribute('aria-busy','true');});
   const pending=Promise.resolve().then(()=>proceedToBookSelection(courtId));
   _proceedToBookPromise=pending;
   try{return await pending;}finally{
     if(_proceedToBookPromise===pending)_proceedToBookPromise=null;
-    prior.forEach(({button,disabled,text})=>{if(button.isConnected){button.disabled=disabled;button.textContent=text;}});
+    prior.forEach(({button,disabled,text})=>{if(button.isConnected){button.disabled=disabled;button.textContent=text;button.removeAttribute('aria-busy');}});
   }
 }
 
@@ -12099,6 +12099,11 @@ function recordPlatformHoldConsent(consent) {
 
 function setBookingPreparation(stage) {
   $('bookModal')?.classList.toggle('booking-hold-preparing',stage==='loading');
+  if(stage==='loading') document.body.style.overflow='';
+  else if(platformHoldIsUsable() && $('bookModal')?.classList.contains('active')) {
+    document.body.style.overflow='hidden';
+    const mobileBar=$('mobileBookBar');if(mobileBar)mobileBar.style.display='none';
+  }
 }
 
 async function requestPlatformHoldForCurrentSelection() {
