@@ -3472,36 +3472,19 @@ body.dark #splashScreen {
   .player-rain-actions .btn { flex-basis:100%; white-space:normal; text-align:center; }
   .player-rain-summary { grid-template-columns:1fr; }
 }
-/* Restored checkout introduction, scoped to an actual court hold. */
+/* Brief timer-only introduction; the same deadline docks into the form banner. */
 #bookModal .bk-modal { position:relative; }
-.booking-intro {
-  position:absolute;inset:0;z-index:20;display:grid;place-items:center;padding:24px;
-  background:rgba(8,16,13,.74);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);
-  opacity:0;visibility:hidden;pointer-events:none;transition:opacity .18s ease;
-}
-.booking-intro[aria-hidden="false"] { opacity:1;visibility:visible;pointer-events:auto; }
-.booking-intro-card {
-  width:min(100%,390px);padding:26px 22px 24px;text-align:center;background:var(--card);
-  border:1px solid rgba(var(--ac),.42);border-radius:18px;box-shadow:0 24px 70px rgba(0,0,0,.5);
-}
-.booking-intro-kicker { margin-bottom:7px;color:var(--accent);font-size:.72rem;font-weight:800;letter-spacing:1px;text-transform:uppercase; }
-.booking-intro-title { font-size:1.45rem;font-weight:900;line-height:1.15;color:var(--text); }
-.booking-intro-timer { margin:12px 0 10px;color:#b87e00;font-size:clamp(2.65rem,12vw,4rem);font-weight:900;font-variant-numeric:tabular-nums;letter-spacing:1px;line-height:1; }
-.booking-intro-copy { margin:0 auto;max-width:330px;color:var(--muted);font-size:.84rem;line-height:1.55; }
+.booking-intro { position:absolute;inset:0;z-index:20;display:grid;place-items:center;padding:24px;visibility:hidden;pointer-events:none; }
+.booking-intro[aria-hidden="false"] { visibility:visible;pointer-events:auto; }
+.booking-intro-timer { margin:0;color:#97d9e3;font-family:'Manrope',sans-serif;font-size:clamp(4rem,18vw,6rem);font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.04em;line-height:1; }
+#bookingIntroCard { outline:none;text-align:center; }
+#bookModal.booking-intro-active .bk-modal { background:transparent!important;border-color:transparent!important;box-shadow:none!important; }
 #bookModal.booking-intro-active .wiz-steps,
 #bookModal.booking-intro-active .bk-modal-body,
-#bookModal.booking-intro-active .bk-modal-ft { filter:blur(5px);opacity:.42;pointer-events:none;user-select:none; }
-#bookModal.booking-hold-preparing .wiz-steps,
-#bookModal.booking-hold-preparing .bk-modal-body,
-#bookModal.booking-hold-preparing .bk-modal-ft,
-#bookModal.booking-intro-active .wiz-steps,
-#bookModal.booking-intro-active .bk-modal-body,
-#bookModal.booking-intro-active .bk-modal-ft { visibility:hidden; }
-.booking-preparation { background:var(--card);transition:none; }
-.booking-preparation .booking-intro-card { padding:24px 16px; }
-.booking-preparation-actions { display:flex;gap:10px;margin-top:18px;flex-wrap:wrap; }
-.booking-preparation-actions[hidden] { display:none; }
-.booking-preparation-actions button { flex:1 1 100px;min-height:44px;white-space:normal; }
+#bookModal.booking-intro-active .bk-modal-ft,
+#bookModal.booking-intro-active #slotCountdown { visibility:hidden;pointer-events:none; }
+#bookModal.booking-hold-preparing { visibility:hidden;pointer-events:none; }
+.booking-timer-flight { position:fixed;z-index:2147483646;pointer-events:none;transform-origin:top left;margin:0; }
 .booking-countdown-announcer { position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0; }
 @media (prefers-reduced-motion:reduce) { .booking-intro { transition:none; } }
 
@@ -3778,27 +3761,9 @@ body.dark #splashScreen {
       <span class="scd-timer" id="scdTimerBig">15:00</span>
     </div>
 
-    <div class="booking-intro booking-preparation" id="bookingPreparation" aria-hidden="true" inert>
-      <div class="booking-intro-card" tabindex="-1" id="bookingPreparationCard" role="group" aria-labelledby="bookingPreparationTitle">
-        <div class="booking-intro-kicker">Your court time</div>
-        <h2 class="booking-intro-title" id="bookingPreparationTitle" role="status" aria-live="polite">Reserving your court…</h2>
-        <p class="booking-intro-copy">Your 15-minute window starts once your slot is secured.</p>
-        <div id="bookingReservationProgress" style="display:none;margin-top:16px;color:var(--muted);font-size:.84rem;line-height:1.5">
-          <span id="bookingReservationStatus">Checking your reservation…</span>
-        </div>
-        <div class="booking-preparation-actions" id="bookingPreparationActions" hidden>
-          <button class="btn btn-g" type="button" onclick="closeBookModal()">Back to courts</button>
-          <button class="btn btn-p" type="button" id="bookingHoldRetry" onclick="requestPlatformHoldForCurrentSelection()">Retry reservation</button>
-        </div>
-      </div>
-    </div>
     <div class="booking-intro" id="bookingIntro" aria-hidden="true" inert>
-      <div class="booking-intro-card" id="bookingIntroCard" tabindex="-1" role="group" aria-labelledby="bookingIntroTitle" aria-describedby="bookingIntroCopy">
-        <div class="booking-intro-kicker">15-minute payment window</div>
-        <div class="booking-intro-title" id="bookingIntroTitle">Complete payment before the timer ends</div>
+      <div id="bookingIntroCard" tabindex="-1" role="group" aria-label="Time remaining to complete your booking">
         <div class="booking-intro-timer" id="bookingIntroTimer">--:--</div>
-        <p class="booking-intro-copy" id="bookingIntroCopy">This is the time remaining on your reserved court. The timer continues if you close this page.</p>
-        <button class="btn btn-p" type="button" onclick="hideBookingIntro({restoreFocus:true})" style="margin-top:16px">Continue booking</button>
       </div>
     </div>
     <div class="booking-countdown-announcer" id="bookingCountdownAnnouncement" role="status" aria-live="polite" aria-atomic="true"></div>
@@ -8682,14 +8647,42 @@ function setBookingIntroContentInert(inert) {
   });
 }
 
-function hideBookingIntro({restoreFocus = false} = {}) {
+function clearBookingIntroDock() {
+  const state=window._bookingIntroDockState;
+  if(!state)return;
+  window._bookingIntroDockState=null;
+  state.animation?.cancel();state.clone.remove();state.target.style.opacity=state.opacity;
+}
+
+function hideBookingIntro({restoreFocus = false, animate = false} = {}) {
   if (_reservationIntroTimeout) clearTimeout(_reservationIntroTimeout);
   _reservationIntroTimeout = null;
-  const intro=$('bookingIntro');
+  clearBookingIntroDock();
+  const intro=$('bookingIntro'),timer=$('bookingIntroTimer'),modal=$('bookModal');
+  const canAnimate=animate && modal?.classList.contains('active') && intro?.getAttribute?.('aria-hidden')==='false' &&
+    typeof timer?.animate==='function' && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const from=canAnimate?timer.getBoundingClientRect():null;
+  const timerStyle=canAnimate?getComputedStyle(timer):null;
   if (intro) { intro.setAttribute('aria-hidden','true');intro.inert=true; }
-  $('bookModal')?.classList.remove('booking-intro-active');
+  modal?.classList.remove('booking-intro-active');
   setBookingIntroContentInert(false);
-  if (restoreFocus && $('bookModal')?.classList.contains('active')) requestAnimationFrame(()=>$('wizNextBtn')?.focus({preventScroll:true}));
+  const target=$('scdTimerBig');
+  const to=canAnimate?target?.getBoundingClientRect():null;
+  if(from?.width && from?.height && to?.width && to?.height){
+    const clone=timer.cloneNode(true);clone.removeAttribute('id');clone.setAttribute('aria-hidden','true');
+    clone.className='booking-timer-flight';
+    Object.assign(clone.style,{left:from.left+'px',top:from.top+'px',width:from.width+'px',height:from.height+'px',
+      color:timerStyle.color,fontFamily:timerStyle.fontFamily,fontSize:timerStyle.fontSize,fontWeight:timerStyle.fontWeight,
+      letterSpacing:timerStyle.letterSpacing,fontVariantNumeric:'tabular-nums',lineHeight:'1'});
+    document.body.append(clone);
+    const state={clone,target,opacity:target.style.opacity,animation:null};target.style.opacity='0';window._bookingIntroDockState=state;
+    state.animation=clone.animate([
+      {transform:'translate(0px,0px) scale(1,1)'},
+      {transform:'translate('+(to.left-from.left)+'px,'+(to.top-from.top)+'px) scale('+(to.width/from.width)+','+(to.height/from.height)+')'}
+    ],{duration:560,easing:'cubic-bezier(.22,1,.36,1)',fill:'forwards'});
+    state.animation.onfinish=()=>{if(window._bookingIntroDockState===state)clearBookingIntroDock();};
+  }
+  if (restoreFocus && modal?.classList.contains('active')) requestAnimationFrame(()=>$('wizNextBtn')?.focus({preventScroll:true}));
 }
 
 function showBookingIntro() {
@@ -8706,8 +8699,8 @@ function showBookingIntro() {
   intro.inert=false;intro.setAttribute('aria-hidden','false');
   if ($('bookingCountdownAnnouncement')) $('bookingCountdownAnnouncement').textContent='Your court is temporarily held. Complete payment before the displayed timer ends.';
   requestAnimationFrame(()=>card.focus({preventScroll:true}));
-  // Same five-second introduction as the preview, with a visible skip action.
-  _reservationIntroTimeout=setTimeout(()=>hideBookingIntro({restoreFocus:true}),5000);
+  // Show only the live countdown for five seconds, then move it into its banner.
+  _reservationIntroTimeout=setTimeout(()=>hideBookingIntro({restoreFocus:true,animate:true}),5000);
   return true;
 }
 
@@ -8833,7 +8826,6 @@ function wizGoTo(n) {
   if (n === 2) { renderSlots(); }
   if (n === 3) {
     updateWiz3Summary();
-    if ($('bookingReservationProgress')) $('bookingReservationProgress').style.display = window.PB_PLATFORM_V1 && !platformHoldIsUsable() ? '' : 'none';
   }
   if (n === 4) {
     updatePrice();
@@ -11995,6 +11987,7 @@ async function platformWizardNext() {
 }
 
 async function proceedToBook(courtId=null) {
+  if(_bookingCancelInFlight)return;
   if(_proceedToBookPromise)return _proceedToBookPromise;
   const controls=[...document.querySelectorAll('#mobileBookBtn,.cc-book-bar .btn')];
   const prior=controls.map(button=>({button,disabled:button.disabled,text:button.textContent}));
@@ -12067,15 +12060,7 @@ function recordPlatformHoldConsent(consent) {
 }
 
 function setBookingPreparation(stage) {
-  const preparing=stage!=='hidden';
-  const panel=$('bookingPreparation');
-  $('bookModal')?.classList.toggle('booking-hold-preparing',preparing);
-  if(panel){panel.setAttribute('aria-hidden',String(!preparing));panel.inert=!preparing;}
-  if($('bookingPreparationTitle'))$('bookingPreparationTitle').textContent=stage==='error'?'Reservation not confirmed':'Reserving your court…';
-  if($('bookingPreparationActions'))$('bookingPreparationActions').hidden=stage!=='error';
-  if(preparing)setBookingIntroContentInert(true);
-  else if(!$('bookModal')?.classList.contains('booking-intro-active'))setBookingIntroContentInert(false);
-  if(preparing)requestAnimationFrame(()=>$('bookingPreparationCard')?.focus({preventScroll:true}));
+  $('bookModal')?.classList.toggle('booking-hold-preparing',stage==='loading');
 }
 
 async function requestPlatformHoldForCurrentSelection() {
@@ -12084,8 +12069,6 @@ async function requestPlatformHoldForCurrentSelection() {
   const controls=[...document.querySelectorAll('#bookForm input,#bookForm select,#bookForm textarea,.bk-modal-ft button')];
   const previous=controls.map(control=>({control,disabled:control.disabled}));
   controls.forEach(control=>{control.disabled=true;});
-  if($('bookingReservationProgress'))$('bookingReservationProgress').style.display='';
-  if($('bookingReservationStatus'))$('bookingReservationStatus').textContent='Securing your selected court time...';
   if($('wizNextBtn'))$('wizNextBtn').textContent='Reserving court...';
   try {
     const result=await createPlatformBookingHold();
@@ -12093,12 +12076,15 @@ async function requestPlatformHoldForCurrentSelection() {
     return null;
   } catch(error) {
     toast(error?.message||'Could not reserve this time. Retry the saved request.','err');
-    if($('bookingReservationStatus'))$('bookingReservationStatus').textContent='The reservation was not confirmed. Retry the same request before continuing.';
     return null;
   } finally {
-    setBookingPreparation(platformHoldIsUsable()?'hidden':'error');
+    if(!platformHoldIsUsable()) {
+      closeBookModal();
+      const pending=readPlatformPendingDraft();
+      if(!_platformBookingAccess?.bookingToken && pending)renderPlatformRecoveryPrompt(pending,{}, {pendingDraft:true});
+    }
+    setBookingPreparation('hidden');
     previous.forEach(({control,disabled})=>{if(control.isConnected)control.disabled=disabled;});
-    if($('bookingReservationProgress'))$('bookingReservationProgress').style.display=platformHoldIsUsable()?'none':'';
     if($('wizNextBtn'))$('wizNextBtn').textContent=platformHoldIsUsable()?'Next →':'Retry reservation';
     if(_platformBookingAccess?.bookingToken && !platformHoldIsUsable())closeBookModal();
   }

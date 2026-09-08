@@ -1,0 +1,38 @@
+{
+  "releasedAt": "2026-09-08T04:48:55.033Z",
+  "site": "https://picklestreet.pages.dev/",
+  "deployment": "https://05ee5539.picklestreet.pages.dev",
+  "behavior": "After Book Now secures the original server hold, show only its live countdown for five seconds then animate it into the existing timer banner. No reservation loading card or introduction text/button. Pending requests remain on the court view; interrupted requests remain recoverable.",
+  "frontendTests": 189,
+  "browser": {
+    "passed": 23,
+    "cases": [
+      "regular click→hold→Details→method→policy→completion 320",
+      "regular click→hold→Details→method→policy→completion 607",
+      "slow server: no loading screen, then timer → Details 320",
+      "slow server: no loading screen, then timer → Details 607",
+      "Book Now reopening an existing hold shows remaining-time intro first",
+      "lost create explicit retry",
+      "lost create reopen retry",
+      "preliminary recovery remains Details and keeps expiry",
+      "preliminary cancel uses correct route",
+      "lost completion reconciles then reaccepts without duplicate completion",
+      "normal completed hold policy reaccept never invokes preliminary complete",
+      "changed policy submit returns method without automatic popup",
+      "event details collected only on completion",
+      "Escape cannot dismiss pending completion",
+      "inactive future/deadline response {\"status\":\"cancelled\"}",
+      "inactive future/deadline response {\"status\":\"expired\"}",
+      "inactive future/deadline response {\"reservationHeld\":false}",
+      "inactive future/deadline response {\"expiresAt\":\"2026-09-08T04:47:23.245Z\"}",
+      "server receipt POLICY_CHANGED returns Method without popup",
+      "hold expiry closes open policy and wizard",
+      "timer only for five seconds, then animated into banner 320",
+      "timer only for five seconds, then animated into banner 607",
+      "reduced motion restores timer without movement"
+    ]
+  },
+  "liveSourceVerified": true,
+  "backendChanges": false,
+  "noLiveBookingsCreatedForTests": true
+}
