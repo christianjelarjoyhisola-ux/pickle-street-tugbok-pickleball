@@ -547,7 +547,8 @@ function parseRecipient(lines: string[]): {
     if (
       !ACCOUNT_TYPE_LABEL_RE.test(line) &&
       !ACCOUNT_NUMBER_LABEL_RE.test(line) &&
-      !ACCOUNT_NAME_LABEL_RE.test(line) && looksLikeRecipientName(line)
+      !ACCOUNT_NAME_LABEL_RE.test(line) &&
+      !ACCOUNT_TYPE_LABEL_RE.test(lines[lineIndex - 1] || "") && looksLikeRecipientName(line)
     ) {
       nameCandidates.push({ raw: line, lineIndex });
     }
@@ -799,7 +800,7 @@ export function verifyMayaToGcashReceipt(
     addUnique(flags, "INSTAPAY_QRPH_UNREADABLE");
   }
   if (
-    !parsed.indicators.destinationGcash || !parsed.indicators.accountTypeLabel
+    !context.ignoreMayaAccountType && (!parsed.indicators.destinationGcash || !parsed.indicators.accountTypeLabel)
   ) {
     addUnique(flags, "GXI_DESTINATION_UNREADABLE");
   }

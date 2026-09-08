@@ -85,6 +85,7 @@ export type BankRecipientComparison = {
 };
 
 export type ReceiptVerificationContext = {
+  ignoreMayaAccountType?: boolean;
   typedReference?: string;
   expectedAmount: number | null;
   pricingAvailable: boolean;

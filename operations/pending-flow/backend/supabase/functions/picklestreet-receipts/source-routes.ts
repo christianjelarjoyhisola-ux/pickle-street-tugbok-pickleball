@@ -54,8 +54,8 @@ export type RouteEvidence = {
   schemaVersion: 1;
   routeId: string;
   sourceProvider: string;
-  destinationProvider: "gcash";
-  destinationMethodCode: "gcash";
+  destinationProvider: "gcash" | "maya";
+  destinationMethodCode: "gcash" | "maya";
   parserVersion: string;
   verifierVersion: "picklestreet_sources_20260908_2";
   sourceMatched: boolean;
@@ -202,8 +202,8 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
   ) add("tenant_context_invalid");
   if (!source || source !== paymentSource) add("source_route_unsupported");
   if (
-    input.route?.destinationProvider !== "gcash" ||
-    input.route?.destinationMethodCode !== "gcash"
+    input.route?.destinationProvider !== (source === "maya" ? "maya" : "gcash") ||
+    input.route?.destinationMethodCode !== (source === "maya" ? "maya" : "gcash")
   ) add("destination_route_unsupported");
   if (input.route?.enabled !== true) add("source_route_disabled");
   if (input.route?.autoApprovalEnabled !== true) {
@@ -257,10 +257,10 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
   }
   const route: RouteEvidence = {
     schemaVersion: 1,
-    routeId: source ? `${source}_to_gcash` : "unsupported_to_gcash",
+    routeId: source === "maya" ? "maya_configured_receiver" : source ? `${source}_to_gcash` : "unsupported_to_gcash",
     sourceProvider: source || "unsupported",
-    destinationProvider: "gcash",
-    destinationMethodCode: "gcash",
+    destinationProvider: source === "maya" ? "maya" : "gcash",
+    destinationMethodCode: source === "maya" ? "maya" : "gcash",
     parserVersion: "unsupported",
     verifierVersion: "picklestreet_sources_20260908_2",
     sourceMatched: false,
@@ -291,6 +291,7 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
       const comparedReference = typed || (observedReference ? String(observedReference) : "");
       if (!typed && comparedReference) parsed = parseProviderReceipt(source,text,{typedReference:comparedReference});
       const context = {
+        ignoreMayaAccountType: source === "maya",
         typedReference: comparedReference,
         expectedAmount: expected,
         pricingAvailable: Number.isFinite(expected) && expected > 0,
@@ -308,9 +309,9 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
       for (const value of evidence.flags) add(value);
       const receipt = parsed.receipt;
       const matched = routeMatches(parsed);
-      route.parserVersion = parsed.parserVersion;
+      route.parserVersion = source === "maya" ? "maya_configured_receiver_v1" : parsed.parserVersion;
       route.sourceMatched = matched.source;
-      route.destinationMatched = matched.destination;
+      route.destinationMatched = source === "maya" ? evidence.provider === "maya" && evidence.recipientComparison.phone === "exact" : matched.destination;
       route.successMatched = matched.successful;
       route.recipientMatched = recipientPassed(parsed, evidence);
       if (parsed.provider === "gcash" && evidence.provider === "gcash") {

@@ -34,6 +34,6 @@ Deno.test('PNB retains its independent receiver and receives no GCash private id
 
 Deno.test('native Maya keeps its independent receiver without GCash identity',async()=>{
  const h=database({wrongDestination:true});const c=await paymentReceiptContext(h.db as any,'maya');
- assert.equal(c.route,null);assert.equal(c.snapshot.method,'maya');assert.equal(c.snapshot.account,'09999999999');
+ assert.equal(c.route.destinationMethodCode,'maya');assert.equal(c.route.autoApprovalEnabled,true);assert.equal(c.snapshot.method,'maya');assert.equal(c.snapshot.account,'09999999999');
  assert.equal(h.queries.some(q=>q.filters.method_code==='gcash'||q.table==='picklestreet_receipt_route_settings'),false);
 });
