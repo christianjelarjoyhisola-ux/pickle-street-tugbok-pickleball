@@ -1,0 +1,27 @@
+{
+  "at": "2026-09-08T17:12:47.208Z",
+  "hash": "12cb31cb8112b756aafec3e7058aebeb5c58b2c83704b252f4b83d1fce48237b",
+  "rolledBack": true,
+  "result": [
+    {
+      "name": "Independent Maya account saves without inheriting GCash identity or QR",
+      "passed": true
+    },
+    {
+      "name": "Repeated native Maya settings save succeeds",
+      "passed": true
+    },
+    {
+      "name": "Old Maya-to-GCash approval gate is disabled for native Maya",
+      "passed": true
+    },
+    {
+      "name": "Unconfigured Maya retains a disabled target for its own QR upload",
+      "passed": true
+    },
+    {
+      "name": "Wrong tenant rejected",
+      "passed": true
+    }
+  ]
+}

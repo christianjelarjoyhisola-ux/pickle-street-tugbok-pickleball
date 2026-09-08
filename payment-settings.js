@@ -10,13 +10,13 @@
     {code:'maribank',displayName:'MariBank → GCash',icon:'maribank'},
     {code:'pnb',displayName:'PNB',icon:'pnb'},
   ]);
-  const sharedCodes = new Set(['gcash','bdo_pay','maya','bpi','gotyme','maribank']);
+  const sharedCodes = new Set(['gcash','bdo_pay','bpi','gotyme','maribank']);
   const canonical = code => ['bdo','bdopay'].includes(String(code).toLowerCase()) ? 'bdo_pay' : String(code || '').toLowerCase();
   const esc = value => String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const defaults = {
     gcash:'Send the full booking amount to the GCash recipient shown. Upload your completed receipt and its reference number.',
     bdo_pay:'Pay from BDO Pay to the GCash recipient shown. Upload the completed receipt and enter its reference number.',
-    maya:'In Maya, choose Bank Transfer, then GCash. Send the full booking amount. Enter the Maya Reference ID, not the InstaPay reference.',
+    maya:'Send the full booking amount from Maya to the Maya account shown. Upload the completed Maya receipt and its transaction reference.',
     bpi:'Pay from BPI to the GCash recipient shown. Upload the completed receipt and enter its confirmation reference.',
     gotyme:'Send from GoTyme to the GCash recipient shown. Upload the completed receipt and enter its GoTyme reference.',
     maribank:'Send from MariBank to the GCash recipient shown. Upload the completed receipt and enter its transaction reference.',
@@ -63,7 +63,7 @@
     return `<fieldset class="ps-payment-switches"><legend class="fl">Enabled payment methods</legend><div class="pm-toggle-grid">${items.map(method=>`<label class="pm-toggle"><input class="platform-method-active" type="checkbox" data-code="${esc(method.code)}" ${method.code==='cash'?'disabled title="Cash bookings are recorded by staff at the venue"':''} ${method.isActive?'checked':''} /><span class="pm-method-label">${mark(method.icon)}<span>${esc(method.displayName)}</span></span></label>`).join('')}</div></fieldset>
       <section class="ps-payment-card platform-payment-method" data-code="gcash" data-display-name="GCash" aria-labelledby="sharedGcashHeading">
         <h4 class="pm-brand-heading" id="sharedGcashHeading">${mark('gcash')} Shared GCash recipient</h4>
-        <p>Used by GCash, BDO Pay, Maya, BPI, GoTyme and MariBank. All enabled methods send to this account.</p>
+        <p>Used by GCash, BDO Pay, BPI, GoTyme and MariBank. All enabled methods send to this account.</p>
         ${accountFields(gcash,'GCash')}
       </section>
       <section class="ps-payment-card ps-payment-advanced" aria-labelledby="advancedGcashHeading">

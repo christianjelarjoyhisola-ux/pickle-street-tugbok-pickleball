@@ -26,7 +26,7 @@
 <link rel="preload" as="image" href="assets/pickle-street-courts.jpg" fetchpriority="high" />
 <link rel="stylesheet" href="payment-method-brand.css?v=20260908-source-methods" />
 <script src="payment-method-brand.js?v=20260908-source-methods"></script>
-<script src="payment-source-ui.js?v=20260908-source-methods"></script>
+<script src="payment-source-ui.js?v=20260909-native-maya"></script>
 <script src="booking-balance.js?v=20260907-pickle-street"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;family=League+Spartan:wght@600;700;800&amp;display=swap" rel="stylesheet" />
 <link href="open-play.css?v=20260801-openplay-fee-settings" rel="stylesheet" />
@@ -9724,7 +9724,7 @@ function syncDigitalPaymentPanel(method) {
   const header = $('gcashBox')?.querySelector('.gc-header-lbl');
   if (header) window.PaymentMethodBrand.renderLabel(header, method, window.PaymentSourceUI.label(method, label));
   const title = $('gcashBox')?.querySelector('.bpay-send-title');
-  if (title) title.textContent = sharedGcash ? 'Send from '+label+' to this GCash account' : 'Send '+label+' payment to';
+  if (title) title.textContent = sharedGcash ? 'Send from '+label+' to this GCash account' : method === 'maya' ? 'Send from Maya to this Maya account' : 'Send '+label+' payment to';
   // Only server-configured identity is displayed; no receipt example supplies
   // a receiver name, number or QR code.
   if ($('gcMerchantNumber')) $('gcMerchantNumber').textContent = receiver.number;
@@ -9787,7 +9787,7 @@ function isBdoPayRefValid(ref) {
 }
 
 function isMayaRefValid(ref) {
-  return /^[A-Z0-9]{12}$/.test(String(ref || '').toUpperCase().replace(/[^A-Z0-9]/g, ''));
+  return window.PaymentSourceUI.referenceError(ref, 'maya') === '';
 }
 
 function isBpiConfirmationValid(ref) {
@@ -9843,7 +9843,7 @@ function updateRefCount() {
     el.textContent = `${len}/32 chars`;
     el.style.color = len >= 10 ? 'var(--accent)' : 'var(--muted)';
   } else if (method === 'maya') {
-    el.textContent = `${String(input?.value || '').replace(/[^A-Z0-9]/gi, '').length}/12 chars`;
+    el.textContent = `${len}/64 chars`;
     el.style.color = isMayaRefValid(input?.value || '') ? 'var(--accent)' : 'var(--muted)';
   } else if (method === 'bpi') {
     el.textContent = `${len}/20 digits`;
@@ -9962,7 +9962,7 @@ async function submitBookingLegacy(e) {
     [digitalPay && !gcashRef, payMethod === 'bpi' ? 'Please enter your BPI Confirmation No. after paying.' : 'Please enter your payment reference number after paying.', 'bGcashRef', 5],
     [payMethod === 'gcash' && !isGcashRefValid(gcashRef), 'GCash reference number must be exactly 13 digits.', 'bGcashRef', 5],
     [payMethod === 'bdopay' && !isBdoPayRefValid(gcashRef), 'BDO Pay reference must look like BN-YYYYMMDD-########. Do not enter the invoice number.', 'bGcashRef', 5],
-    [payMethod === 'maya' && !isMayaRefValid(gcashRef), 'Maya Reference ID must look like B6DC F633 F08C. Do not enter the InstaPay Ref. No.', 'bGcashRef', 5],
+    [payMethod === 'maya' && !isMayaRefValid(gcashRef), 'Enter the complete transaction reference from your Maya-to-Maya receipt.', 'bGcashRef', 5],
     [payMethod === 'bpi' && !isBpiConfirmationValid(gcashRef), 'Enter the BPI Confirmation No. from the receipt, not the Transaction Ref. No.', 'bGcashRef', 5],
     [digitalPay && !_receiptFile, () => {
       // Scroll to and flash the upload zone so the user knows exactly what's missing.
@@ -10192,7 +10192,7 @@ async function submitPlatformBooking() {
     [!paymentReference, payMethod === 'bpi' ? 'Please enter your BPI Confirmation No. after paying.' : 'Please enter your payment reference number after paying.', 'bGcashRef', 5],
     [payMethod === 'gcash' && !isGcashRefValid(paymentReference), 'GCash reference number must be exactly 13 digits.', 'bGcashRef', 5],
     [payMethod === 'bdopay' && !isBdoPayRefValid(paymentReference), 'BDO Pay reference must look like BN-YYYYMMDD-########.', 'bGcashRef', 5],
-    [payMethod === 'maya' && !isMayaRefValid(paymentReference), 'Maya Reference ID must contain 12 letters or numbers.', 'bGcashRef', 5],
+    [payMethod === 'maya' && !isMayaRefValid(paymentReference), 'Enter the complete transaction reference from your Maya-to-Maya receipt.', 'bGcashRef', 5],
     [payMethod === 'bpi' && !isBpiConfirmationValid(paymentReference), 'Enter the BPI Confirmation No. from the receipt.', 'bGcashRef', 5],
     [!_receiptFile, 'Please upload your receipt screenshot before confirming.', 'bReceiptDrop', 5],
   ];
@@ -10363,7 +10363,7 @@ async function submitBooking(e) {
     [digitalPay && !gcashRef, payMethod === 'bpi' ? 'Please enter your BPI Confirmation No. after paying.' : 'Please enter your payment reference number after paying.', 'bGcashRef', 5],
     [payMethod === 'gcash' && !isGcashRefValid(gcashRef), 'GCash reference number must be exactly 13 digits.', 'bGcashRef', 5],
     [payMethod === 'bdopay' && !isBdoPayRefValid(gcashRef), 'BDO Pay reference must look like BN-YYYYMMDD-########. Do not enter the invoice number.', 'bGcashRef', 5],
-    [payMethod === 'maya' && !isMayaRefValid(gcashRef), 'Maya Reference ID must look like B6DC F633 F08C. Do not enter the InstaPay Ref. No.', 'bGcashRef', 5],
+    [payMethod === 'maya' && !isMayaRefValid(gcashRef), 'Enter the complete transaction reference from your Maya-to-Maya receipt.', 'bGcashRef', 5],
     [payMethod === 'bpi' && !isBpiConfirmationValid(gcashRef), 'Enter the BPI Confirmation No. from the receipt, not the Transaction Ref. No.', 'bGcashRef', 5],
     [digitalPay && !_receiptFile, () => {
       const drop = $('bReceiptDrop');
