@@ -1,4 +1,5 @@
 import { buildSafeReceiptExtraction } from "../_shared/receipt-verification.ts";
+import { parseProviderReceipt, verifyProviderReceipt } from "../_shared/picklestreet-source/receipt-providers/index.ts";
 type Input = Parameters<typeof buildSafeReceiptExtraction>[0];
 type Result = ReturnType<typeof buildSafeReceiptExtraction>;
 export const PICKLESTREET_PAYMENT_WINDOW_MINUTES = 15;
@@ -15,19 +16,17 @@ function common(input:Input):Result {
 }
 export function verifyGcash(input:Input):Result {
   let result=common(input);
-  const text=input.vision.text;
-  const lines=text.split(/\r?\n/).map(l=>l.trim());
-  const anchor=lines.findIndex(l=>/^(?:sent\s+to|send\s+to|recipient|receiver|paid\s+to)\b/i.test(l));
-  const block=anchor<0?"":lines.slice(anchor,anchor+6).join("\n").split(/\b(?:amount|reference|ref\.?\s*no|transaction|sender|sent\s+from)\b/i)[0];
-  const account=(input.payment?.receiverReference || "").replace(/\D/g,"").replace(/^(?:63|0)(?=9)/,"");
-  const numbers=block.match(/(?:\+?63|0)?9[\d\s-]{8,20}\d/g) || [];
-  const accountMatches=account.length===10 && numbers.some(n=>n.replace(/\D/g,"").replace(/^(?:63|0)(?=9)/,"")===account);
-  if(!accountMatches) result=pending(result,"payment_receiver_unverified");
-  const names=(input.payment?.receiverName || "").normalize('NFKD').toUpperCase().match(/[A-Z]{2,}/g) || [];
-  const blockNames:string[]=block.normalize('NFKD').toUpperCase().match(/[A-Z]{2,}/g) || [];
-  if(names.length<2 || !names.every(n=>blockNames.includes(n))) result=pending(result,"payment_receiver_name_unverified");
-  const principal=[...text.matchAll(/(?:^|\n)\s*(?:amount(?:\s+sent)?|principal\s+amount)\s*[:\-]?\s*(?:PHP|₱|P)?\s*([\d,]+\.\d{2})\b/gi)].map(m=>Number(m[1].replaceAll(',','')));
-  if(!principal.length || principal.some(n=>Math.abs(n-input.expectedAmount)>.001)) result=pending(result,"payment_principal_unverified");
+  const parsed=parseProviderReceipt('gcash',input.vision.text,{typedReference:input.payment?.submittedReference || ''});
+  const evidence=verifyProviderReceipt(parsed,{
+    typedReference:input.payment?.submittedReference || '',expectedAmount:input.expectedAmount,
+    pricingAvailable:Number.isFinite(input.expectedAmount)&&input.expectedAmount>0,amountTolerance:.001,
+    expectedRecipientNumber:input.payment?.receiverReference || '',expectedRecipientName:input.payment?.receiverName || '',
+    bookingStartedAt:input.timing?.bookingStartedAt,paymentWindowMinutes:PICKLESTREET_PAYMENT_WINDOW_MINUTES,earlyToleranceMinutes:2,
+  });
+  for(const flag of evidence.flags) result=pending(result,flag.toLowerCase());
+  if(evidence.provider!=='gcash') return pending(result,'receipt_parser_unavailable');
+  if(evidence.recipientComparison.phone!=='exact') result=pending(result,'payment_receiver_unverified');
+  if(!['exact','masked_compatible'].includes(evidence.recipientComparison.name)) result=pending(result,'payment_receiver_name_unverified');
   return result;
 }
 export function verifyGotyme(input:Input):Result { return common(input); }

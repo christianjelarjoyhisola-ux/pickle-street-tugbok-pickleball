@@ -15,7 +15,6 @@ import type {
   SafeReceiptExtraction,
   VisionTextResult,
 } from "../_shared/receipt-verification.ts";
-import { verifyGcash } from "./parsers.ts";
 
 export const SOURCE_ROUTE_TENANT_ID = "f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a";
 export const SOURCE_ROUTE_TENANT_SLUG = "pickle-street-tugbok";
@@ -58,12 +57,19 @@ export type RouteEvidence = {
   destinationProvider: "gcash";
   destinationMethodCode: "gcash";
   parserVersion: string;
+  verifierVersion: "picklestreet_sources_20260908_2";
   sourceMatched: boolean;
   destinationMatched: boolean;
   recipientMatched: boolean;
   referenceMatched: boolean;
   successMatched: boolean;
   secondaryReferences: SecondaryReference[];
+  recipient?: {
+    observedName: string | null;
+    observedNumber: string | null;
+    phoneMatch: string;
+    nameMatch: string;
+  };
 };
 export type SourceRouteExtraction = Omit<SafeReceiptExtraction, "detected"> & {
   detected: SafeReceiptExtraction["detected"] & { route: RouteEvidence };
@@ -105,7 +111,7 @@ function recipientPassed(
 ): boolean {
   if (evidence.provider === "gcash") {
     return evidence.recipientComparison.phone === "exact" &&
-      evidence.recipientComparison.name === "exact";
+      ["exact", "masked_compatible"].includes(evidence.recipientComparison.name);
   }
   if (evidence.provider === "maya") {
     return evidence.recipientComparison.phone === "exact" &&
@@ -256,6 +262,7 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
     destinationProvider: "gcash",
     destinationMethodCode: "gcash",
     parserVersion: "unsupported",
+    verifierVersion: "picklestreet_sources_20260908_2",
     sourceMatched: false,
     destinationMatched: false,
     recipientMatched: false,
@@ -299,6 +306,16 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
       route.destinationMatched = matched.destination;
       route.successMatched = matched.successful;
       route.recipientMatched = recipientPassed(parsed, evidence);
+      if (parsed.provider === "gcash" && evidence.provider === "gcash") {
+        // These are OCR observations, never substituted from venue settings.
+        // Keep masking intact so staff can see exactly what was compared.
+        route.recipient = {
+          observedName: parsed.receipt.receiver.name.raw?.slice(0, 160) || null,
+          observedNumber: parsed.receipt.receiver.phone.raw?.slice(0, 80) || null,
+          phoneMatch: evidence.recipientComparison.phone,
+          nameMatch: evidence.recipientComparison.name,
+        };
+      }
       route.secondaryReferences = secondary(parsed);
       const observed = normalizedReference(receipt.reference.value);
       if (validReference(observed)) primary = observed;
@@ -347,21 +364,10 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
       }
       if (!receiptAt) add("receipt_datetime_unverified");
       else if (!withinWindow) add("payment_window_expired");
-      if (source === "gcash") {
-        // Existing tenant GCash amount/account/name gates remain an additional constraint.
-        const strict = verifyGcash({
-          ...input,
-          payment: {
-            ...input.payment,
-            paymentMethod: "gcash",
-            autoApprovalEnabled: input.route.autoApprovalEnabled,
-          },
-        });
-        for (const value of strict.flags) {
-          if (value !== "auto_approval_eligible") add(value);
-        }
-        if (!strict.autoApprove) add("existing_gcash_checks_pending");
-      }
+      // Dedicated provider evidence above is authoritative for receipt fields.
+      // In particular, GCash requires matching Amount/Total Amount Sent displays
+      // and a full receiving number with a compatible visible name. A second
+      // generic text grammar must not contradict those structured observations.
     } catch {
       add("receipt_parser_unavailable");
     }

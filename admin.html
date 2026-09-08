@@ -3902,7 +3902,7 @@ tr:hover td { background: var(--bg2); }
 <!-- VERIFY PAYMENT MODAL -->
 <div class="overlay" id="verifyModal" aria-hidden="true" inert hidden>
   <div class="modal verify-payment-modal" role="dialog" aria-modal="true" aria-labelledby="verifyPaymentTitle" tabindex="-1" onkeydown="verifyPaymentModalKeydown(event)">
-    <div class="m-hd" style="background:linear-gradient(135deg,rgba(200,160,96,.1),transparent)">
+    <div class="m-hd" style="background-image:linear-gradient(135deg,rgba(200,160,96,.1),transparent)">
       <h2 id="verifyPaymentTitle" style="color:var(--yellow)">🔍 VERIFY PAYMENT</h2>
       <button class="m-x" type="button" aria-label="Close payment verification" onclick="closeVerifyModal()">✕</button>
     </div>
@@ -4709,10 +4709,23 @@ const RECEIPT_FLAG_LABELS = {
   duplicate_receipt_file:'Receipt image already in use',
   duplicate_payment_reference:'Transaction reference already in use',
   receiver_configuration_changed:'Receiving account changed — retry verification',
+  existing_gcash_checks_pending:'Additional GCash receipt checks were pending',
+  payment_source_unverified:'Selected payment app could not be verified',
+  payment_destination_unverified:'GCash destination could not be verified',
+  transaction_success_unverified:'Completed transfer could not be verified',
+  secondary_reference_unverified:'Transfer network reference could not be verified',
+  receipt_datetime_unverified:'Transaction date and time could not be verified',
+  receipt_parser_unavailable:'Receipt details could not be read — retry verification',
+  AMOUNT_CONFIRMATION_UNREADABLE:'The second payment amount could not be read',
+  REF_LABEL_UNREADABLE:'The receipt reference label could not be read',
 };
+function receiptFlagLabel(flag) {
+  const value = String(flag || '');
+  return RECEIPT_FLAG_LABELS[value] || RECEIPT_FLAG_LABELS[value.toUpperCase()] || value.replaceAll('_', ' ');
+}
 function receiptReasonText(flags){
   if (!flags || !flags.length) return 'No specific reason saved';
-  return flags.map(f => RECEIPT_FLAG_LABELS[f] || f).join(', ');
+  return flags.map(receiptFlagLabel).join(', ');
 }
 function removeReceiptFlags(flags, blocked){
   const blockedSet = new Set(blocked);
@@ -4776,7 +4789,7 @@ function duplicatePaymentRefBadge(b){
 }
 function receiptFlagChips(flags){
   if (!flags || !flags.length) return '';
-  return flags.map(f => `<span class="receipt-chip">${esc(RECEIPT_FLAG_LABELS[f] || f)}</span>`).join(' ');
+  return flags.map(f => `<span class="receipt-chip">${esc(receiptFlagLabel(f))}</span>`).join(' ');
 }
 function receiptDetailValue(value, fallback = '--'){
   if (value === null || value === undefined || value === '') return fallback;
@@ -4825,14 +4838,28 @@ function receiptDateTimeValue(value, timeZone){
     return esc(d.toLocaleString('en-PH', { dateStyle:'medium', timeStyle:'short', hour12:true }));
   }
 }
-function receiptReceiverValue(extracted, booking){
-  if (!extracted) return '--';
-  const parts = [extracted.expectedReceiverName, extracted.expectedReceiverNumber].filter(Boolean);
-  if (parts.length) return esc(parts.join(' / '));
-  if (extracted.provider === 'google_vision' && !(booking?.receiptFlags || []).includes('payment_receiver_unverified')) {
-    return 'Matched configured account';
-  }
-  return '--';
+function receiptObservedRecipient(extracted) {
+  const value = extracted?.detected?.route?.recipient;
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+function receiptReceiverValue(extracted) {
+  const recipient = receiptObservedRecipient(extracted);
+  const parts = [recipient?.observedName, recipient?.observedNumber]
+    .filter(value => typeof value === 'string' && value.trim()).map(value => value.trim());
+  return parts.length ? esc(parts.join(' / ')) : 'Recipient details were not recorded';
+}
+function receiptRecipientCheckValue(extracted, booking) {
+  const flags = (booking?.receiptFlags || []).map(value => String(value).toLowerCase());
+  const failed = flags.some(value => /receiver|recipient|wrong_gcash_number|number_unreadable/.test(value));
+  const route = extracted?.detected?.route;
+  if (failed || route?.recipientMatched === false) return 'Recipient could not be fully verified';
+  if (route?.recipientMatched === true) return receiptObservedRecipient(extracted)?.nameMatch === 'masked_compatible'
+    ? 'Account number matches; the masked name is consistent'
+    : 'Recipient matches the configured receiving account';
+  return 'Recipient check was not recorded';
+}
+function receiptWindowAgeText(ageMinutes) {
+  return Number.isFinite(ageMinutes) ? Math.abs(ageMinutes).toLocaleString('en-PH', { maximumFractionDigits:1 }) : '';
 }
 function receiptDetailsHtml(b){
   const ex = b.receiptExtracted || {};
@@ -4867,7 +4894,7 @@ function receiptDetailsHtml(b){
   const windowAge = Number(timing.ageMinutes ?? ex.receiptAgeMinutes);
   const windowLimit = Number(timing.allowedWindowMinutes ?? ex.allowedPaymentWindowMinutes);
   const windowValue = Number.isFinite(windowAge) && Number.isFinite(windowLimit)
-    ? `${windowAge < 0 ? Math.abs(windowAge) + ' min before' : windowAge + ' min after'} booking · ${windowLimit}-min limit · ${timing.withinWindow === true ? 'Within window' : 'Outside window'}`
+    ? `${receiptWindowAgeText(windowAge)} min ${windowAge < 0 ? 'before' : 'after'} booking · ${windowLimit}-min limit · ${timing.withinWindow === true ? 'Within window' : 'Outside window'}`
     : Number.isFinite(windowLimit) ? `${windowLimit}-minute limit · timestamp unreadable` : '--';
   const rows = [
     ['OCR Ref', receiptDetailValue(ex.ref || detected.paymentReference || b.gcashRef)],
@@ -4877,7 +4904,8 @@ function receiptDetailsHtml(b){
     ['Booking Started', timing.bookingStartedAt ? receiptDateTimeValue(timing.bookingStartedAt, timing.tenantTimezone) : receiptDetailValue(ex.bookingStartedAtPh12)],
     ['Recorded timing check', receiptDetailValue(windowValue)],
     ['OCR Engine', receiptOcrProviderLabel(ex.ocrProvider || ex.provider)],
-    ['Receiver', receiptReceiverValue(ex, b), true],
+    ['Recipient shown', receiptReceiverValue(ex), true],
+    ['Recipient check', receiptRecipientCheckValue(ex, b), true],
     ...(ex.ocrFallbackReason ? [['OCR Fallback', receiptDetailValue(ex.ocrFallbackReason), true]] : []),
     ...(ex.amountReliable !== undefined ? [['Amount Parse', receiptDetailValue(amountParse), true]] : []),
     ['Reason', receiptDetailValue(reason), true],

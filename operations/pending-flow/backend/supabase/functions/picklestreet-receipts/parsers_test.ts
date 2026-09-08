@@ -4,7 +4,7 @@ import {handleRequest,staffReviewResponse} from './index.ts';
 import {buildSafeReceiptExtraction} from '../_shared/receipt-verification.ts';
 // Synthetic text fixtures exercise decision gates, not genuine bank payments.
 function fixture(){return {
- vision:{confidence:0.99,text:'GCash Receipt\nSent to\nTEST PERSON ONLY\n09171234567\nAmount: PHP 215.00\nTotal Amount Sent: PHP 215.00\nReference No. 1234567890123\nSep 7, 2026 10:05 AM'},
+ vision:{confidence:0.99,text:'GCash Receipt\nSent to\nTEST PERSON ONLY\n09171234567\nSent via GCash\nAmount: PHP 215.00\nTotal Amount Sent: PHP 215.00\nReference No. 1234567890123\nSep 7, 2026 10:05 AM'},
  image:{mimeType:'image/png' as const,sizeBytes:2048},expectedAmount:215,currency:'PHP',
  payment:{paymentMethod:'gcash',submittedReference:'1234567890123',receiverName:'TEST PERSON ONLY',receiverReference:'09171234567',autoApprovalEnabled:true},
  timing:{bookingStartedAt:'2026-09-07T02:00:00Z',tenantTimezone:'Asia/Manila'},

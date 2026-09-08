@@ -1,0 +1,83 @@
+{
+  "releasedAt": "2026-09-08T03:16:08.562Z",
+  "origin": "https://picklestreet.pages.dev",
+  "deployment": "https://0d75633f.picklestreet.pages.dev",
+  "change": "Use dedicated GCash evidence for masked recipients and row/column receipt amount layouts; show observed recipient and readable checks in staff review.",
+  "parserVersion": "gcash_v1",
+  "verifierVersion": "picklestreet_sources_20260908_2",
+  "validation": {
+    "frontendTests": 178,
+    "backendTests": 103,
+    "focusedGcashLayoutTests": 20,
+    "adminBrowserCases": 18,
+    "liveAccessChecks": 17,
+    "rollbackDatabaseChecks": 6,
+    "typescriptEntryPointChecked": true,
+    "publicBuildChecked": true,
+    "productionAdminMatchesBuild": true
+  },
+  "isolation": {
+    "checkedAt": "2026-09-08T03:14:03.684Z",
+    "edgeFunction": "picklestreet-receipts",
+    "edgeVersion": 7,
+    "otherEdgeFunctionsUnchanged": 29,
+    "publicSqlDefinitionsUnchanged": 244,
+    "reportedReceiptAlreadyApprovedAndUnchanged": true,
+    "activeCourts": 3,
+    "currentHourlyRates": [
+      1,
+      1,
+      1
+    ],
+    "publicBookingEnabled": true
+  },
+  "deployedBundle": {
+    "checkedAt": "2026-09-08T03:15:13.105Z",
+    "deployedFilesMatchSource": 26,
+    "changedFiles": [
+      "picklestreet-receipts/parsers.ts",
+      "picklestreet-receipts/source-routes.ts"
+    ],
+    "allOtherBundledFilesUnchanged": true
+  },
+  "rollback": {
+    "checkedAt": "2026-09-08T03:12:42.675Z",
+    "rolledBack": true,
+    "remainingFixtureCourts": 0,
+    "checks": [
+      {
+        "name": "Approved real receipt, existing SQL definitions and email state remain untouched",
+        "passed": true
+      },
+      {
+        "name": "Duplicate reference remains pending and cannot claim the original payment",
+        "passed": true
+      },
+      {
+        "name": "New masked-name observations pass existing finish validation and atomic auto-finalizer",
+        "passed": true
+      },
+      {
+        "name": "New optional observations do not bypass native confidence requirements",
+        "passed": true
+      },
+      {
+        "name": "Staff approval also refuses the duplicate transaction reference",
+        "passed": true
+      },
+      {
+        "name": "Successful completion replay is idempotent",
+        "passed": true
+      }
+    ]
+  },
+  "receiptHandling": {
+    "reportedReceiptWasAlreadyApproved": true,
+    "reportedReceiptChanged": false,
+    "liveReceiptsRetried": false,
+    "rawOcrStored": false,
+    "autoRejection": false,
+    "paymentWindowMinutes": 15
+  },
+  "testScope": "Parser regressions reconstruct anonymized text layouts from the supplied receipt. Database tests use synthetic rows in a fully rolled-back transaction; no new real payment was submitted."
+}
