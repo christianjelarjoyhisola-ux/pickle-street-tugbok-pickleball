@@ -11318,6 +11318,12 @@ function publicStatusPollIsCurrent(generation, accessReference) {
 }
 
 function renderPublicBookingStatus(reference, booking) {
+  // Receipt review belongs to the booking's management view, not court browsing.
+  if (window.PBReceiptPending?.pending(booking) || booking?.canSubmitReceipt === true ||
+      ['pending_payment','payment_review','verifying','pending'].includes(String(booking?.status || '').toLowerCase())) {
+    $('platformBookingStatus')?.remove();
+    return;
+  }
   let bar = $('platformBookingStatus');
   if (!bar) {
     bar = document.createElement('div');
@@ -11355,13 +11361,6 @@ function renderPublicBookingStatus(reference, booking) {
     $('courts')?.before(bar);
   }
   $('platformBookingStatusText').textContent = `Booking ${reference}: ${publicBookingStatusCopy(booking)}`;
-  let correction = $('platformCorrectReceipt');
-  if (!correction) {
-    correction = document.createElement('button');correction.id='platformCorrectReceipt';correction.type='button';correction.className='btn btn-p btn-sm';
-    correction.textContent='Upload corrected receipt';bar.append(correction);
-  }
-  correction.hidden = booking?.canSubmitReceipt !== true;
-  correction.onclick = () => window.PBReceiptPending?.openUpload(readPlatformStatusAccess(), booking, () => startSavedPlatformBookingPolling());
   const rainRefund = $('platformWeatherRefundStatus');
   if (rainRefund) {
     const copy = publicWeatherRefundCopy(booking) || publicPlayerRainClaimCopy(booking);
