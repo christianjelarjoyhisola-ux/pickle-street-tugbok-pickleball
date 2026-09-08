@@ -3497,7 +3497,7 @@ body.dark #splashScreen {
 
 </style>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="pickle-street.css?v=20260908-slim-date-bar">
+<link rel="stylesheet" href="pickle-street.css?v=20260908-bluegreen-courts">
 <meta name="robots" content="noindex,nofollow">
 </head>
 <body class="light">
@@ -3677,12 +3677,12 @@ body.dark #splashScreen {
     <div class="event-package-facts" id="eventPackageFacts"></div>
   </div>
   <div class="shared-date-entry">
-    <div class="shared-date-title">
-      <strong>Booking date</strong>
-    </div>
     <div class="shared-date-control">
       <button class="shared-date-nav" type="button" onclick="shiftSharedCourtDate(-1)" aria-label="Previous day">‹</button>
-      <button class="shared-date-display" id="courtSharedDateDisplay" type="button" onclick="openSharedCourtDatePicker()" aria-label="Choose booking date">Today</button>
+      <button class="shared-date-display" id="courtSharedDateDisplay" type="button" onclick="openSharedCourtDatePicker()" aria-label="Choose booking date" aria-haspopup="dialog">
+        <span class="shared-date-label">Booking date</span>
+        <span class="shared-date-value" id="courtSharedDateValue">Select date</span>
+      </button>
       <button class="shared-date-nav" type="button" onclick="shiftSharedCourtDate(1)" aria-label="Next day">›</button>
       <button class="shared-date-today" type="button" onclick="setSharedCourtDateToday()">Today</button>
       <input class="shared-date-native" type="date" id="courtSharedDate" onchange="onSharedCourtDate(this.value)" aria-label="Booking date" />
@@ -6207,13 +6207,15 @@ function sharedCourtDateLabel(date) {
   if (!date) return 'Select date';
   const d = new Date(date + 'T00:00:00');
   if (Number.isNaN(d.getTime())) return 'Select date';
-  if (date === todayStr()) return 'Today';
-  return d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
+  return d.toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function updateSharedCourtDateDisplay(date) {
   const display = $('courtSharedDateDisplay');
-  if (display) display.textContent = sharedCourtDateLabel(date);
+  const label = sharedCourtDateLabel(date);
+  const value = $('courtSharedDateValue');
+  if (value) value.textContent = label;
+  if (display) display.setAttribute('aria-label', `Choose booking date: ${label}`);
 }
 
 function openSharedCourtDatePicker() {
@@ -6660,7 +6662,7 @@ function courtAvailabilityBadge({ blocked, date, allSlots, curHour, bookedHours,
   const activeHours = futureHours.filter(h => !isMaintenanceHour(date, h, courtId));
   const availableHours = activeHours.filter(h => !bookedHours.has(h)).length;
 
-  if (availableHours > 0) return { cls: 'av', text: `⚡ ${availableHours} available` };
+  if (availableHours > 0) return { cls: 'av', text: `${availableHours} available` };
   if (activeHours.length === 0) return { cls: 'done', text: isPastDate_ ? 'Past date' : 'Done today' };
   return { cls: 'full', text: '⛔ Fully booked' };
 }
@@ -9111,9 +9113,12 @@ async function ensureCourt(courtId) {
 /* =============================================
    COURTS
    ============================================= */
+let _courtsRenderGeneration = 0;
 async function renderCourts() {
+  const generation = ++_courtsRenderGeneration;
   const today = todayStr();
   const selectedDate = selectedCourtBrowseDate();
+  const current = () => generation === _courtsRenderGeneration && sharedCourtDate === selectedDate;
   const isSelectedToday = selectedDate === today;
   const isSelectedPast = selectedDate < today;
   const courtsGrid = $('courtsGrid');
@@ -9124,7 +9129,9 @@ async function renderCourts() {
   if (window.PB_PLATFORM_V1) {
     try {
       await loadOperatingHours();
+      if (!current()) return;
     } catch (error) {
+      if (!current()) return;
       renderPublicTerminalState('offline', error);
       return;
     }
@@ -9146,7 +9153,9 @@ async function renderCourts() {
       DB.getBookings({ date: selectedDate, activeOnly: true, publicAvailability: true }),
       loadOperatingHours(),
     ]);
+    if (!current()) return;
   } catch (error) {
+    if (!current()) return;
     const setupRequired = window.PB_PLATFORM_V1 &&
       window.PB_PLATFORM_READINESS &&
       window.PB_PLATFORM_READINESS.publicBookingEnabled !== true;
@@ -9259,7 +9268,7 @@ async function renderCourts() {
       <!-- MOBILE-ONLY HEADER -->
       <div class="cc-mobile-hd">
         <div class="cc-mobile-title">
-          <span class="cc-mobile-name">📍 ${esc(c.name)}</span>
+          <span class="cc-mobile-name">${esc(c.name)}</span>
           <span class="cc-mobile-meta">${esc(rateRange)} · ${esc(c.desc || 'Court')}</span>
         </div>
         <div class="cc-mobile-side">
@@ -9281,7 +9290,7 @@ async function renderCourts() {
       <div class="cc-times">
         <div class="cc-times-head">
           <div>
-            <div class="cc-times-title">🕐 Available times</div>
+            <div class="cc-times-title">Available times</div>
             <div class="cc-times-sub">${isEventBooking()
               ? `Tap a start time - ${eventRulesForCourt(c).minimumHours} hours auto-select`
               : regularRules.minimumHours > 1
@@ -10851,10 +10860,7 @@ function closeModal() {
    ============================================= */
 let _rtDebounce = null;
 async function refreshLiveViews() {
-  const openDate = selectedCourtBrowseDate();
-
   await loadOperatingHours();
-  sharedCourtDate = openDate;
   await renderCourts();
 
   // Keep the legacy wizard slot grid live too.

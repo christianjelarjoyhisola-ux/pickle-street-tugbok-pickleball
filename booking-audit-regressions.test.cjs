@@ -29,6 +29,49 @@ function elements() {
   return id => { if (!nodes.has(id)) nodes.set(id, element()); return nodes.get(id); };
 }
 
+function courtDateHarness({settingsWait=false}={}) {
+  const source=fs.readFileSync('index.html','utf8'),oldResponse=deferred(),$=elements();
+  const events={painted:0,terminal:[]};let loads=0;
+  const context={$,sharedCourtDate:'2026-09-30',todayStr:()=> '2026-09-08',
+    selectedCourtBrowseDate:()=>context.sharedCourtDate,
+    window:{PB_PLATFORM_V1:true,PB_PUBLIC_BOOKING_ENABLED:true},
+    loadOperatingHours:async()=>{if(settingsWait&&++loads===1)return oldResponse.promise;},
+    refundPolicyReady:()=>true,
+    DB:{getCourts:async()=>[],getBookings:async({date})=>!settingsWait&&date==='2026-09-30'?oldResponse.promise:[]},
+    renderPublicTerminalState:(...args)=>events.terminal.push(args),setPublicSplashBookingState:()=>{},
+    document:{querySelector:()=>element()},syncBookingModeUi:()=>{},syncConfiguredBookingUi:()=>events.painted++,
+    isEventBooking:()=>false,esc:value=>value,PUBLIC_BUSINESS_NAME:'Test venue'};
+  vm.runInNewContext('let _courtsRenderGeneration=0;\n'+extract(source,'renderCourts'),context);
+  return {context,events,oldResponse,$};
+}
+
+test('slow previous-date availability cannot repaint the current date or replace it with an error',async()=>{
+  for(const fail of [false,true]){
+    const h=courtDateHarness(),old=h.context.renderCourts();await new Promise(resolve=>setImmediate(resolve));
+    h.context.sharedCourtDate='2026-09-08';await h.context.renderCourts();
+    const currentHtml=h.$('courtsGrid').innerHTML;
+    if(fail)h.oldResponse.reject(new Error('Old date request failed'));else h.oldResponse.resolve([]);
+    await old;assert.equal(h.events.painted,1);assert.equal(h.events.terminal.length,0);
+    assert.equal(h.$('courtsGrid').innerHTML,currentHtml);assert.equal(h.context.sharedCourtDate,'2026-09-08');
+  }
+});
+
+test('stale readiness failure cannot hide newly loaded court availability',async()=>{
+  const h=courtDateHarness({settingsWait:true}),old=h.context.renderCourts();
+  h.context.sharedCourtDate='2026-09-08';await h.context.renderCourts();
+  h.oldResponse.reject(new Error('Old readiness request failed'));await old;
+  assert.equal(h.events.painted,1);assert.equal(h.events.terminal.length,0);
+});
+
+test('background court refresh uses the latest date chosen while settings were loading',async()=>{
+  const waiting=deferred(),dates=[];
+  const context={sharedCourtDate:'2026-09-30',selectedCourtBrowseDate:()=>context.sharedCourtDate,
+    loadOperatingHours:()=>waiting.promise,renderCourts:async()=>dates.push(context.sharedCourtDate),court:null};
+  vm.runInNewContext(extract(fs.readFileSync('index.html','utf8'),'refreshLiveViews'),context);
+  const task=context.refreshLiveViews();context.sharedCourtDate='2026-09-08';waiting.resolve();await task;
+  assert.deepEqual(dates,['2026-09-08']);
+});
+
 test('clearing the reschedule date invalidates a pending availability response', async () => {
   const pending = deferred();
   const $ = elements();
