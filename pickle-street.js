@@ -3,22 +3,21 @@
   function showWelcome() {
     const welcome = document.getElementById('psWelcome');
     if (!welcome || typeof welcome.showModal !== 'function') return;
-    const seenKey = 'picklestreet_welcome_seen_v1';
-    // Private links and returning checkout always take priority over the introduction.
-    if (location.hash || location.search) return;
+    // Show the welcome on each page load, including ordinary anchors and tracking links.
+    // Private payment links and a checkout in progress retain their direct entry.
     try {
-      if (sessionStorage.getItem(seenKey) === '1') return;
+      if (window.readPlatformRecoveryFragment?.() || window.balancePaymentLinkAccess?.()) return;
+    } catch (_) {}
+    try {
       if (window.readPlatformRecovery?.() || window.readPlatformPendingDraft?.() ||
-          window.readPlatformStatusAccess?.() || window.readGuestBookingResume?.() ||
-          window.OpenPlayPublic?.hasRecovery?.()) return;
-    } catch (_) { return; }
+          (!window.PB_PLATFORM_V1 && window.readGuestBookingResume?.())) return;
+    } catch (_) {}
     const activeFlow = () => document.querySelector('.bk-modal-overlay.active,.overlay.show,.modal-bg.show,dialog[open]:not(#psWelcome)');
     if (activeFlow()) return;
     let observer;
     const finish = (focusCourts = false) => {
       if (!welcome.open) return;
       observer?.disconnect();
-      try { sessionStorage.setItem(seenKey, '1'); } catch (_) {}
       document.documentElement.classList.remove('ps-welcome-open');
       welcome.close();
       if (focusCourts && !activeFlow()) {
