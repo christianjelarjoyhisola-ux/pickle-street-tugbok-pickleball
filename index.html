@@ -3496,7 +3496,7 @@ body.dark #splashScreen {
 
 </style>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="pickle-street.css?v=20260908-promo-mobile-spacing">
+<link rel="stylesheet" href="pickle-street.css?v=20260908-promo-price">
 <meta name="robots" content="noindex,nofollow">
 </head>
 <body class="light">
@@ -7445,12 +7445,22 @@ function updateWelcomePromotion(courts) {
     : '';
 }
 
+function courtPromoLabelHtml(c) {
+  if (c.status !== 'active' || c.blocked || isEventBooking()) return '';
+  const tiers = (c.rateSchedule || []).map(PBCourtPricing.normalize);
+  const promos = tiers.filter(t => t.promoEnabled && !PBCourtPricing.validationError(t));
+  if (!promos.length) return '';
+  const rate = Math.min(...promos.map(t => t.rate));
+  const allHours = promos.length === tiers.length && promos.every(t => t.rate === rate);
+  return '<span class="court-promo-label">PROMO ' + (allHours ? '' : 'FROM ') + esc(courtPriceLabel(rate)) + '/hr' + (allHours ? '' : '<small>Selected hours</small>') + '</span>';
+}
+
 function courtSlotPriceHtml(hour, tiers, rate) {
   const matches = (tiers || []).filter(tier => hour >= tier.from && hour < tier.to);
   const tier = matches.length === 1 ? matches[0] : null;
   const promo = tier?.promoEnabled === true && !PBCourtPricing.validationError(tier);
   return promo
-    ? `<span class="csl-promo"><span class="csl-promo-badge">PROMO</span>${esc(courtPriceLabel(rate))}<s aria-label="Regular price ${esc(courtPriceLabel(tier.standardRate))}">${esc(courtPriceLabel(tier.standardRate))}</s></span>`
+    ? `<span class="csl-promo"><span class="csl-promo-rate">${esc(courtPriceLabel(rate))}</span><s aria-label="Regular price ${esc(courtPriceLabel(tier.standardRate))}">${esc(courtPriceLabel(tier.standardRate))}</s></span>`
     : esc(courtPriceLabel(rate));
 }
 
@@ -9236,7 +9246,7 @@ async function renderCourts() {
       <!-- MOBILE-ONLY HEADER -->
       <div class="cc-mobile-hd">
         <div class="cc-mobile-title">
-          <span class="cc-mobile-name">${esc(c.name)}</span>
+          <div class="court-name-row"><span class="cc-mobile-name">${esc(c.name)}</span>${courtPromoLabelHtml(c)}</div>
           <span class="cc-mobile-meta">${esc(rateRange)} · ${esc(c.desc || 'Court')}</span>
         </div>
         <div class="cc-mobile-side">
@@ -9249,7 +9259,7 @@ async function renderCourts() {
         ${courtPhotoHtml}
         <div class="cc-photo-avail ${availBadgeCls}" id="cAvail_${esc(c.id)}">${esc(availBadgeTxt)}</div>
         <div class="cc-photo-bar">
-          <span class="cc-photo-name">${esc(c.name)}</span>
+          <div class="court-name-row"><span class="cc-photo-name">${esc(c.name)}</span>${courtPromoLabelHtml(c)}</div>
           <div class="cc-photo-rate">${esc(rateRange)} · ${esc(c.desc)}</div>
         </div>
       </div>
