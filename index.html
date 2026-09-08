@@ -3523,6 +3523,31 @@ body.dark #splashScreen {
     </div>
   </div>
 </dialog>
+<script>
+// Open before the booking page is parsed, even while its scripts are downloading.
+(function openWelcomeFirst() {
+  const welcome = document.getElementById('psWelcome');
+  let finishWelcome;
+  window.PB_WELCOME_DISMISSED = new Promise(resolve => { finishWelcome = resolve; });
+  const dismiss = () => {
+    welcome.close();
+    document.documentElement.classList.remove('ps-welcome-open');
+    finishWelcome();
+  };
+  window.dismissPickleStreetWelcome = dismiss;
+  welcome.querySelectorAll('[data-welcome-dismiss]').forEach(button => button.addEventListener('click', dismiss));
+  welcome.addEventListener('cancel', event => { event.preventDefault(); dismiss(); });
+  welcome.addEventListener('keydown', event => event.stopPropagation());
+  welcome.addEventListener('close', () => {
+    document.documentElement.classList.remove('ps-welcome-open');
+    finishWelcome();
+  });
+  try {
+    welcome.showModal();
+    document.documentElement.classList.add('ps-welcome-open');
+  } catch (_) { finishWelcome(); }
+})();
+</script>
 
 <div class="toasts" id="toasts"></div>
 
@@ -8726,7 +8751,12 @@ function startSlotCountdown(initialSeconds = null) {
     const current=window.PB_PLATFORM_V1?bookingReservationDeadlineMs():deadline;
     if(!Number.isFinite(current)){stopSlotCountdown();return;}
     const remaining=Math.max(0,Math.ceil((current-Date.now())/1000));
-    const display=String(Math.floor(remaining/60)).padStart(2,'0')+':'+String(remaining%60).padStart(2,'0');
+    // Give a newly acknowledged hold its 15:00 opening frame. Subsequent ticks
+    // use the unchanged server deadline; recovered holds never get this frame.
+    const opening=window._bookingTimerOpening;
+    const openingFrame=opening?.reference===_platformBookingAccess?.reference && Date.now()<opening.until && remaining>=895 && remaining<=900;
+    const shown=openingFrame?900:remaining;
+    const display=String(Math.floor(shown/60)).padStart(2,'0')+':'+String(shown%60).padStart(2,'0');
     for(const id of ['scdTime','scdTimerBig','bookingIntroTimer'])if($(id))$(id).textContent=display;
     updatePaymentWindowText();
     banner.classList.toggle('urgent',remaining<=60);
@@ -11779,6 +11809,7 @@ async function createPlatformBookingHold() {
     if (items.length!==1 || !slotsAreConsecutive(items[0]?.slots || [])) throw new Error('Select one consecutive court block.');
     const item = items[0];
     const draft = { courtId:item.courtId,date:item.date,slots:[...item.slots],bookingType:isEventBooking()?'event':'regular' };
+    const firstHoldAttempt = !readPlatformPendingDraft();
     const identity = await platformHoldRequestIdentity(draft);
     draft.clientRequestId = identity.clientRequestId;
     const form = {...guestResumeFormDraft(),step:3,policyAgreed:false,policyVersion:'',policySignature:''};
@@ -11805,6 +11836,7 @@ async function createPlatformBookingHold() {
         toast('This reservation is no longer active. Check its booking status before choosing another time.', 'inf');
         return _platformBookingAccess;
       }
+      if (firstHoldAttempt) window._bookingTimerOpening={reference:server.reference,until:Date.now()+1000};
       startSlotCountdown();
       if (reservationSecondsLeft()>0) showBookingIntro();
       else if (!Number.isFinite(deadline)) toast('Hold saved. Refresh its status to check the payment deadline.','inf');
@@ -12297,6 +12329,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         await expireStaleVerifyingBookings();
         await renderCourts();
         initGuestResumePersistence();
+        if (readPlatformRecoveryFragment?.() || balancePaymentLinkAccess?.()) window.dismissPickleStreetWelcome?.();
+        else await window.PB_WELCOME_DISMISSED;
         if (window.PB_PLATFORM_V1) await restorePlatformBookingHold({ openModal: true });
         else await maybeResumeGuestBooking();
         await startSavedPlatformBookingPolling();
@@ -12384,6 +12418,6 @@ async function expireStaleVerifyingBookings() {
   </div>
   <button class="btn btn-p btn-sm" id="mobileBookBtn" onclick="proceedToBook()">Book Now →</button>
 </div>
-<script src="pickle-street.js?v=20260908-welcome-refresh"></script>
+<script src="pickle-street.js?v=20260908-welcome-first-paint"></script>
 </body>
 </html>

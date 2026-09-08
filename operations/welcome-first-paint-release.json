@@ -1,0 +1,55 @@
+{
+  "releasedAt": "2026-09-08T05:10:05.2065966Z",
+  "deployment": "https://6560e645.picklestreet.pages.dev",
+  "site": "https://picklestreet.pages.dev/",
+  "welcome": "Dialog opens synchronously before courts markup or booking scripts. Ordinary saved-checkout recovery waits for entering the welcome. Private capability links retain direct recovery.",
+  "timer": "Fresh successful hold gets a 15:00 opening frame for one second when its server remainder is within five seconds of a full hold; subsequent ticks follow the unmodified server expiry. Delayed, recovered, or retried holds do not receive extra time.",
+  "frontendTests": 189,
+  "bookingFlow": {
+    "passed": 25,
+    "cases": [
+      "regular click→hold→Details→method→policy→completion 320",
+      "regular click→hold→Details→method→policy→completion 607",
+      "slow server: no loading screen, then timer → Details 320",
+      "slow server: no loading screen, then timer → Details 607",
+      "Book Now reopening an existing hold shows remaining-time intro first",
+      "lost create explicit retry",
+      "lost create reopen retry",
+      "preliminary recovery remains Details and keeps expiry",
+      "preliminary cancel uses correct route",
+      "lost completion reconciles then reaccepts without duplicate completion",
+      "normal completed hold policy reaccept never invokes preliminary complete",
+      "changed policy submit returns method without automatic popup",
+      "event details collected only on completion",
+      "Escape cannot dismiss pending completion",
+      "inactive future/deadline response {\"status\":\"cancelled\"}",
+      "inactive future/deadline response {\"status\":\"expired\"}",
+      "inactive future/deadline response {\"reservationHeld\":false}",
+      "inactive future/deadline response {\"expiresAt\":\"2026-09-08T05:07:36.117Z\"}",
+      "server receipt POLICY_CHANGED returns Method without popup",
+      "hold expiry closes open policy and wizard",
+      "checkout card for five seconds, then timer animated into banner 320",
+      "checkout card for five seconds, then timer animated into banner 607",
+      "new hold opens at 15:00 then follows unchanged server deadline",
+      "delayed or old hold never gains a new fifteen minutes",
+      "reduced motion restores timer without movement"
+    ]
+  },
+  "welcomeTests": {
+    "passed": 4,
+    "cases": [
+      "welcome precedes slow booking scripts",
+      "welcome dismisses before scripts load",
+      "refresh reopens welcome",
+      "court anchor refresh opens welcome"
+    ]
+  },
+  "live": {
+    "welcomeOnLoad": true,
+    "courtsAfterEnter": true,
+    "welcomeOnRefresh": true,
+    "pageErrors": [],
+    "liveBookingWrites": false
+  },
+  "backendChanges": false
+}

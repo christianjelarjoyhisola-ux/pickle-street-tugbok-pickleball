@@ -1,50 +1,5 @@
 (function enhancePickleStreet() {
   'use strict';
-  function showWelcome() {
-    const welcome = document.getElementById('psWelcome');
-    if (!welcome || typeof welcome.showModal !== 'function') return;
-    // Show the welcome on each page load, including ordinary anchors and tracking links.
-    // Private payment links and a checkout in progress retain their direct entry.
-    try {
-      if (window.readPlatformRecoveryFragment?.() || window.balancePaymentLinkAccess?.()) return;
-    } catch (_) {}
-    try {
-      if (window.readPlatformRecovery?.() || window.readPlatformPendingDraft?.() ||
-          (!window.PB_PLATFORM_V1 && window.readGuestBookingResume?.())) return;
-    } catch (_) {}
-    const activeFlow = () => document.querySelector('.bk-modal-overlay.active,.overlay.show,.modal-bg.show,dialog[open]:not(#psWelcome)');
-    if (activeFlow()) return;
-    let observer;
-    const finish = (focusCourts = false) => {
-      if (!welcome.open) return;
-      observer?.disconnect();
-      document.documentElement.classList.remove('ps-welcome-open');
-      welcome.close();
-      if (focusCourts && !activeFlow()) {
-        const heading = document.getElementById('courtsHeading');
-        if (heading) {
-          heading.setAttribute('tabindex', '-1');
-          heading.focus({preventScroll:true});
-          heading.addEventListener('blur', () => heading.removeAttribute('tabindex'), {once:true});
-        }
-      }
-    };
-    welcome.querySelectorAll('[data-welcome-dismiss]').forEach(button => button.addEventListener('click', () => finish(true)));
-    welcome.querySelectorAll('[data-welcome-link]').forEach(link => link.addEventListener('click', () => finish(false)));
-    welcome.addEventListener('keydown', event => event.stopPropagation());
-    welcome.addEventListener('cancel', event => { event.preventDefault(); finish(true); });
-    welcome.addEventListener('close', () => {
-      observer?.disconnect();
-      document.documentElement.classList.remove('ps-welcome-open');
-    });
-    observer = new MutationObserver(() => { if (activeFlow()) finish(false); });
-    try {
-      welcome.showModal();
-      document.documentElement.classList.add('ps-welcome-open');
-      observer.observe(document.body, {subtree:true,childList:true,attributes:true,attributeFilter:['class','open']});
-    } catch (_) { observer.disconnect(); }
-    window.addEventListener('hashchange', () => finish(false), {once:true});
-  }
   function ready() {
     const splash = document.getElementById('splashScreen');
     if (splash) { splash.style.display='none'; splash.classList.add('dismissed'); splash.inert=true; }
@@ -58,7 +13,7 @@
     document.querySelectorAll('.bg-grid,.bg-glow').forEach(el=>el.hidden=true);
     const scope=document.documentElement.dataset.pbDataScope;
     if(scope==='public') {
-      showWelcome();
+      // The welcome is already open from the first body script.
       const grid=document.getElementById('courtsGrid');
       if(grid) {
         const watch = new MutationObserver(()=>{
