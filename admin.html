@@ -4778,7 +4778,7 @@ function receiptBadge(b){
   let [c,bg,lbl] = map[s] || ['#888','var(--input)',s];
   if (s === 'rejected') lbl = displayFlags.length ? `Rejected: ${reason}` : 'Flagged earlier — review manually';
   if (s === 'rejected' && b.receiptExtracted?.review?.decision === 'rejected') lbl = 'Rejected: '+(b.receiptExtracted.review.note || 'Payment not verified by staff');
-  if (window.PBReceiptPending?.receiptPending(b)) lbl = 'Pending'+(displayFlags.length ? ': '+reason : ' verification');
+  if (window.PBReceiptPending?.receiptPending(b)) lbl = 'Pending verification';
   return `<div class="receipt-badge" style="color:${c};background:${bg}">${esc(lbl)}</div>`;
 }
 function duplicatePaymentRefBadge(b){
