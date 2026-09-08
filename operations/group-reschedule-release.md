@@ -23,6 +23,8 @@ The optional confirmation email contains all final sessions under one reference.
 
 Reports: `pending-flow/group-reschedule-validation.json`, `pending-flow/group-reschedule-release.json`, `group-reschedule-ui-verification.json`, and `group-reschedule-release-verification.json`.
 
+Production verification passed on September 9, 2026 (Philippine time). Cloudflare release: `https://32d6753c.picklestreet.pages.dev`, serving `https://picklestreet.pages.dev`. All three dedicated functions are active; the other 31 deployed functions retained their versions. Live checks confirmed matching frontend assets, permitted-origin preflight, rejected unauthenticated/wrong-tenant/wrong-origin calls, denied anonymous database RPCs, and an active expiry schedule. No synthetic courts or booking fixtures remained.
+
 ## Deployment
 
 The dedicated configuration is `pending-flow/backend/supabase/config.toml`. Never deploy from the legacy reference configuration in the repository's root `supabase` folder.

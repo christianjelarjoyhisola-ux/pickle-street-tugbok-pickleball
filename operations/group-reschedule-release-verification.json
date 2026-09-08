@@ -1,0 +1,73 @@
+{
+  "checkedAt": "2026-09-08T16:53:44.719Z",
+  "origin": "https://picklestreet.pages.dev",
+  "readOnly": true,
+  "liveTestBookingsCreated": 0,
+  "unrelatedFunctionsUnchanged": 31,
+  "deployedFunctions": [
+    {
+      "slug": "picklestreet-reschedule",
+      "version": 1,
+      "status": "ACTIVE",
+      "updated_at": 1788886315193
+    },
+    {
+      "slug": "picklestreet-receipts",
+      "version": 12,
+      "status": "ACTIVE",
+      "updated_at": 1788886315193
+    },
+    {
+      "slug": "picklestreet-email-dispatch",
+      "version": 2,
+      "status": "ACTIVE",
+      "updated_at": 1788886315193
+    }
+  ],
+  "authAndTenantChecks": {
+    "preflight": {
+      "status": 204,
+      "origin": "https://picklestreet.pages.dev"
+    },
+    "unauthenticated": {
+      "status": 401,
+      "origin": "https://picklestreet.pages.dev"
+    },
+    "wrongTenant": {
+      "status": 403,
+      "origin": null
+    },
+    "wrongOrigin": {
+      "status": 403,
+      "origin": null
+    },
+    "directRpc": {
+      "status": 401,
+      "origin": "https://picklestreet.pages.dev"
+    },
+    "publicDispatch": {
+      "status": 401,
+      "origin": null
+    }
+  },
+  "assets": [
+    {
+      "name": "admin-group-reschedule.js",
+      "sha256": "6e996bdf8ee441ac2649cf5d46c2418d80c17992662c83fa754b094269241e28"
+    },
+    {
+      "name": "admin-group-reschedule.css",
+      "sha256": "9d60da01b4c6e373aaf7ffc6d3d537966cd8832c556f3b4a1666787757b884ef"
+    },
+    {
+      "name": "supabase-config.js",
+      "sha256": "b6099edd79b4c40b83183b834bc9416646ab1945448b5e2bc77c6372eb73c909"
+    }
+  ],
+  "database": {
+    "installed": true,
+    "fixture_courts": 0,
+    "fixture_bookings": 0,
+    "active_expiry_jobs": 1
+  }
+}
