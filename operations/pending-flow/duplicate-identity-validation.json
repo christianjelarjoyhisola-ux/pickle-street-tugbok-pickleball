@@ -1,0 +1,126 @@
+{
+  "checkedAt": "2026-09-08T08:03:08.110Z",
+  "migrationHash": "73acb5ad9ebf71193ef0e60964165abf3487f3881980045ff53781c173bb6dca",
+  "rolledBack": true,
+  "results": [
+    {
+      "checks": {
+        "isolation": "Other tenants and unrelated public functions unchanged",
+        "groupHoldChecks": [
+          {
+            "name": "Changed selection rejected",
+            "passed": true
+          },
+          {
+            "name": "Idempotent retry keeps same reference and deadline",
+            "passed": true
+          },
+          {
+            "name": "One owner/reference/total; simultaneous courts and nonadjacent hours; one original deadline",
+            "passed": true
+          },
+          {
+            "name": "One real customer and policy complete all sessions with same capability",
+            "passed": true
+          },
+          {
+            "name": "Other venue origin cannot create a group",
+            "passed": true
+          },
+          {
+            "name": "Unavailable session rolls back every newly requested slot",
+            "passed": true
+          }
+        ],
+        "groupPaymentChecks": [
+          {
+            "name": "Automatic verification: one receipt covers aggregate total and confirms every session",
+            "passed": true
+          },
+          {
+            "name": "Expired grouped hold restores all free sessions atomically on manual confirmation",
+            "passed": true
+          },
+          {
+            "name": "Manual confirmation: one payer/reference/payment, all court sessions confirmed",
+            "passed": true
+          }
+        ],
+        "duplicateIdentityChecks": [
+          {
+            "name": "A same-booking retry does not reject itself",
+            "passed": true
+          },
+          {
+            "name": "An unaccepted payment never owns a duplicate reference",
+            "passed": true
+          },
+          {
+            "name": "Identical primary digits from a different provider remain pending",
+            "passed": true
+          },
+          {
+            "name": "Low-confidence OCR remains pending",
+            "passed": true
+          },
+          {
+            "name": "Malformed confidence remains pending without a database error",
+            "passed": true
+          },
+          {
+            "name": "Missing parser evidence remains pending",
+            "passed": true
+          },
+          {
+            "name": "OCR and submitted primary mismatch remain pending",
+            "passed": true
+          },
+          {
+            "name": "Original accepted payment is unchanged",
+            "passed": true
+          },
+          {
+            "name": "Proven same-provider primary duplicate cancels all slots and queues exactly one email",
+            "passed": true
+          },
+          {
+            "name": "Same secondary value in another namespace is not a duplicate",
+            "passed": true
+          },
+          {
+            "name": "Secondary reference kind must match the selected payment route",
+            "passed": true
+          },
+          {
+            "name": "Service authorization is required",
+            "passed": true
+          },
+          {
+            "name": "Shared InstaPay duplicate with different primary/provider cancels the entire new booking",
+            "passed": true
+          },
+          {
+            "name": "Uncertain identity remains pending: destinationMatched",
+            "passed": true
+          },
+          {
+            "name": "Uncertain identity remains pending: recipientMatched",
+            "passed": true
+          },
+          {
+            "name": "Uncertain identity remains pending: referenceMatched",
+            "passed": true
+          },
+          {
+            "name": "Uncertain identity remains pending: sourceMatched",
+            "passed": true
+          },
+          {
+            "name": "Uncertain identity remains pending: successMatched",
+            "passed": true
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "appliedAt": "2026-09-08T07:59:01.746Z",
+  "migrationHash": "5005be5311d0639ed8d4260cdd716f6725d8b2c941d45ed70e23ea57c9655930",
+  "unauthorizedStatus": 401,
+  "authenticatedEmptyQueue": {
+    "ok": true,
+    "checked": 0,
+    "sent": 0
+  },
+  "jobs": [
+    {
+      "jobname": "picklestreet-rejection-email-dispatch",
+      "schedule": "* * * * *",
+      "active": true
+    }
+  ]
+}

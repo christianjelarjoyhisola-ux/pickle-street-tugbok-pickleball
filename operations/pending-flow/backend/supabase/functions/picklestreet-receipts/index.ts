@@ -133,6 +133,24 @@ export async function paymentReceiptContext(db:DB,paymentMethod:string):Promise<
     snapshot:{method:paymentMethod,name:receiver.account_name,account:receiver.account_reference,destinationMethod:'gcash',verificationSettingsRevision:Number(settings?.revision||0)}};
 }
 
+export async function reconcileDuplicateRejection(db:DB,result:Obj,balanceId:string|null=null):Promise<Obj>{
+  if(balanceId || !result.attemptId)return result;
+  try{
+    // The RPC checks that this is still the current completed initial attempt.
+    // Replaying it also repairs an interruption between saving OCR and rejection.
+    const rejected=await db.rpc('reject_picklestreet_duplicate',{p_attempt_id:result.attemptId});
+    if(!rejected.error && rejected.data?.rejected===true){
+      const final={...result,...rejected.data};
+      final.rejectionEmail=await sendDuplicateRejectionEmail(db,final.bookingId).catch(()=>'pending');
+      return final;
+    }
+  }catch{
+    // A failed check cannot become a rejection. The saved result remains valid
+    // and another replay can safely retry the database decision.
+  }
+  return result;
+}
+
 async function verificationResult(db:DB,job:Obj,bytes:Uint8Array,type:string,finishRpc='finish_picklestreet_receipt_attempt'):Promise<Obj>{
   let extracted:unknown=null,flags:string[]=[],paymentReference:string|null=null,confidence:number|null=null,autoApprove=false,errorCode:string|null=null,receiverSnapshot:Obj|null=null;
   try {
@@ -148,12 +166,8 @@ async function verificationResult(db:DB,job:Obj,bytes:Uint8Array,type:string,fin
   } catch(error){errorCode=error instanceof RequestError?error.code.toLowerCase():'verifier_unavailable';flags=['verification_unavailable'];}
   const finished=await db.rpc(finishRpc,{p_attempt_id:job.attemptId,p_lease_token:job.leaseToken,p_extracted_data:extracted,p_flags:flags,p_payment_reference:paymentReference,p_confidence:confidence,p_auto_approve:autoApprove,p_error_code:errorCode,p_receiver_snapshot:receiverSnapshot});
   if(finished.error||!finished.data)fail('VERIFICATION_PENDING','Your receipt is saved. Verification has not completed; check booking status before retrying.',503);
-  let result=obj(finished.data);
-  if(finishRpc==='finish_picklestreet_receipt_attempt' && result.attemptId){
-    const rejected=await db.rpc('reject_picklestreet_duplicate',{p_attempt_id:result.attemptId});
-    if(!rejected.error&&rejected.data?.rejected){result={...result,...rejected.data};result.rejectionEmail=await sendDuplicateRejectionEmail(db,result.bookingId);}
-  }
-  return result;
+  const result=obj(finished.data);
+  return finishRpc==='finish_picklestreet_receipt_attempt' ? await reconcileDuplicateRejection(db,result) : result;
 }
 async function sendConfirmation(db:DB,result:Obj):Promise<void>{
   if(result.balanceRequestId && !(['auto_approved','approved'].includes(result.status)&&result.balanceStatus==='settled'))return;
@@ -168,6 +182,20 @@ async function sendConfirmation(db:DB,result:Obj):Promise<void>{
     const r=await fetch(env('SUPABASE_URL')+'/functions/v1/picklestreet-booking-email',{method:'POST',headers:{'Content-Type':'application/json','x-internal-secret':env('EDGE_INTERNAL_SECRET')},body:JSON.stringify({tenantSlug:TENANT_SLUG,bookingReference:result.bookingReference,emailKind:'booking_confirmed'}),signal:AbortSignal.timeout(15000)});
     const sent=await r.json().catch(()=>({}));result.confirmationEmail=r.ok&&sent.ok===true?'sent':'pending';
   }catch(_){result.confirmationEmail='pending';}
+}
+export function receiptSubmissionResult(result:Obj,balanceId:string|null=null):Obj{
+  // Replayed requests return the saved database statuses, without the transient
+  // `rejected` flag added by the first duplicate-rejection call.
+  const rejected=!balanceId && result.bookingStatus==='cancelled' && result.paymentStatus==='rejected';
+  const duplicate=rejected && (result.rejected===true || (result.flags||[]).includes('duplicate_payment_reference'));
+  const passed=balanceId
+    ? result.status==='auto_approved' && result.balanceStatus==='settled'
+    : result.bookingStatus==='confirmed' && result.paymentStatus==='paid';
+  return {...result,...(rejected?{rejected:true,status:'rejected'}:{}),publicReason:duplicate
+    ? duplicateRejectionReason
+    : rejected ? 'Your booking has been cancelled. Please contact Pickle Street Tugbok if you believe this is a mistake.'
+    : passed ? balanceId ? 'Your additional payment is verified. The booking update is complete.' : 'All payment checks passed. Your booking is confirmed.'
+    : publicPendingReason(result.flags||[],result.errorCode||'verification_processing')};
 }
 export async function staffReviewResponse(db:DB,body:Obj,actor:string,origin:string):Promise<Response>{
   const verificationId=uuid(body.verificationId);
@@ -280,9 +308,11 @@ export async function handleRequest(request:Request):Promise<Response>{
     }
     const job=obj(claimed.data);
     if(job.busy)fail('RETRY_LATER','A receipt check is running. Wait a minute and refresh before retrying.',429);
-    const passed=(result:Obj)=>balanceId?result.status==='auto_approved'&&result.balanceStatus==='settled':result.bookingStatus==='confirmed'&&result.paymentStatus==='paid';
-    const successMessage=balanceId?'Your additional payment is verified. The booking update is complete.':'All payment checks passed. Your booking is confirmed.';
-    if(!job.claimed){const result=obj(job.result || job);await sendConfirmation(db,result);return jsonResponse({ok:true,...result,publicReason:passed(result)?successMessage:publicPendingReason(result.flags||[],result.errorCode||'verification_processing')},200,origin);}
+    if(!job.claimed){
+      const result=await reconcileDuplicateRejection(db,obj(job.result || job),balanceId);
+      await sendConfirmation(db,result);
+      return jsonResponse({ok:true,...receiptSubmissionResult(result,balanceId)},200,origin);
+    }
     if(!bytes){
       const downloaded=await db.storage.from(RECEIPT_BUCKET).download(job.storagePath);
       if(downloaded.error||!downloaded.data){
@@ -299,7 +329,7 @@ export async function handleRequest(request:Request):Promise<Response>{
     }
     const result=await verificationResult(db,job,bytes,type,finishRpc);
     await sendConfirmation(db,result);
-    return jsonResponse({ok:true,...result,publicReason:result.rejected?duplicateRejectionReason:passed(result)?successMessage:publicPendingReason(result.flags||[],result.errorCode||'')},200,origin);
+    return jsonResponse({ok:true,...receiptSubmissionResult(result,balanceId)},200,origin);
   }catch(error){
     if(error instanceof RequestError)return errorResponse(error.status,error.code,error.message,origin);
     console.error('Pickle Street receipt service error',{type:error instanceof Error?error.name:'unknown'});

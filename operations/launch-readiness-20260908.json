@@ -1,0 +1,76 @@
+{
+  "checkedAt": "2026-09-08T08:06:22.448Z",
+  "recommendation": "Supervised soft launch; full public launch still needs actual payment and inbox acceptance checks for each enabled method.",
+  "liveSite": "https://picklestreet.pages.dev/",
+  "deployment": "https://d1a44069.picklestreet.pages.dev",
+  "readiness": {
+    "checkedAt": "2026-09-08T08:04:41.808Z",
+    "origin": "https://picklestreet.pages.dev",
+    "pages": [
+      {
+        "route": "/",
+        "status": 200
+      },
+      {
+        "route": "/login",
+        "status": 200
+      },
+      {
+        "route": "/admin",
+        "status": 200
+      },
+      {
+        "route": "/booking-management",
+        "status": 200
+      }
+    ],
+    "privateSourceExcluded": true,
+    "tenantId": "f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a",
+    "domainConfigured": true,
+    "wrongTenantRejected": true,
+    "publicBookingEnabled": true,
+    "courtCount": 3,
+    "blockingReasons": [],
+    "onlyReadOperations": true
+  },
+  "validated": {
+    "applicationBaselineTests": 189,
+    "additionalCancellationUiTests": 3,
+    "receiptParserTests": 98,
+    "receiptReplayTests": 8,
+    "dispatcherAuthorizationTests": 1,
+    "bookingFlowScenarios": 26,
+    "databaseConfidenceChecks": 25,
+    "groupHoldChecks": 6,
+    "groupPaymentChecks": 3,
+    "liveMobileTwoCourtRequest": true,
+    "otherTenantIsolation": true
+  },
+  "fixes": [
+    "Authoritative cancellation status survives replay and interrupted uploads.",
+    "Replay reconciles an interrupted duplicate decision without rerunning OCR.",
+    "Duplicate identities use provider and secondary reference namespaces; ambiguous or unreadable evidence stays pending.",
+    "Cancellation email outbox has an authenticated independent every-minute scheduler."
+  ],
+  "liveConfiguration": {
+    "courtCount": 3,
+    "promoHourlyRate": 150,
+    "standardDayRate": 200,
+    "standardEveningRate": 250,
+    "openingHours": "05:00–00:00",
+    "enabledPaymentSources": [
+      "GCash",
+      "BDO Pay",
+      "Maya",
+      "BPI",
+      "GoTyme",
+      "MariBank"
+    ]
+  },
+  "limits": [
+    "Grouped rescheduling remains unavailable.",
+    "Receipt verification inspects images and cannot independently confirm bank settlement.",
+    "Actual end-to-end payments and inbox delivery were not tested for every enabled method.",
+    "No new real bookings, payments or customer emails were created during this audit."
+  ]
+}

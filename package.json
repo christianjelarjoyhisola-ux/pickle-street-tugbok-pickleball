@@ -7,7 +7,7 @@
     "dev": "node tools/local-server.js",
     "build": "node tools/check-site.cjs && node tools/build-site.cjs",
     "check": "node tools/check-site.cjs",
-    "test": "node --test tenant-isolation.test.cjs booking-audit-regressions.test.cjs pending-receipt-ui.test.cjs receipt-upload-regressions.test.cjs pending-balance-ui.test.cjs reschedule-integration.test.cjs shared-booking-balance.test.js shared-blocked-date-access.test.js shared-open-play-data.test.js shared-open-play-reporting.test.js payment-settings.test.cjs payment-source-ui.test.cjs payment-settings-save.test.cjs admin-promo-regressions.test.cjs court-cache-regressions.test.cjs court-pricing.test.cjs admin-receipt-diagnostics.test.cjs",
+    "test": "node --test receipt-rejection-ui.test.cjs tenant-isolation.test.cjs booking-audit-regressions.test.cjs pending-receipt-ui.test.cjs receipt-upload-regressions.test.cjs pending-balance-ui.test.cjs reschedule-integration.test.cjs shared-booking-balance.test.js shared-blocked-date-access.test.js shared-open-play-data.test.js shared-open-play-reporting.test.js payment-settings.test.cjs payment-source-ui.test.cjs payment-settings-save.test.cjs admin-promo-regressions.test.cjs court-cache-regressions.test.cjs court-pricing.test.cjs admin-receipt-diagnostics.test.cjs",
     "verify:platform": "node tools/verify-platform-readonly.cjs",
     "deploy:cloudflare": "npm run build && node tools/deploy-cloudflare.cjs",
     "verify:cloudflare": "node tools/verify-cloudflare-release.cjs"

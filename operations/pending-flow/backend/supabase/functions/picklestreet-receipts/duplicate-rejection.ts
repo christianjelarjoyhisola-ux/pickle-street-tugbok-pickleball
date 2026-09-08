@@ -19,7 +19,7 @@ export async function sendDuplicateRejectionEmail(db:any,bookingId:string):Promi
   const replyTo=payload.data?.tenant?.replyToEmail||payload.data?.tenant?.contactEmail;
   if(!replyTo)throw Error('Reply address unavailable');
   const email=rejectionEmail(booking.data.reference,booking.data.customer_name);
-  await sendMailerooEmail({apiKey:Deno.env.get('MAILEROO_API_KEY')||'',fromAddress:Deno.env.get('MAILEROO_FROM_EMAIL')||'',fromName:'Pickle Street Tugbok',replyTo,to:booking.data.customer_email,toName:booking.data.customer_name,...email,referenceId:queue.data.delivery_id.replaceAll('-','').slice(0,24)});
+  await sendMailerooEmail({apiKey:Deno.env.get('MAILEROO_API_KEY')||'',fromAddress:Deno.env.get('MAILEROO_FROM_EMAIL')||'',fromName:'Pickle Street Tugbok',replyTo,to:booking.data.customer_email,toName:booking.data.customer_name,...email,referenceId:queue.data.delivery_id.replaceAll('-','').slice(0,24),fetcher:(input,init)=>fetch(input,{...init,signal:AbortSignal.timeout(15000)})});
   const saved=await db.from('picklestreet_rejection_emails').update({status:'sent',sent_at:new Date().toISOString(),lease_until:null}).eq('tenant_id',TENANT).eq('booking_id',bookingId);
   return saved.error?'pending':'sent';
  }catch{

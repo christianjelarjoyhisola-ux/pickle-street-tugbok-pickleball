@@ -1,0 +1,10 @@
+{
+  "checkedAt": "2026-09-08T07:57:54.525Z",
+  "migrationHash": "5005be5311d0639ed8d4260cdd716f6725d8b2c941d45ed70e23ea57c9655930",
+  "rolledBack": true,
+  "result": [
+    {
+      "single_scheduled_job": true
+    }
+  ]
+}

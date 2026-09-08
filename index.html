@@ -10206,6 +10206,7 @@ async function submitPlatformBooking() {
       receiptFile: _receiptFile,
     });
     const automaticallyApproved = result.bookingStatus === 'confirmed' && result.paymentStatus === 'paid';
+    const paymentRejected = result.bookingStatus === 'cancelled' && result.paymentStatus === 'rejected';
     const item = activeBookingItems()[0] || {};
     const server = access.booking || {};
     const booking = {
@@ -10223,13 +10224,15 @@ async function submitPlatformBooking() {
       downpayment: Number(server.totalAmount || item.total || 0),
       paymentMethod: payMethod,
       gcashRef: paymentReference,
-      paymentStatus: result.rejected ? 'rejected' : automaticallyApproved ? 'paid' : 'for_verification',
-      status: result.rejected ? 'cancelled' : automaticallyApproved ? 'confirmed' : 'pending',
+      paymentStatus: paymentRejected ? 'rejected' : automaticallyApproved ? 'paid' : 'for_verification',
+      status: paymentRejected ? 'cancelled' : automaticallyApproved ? 'confirmed' : 'pending',
       createdAt: new Date().toISOString(),
       _receiptResult: {
-        status: result.status || 'manual_review',
+        status: paymentRejected ? 'rejected' : result.status || 'manual_review',
         flags: result.flags || [],
-        message: result.publicReason || (automaticallyApproved
+        message: result.publicReason || (paymentRejected
+          ? 'Your booking has been cancelled. Contact Pickle Street Tugbok if you believe this is a mistake.'
+          : automaticallyApproved
           ? 'Payment verified automatically. Your booking is confirmed.'
           : 'Your receipt is saved. Automatic payment verification is pending.'),
       },
@@ -10239,9 +10242,11 @@ async function submitPlatformBooking() {
     showInvoice(booking);
     await startSavedPlatformBookingPolling();
     resetForm({ platformSuccess: true });
-    toast(result.publicReason || (automaticallyApproved
+    toast(result.publicReason || (paymentRejected
+      ? `Booking ${access.reference} has been cancelled.`
+      : automaticallyApproved
       ? `Booking ${access.reference} is confirmed.`
-      : `Booking ${access.reference} is awaiting payment review.`), 'ok');
+      : `Booking ${access.reference} is awaiting payment review.`), paymentRejected ? 'err' : 'ok');
     if (DB.clearCache) DB.clearCache(['bookings', 'platformAvailability']);
     // A later availability refresh must not turn a saved receipt into an upload error.
     await renderCourts().catch(() => {});
@@ -10266,14 +10271,18 @@ async function submitPlatformBooking() {
         !['', 'none', 'not_submitted', 'missing'].includes(receiptStatus);
       const paymentConfirmed = recoveredStatus === 'confirmed' &&
         String(recovered?.paymentStatus || '').toLowerCase() === 'paid';
+      const paymentRejected = recoveredStatus === 'cancelled' &&
+        String(recovered?.paymentStatus || '').toLowerCase() === 'rejected';
       const thisProofRecorded = receiptRecorded && !!error?.receiptRequestId &&
         recovered?.receiptUploadRequestId === error.receiptRequestId;
-      if (thisProofRecorded || paymentConfirmed) {
+      if (thisProofRecorded || paymentConfirmed || paymentRejected) {
         savePlatformStatusAccess(access);
         stopSlotCountdown();
         await startSavedPlatformBookingPolling();
         resetForm({ platformSuccess: true });
-        toast(`Payment proof for ${access.reference} was received. You can track its review status here.`, 'ok');
+        toast(paymentRejected
+          ? recovered.publicReason || `Booking ${access.reference} has been cancelled. Contact Pickle Street Tugbok if you believe this is a mistake.`
+          : `Payment proof for ${access.reference} was received. You can track its review status here.`, paymentRejected ? 'err' : 'ok');
         return;
       }
     } catch (_) {}
