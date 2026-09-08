@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { errorResponse,jsonResponse,noContentResponse,readJsonObject,RequestError } from "../_shared/http.ts";
+import { errorResponse,jsonResponse,readJsonObject,RequestError } from "../_shared/http.ts";
+import { receiptPreflightResponse } from "./cors.ts";
 import { parseBookingAccessToken,verifyBookingAccessToken } from "../_shared/booking-access.ts";
 import { resolveTenantForRequest } from "../_shared/tenant.ts";
 import { detectReceiptText,inspectReceiptImage,parseReceiptObjectPath,RECEIPT_BUCKET,MAX_RECEIPT_BYTES,sha256Hex } from "../_shared/receipt-verification.ts";
@@ -78,6 +79,8 @@ async function statusResponse(request:Request,db:DB,body:Obj,origin:string):Prom
   const {data:booking,error}=await db.from('bookings').select('id,metadata,status,payment_status,expires_at,payment_sessions(provider_payload,created_at),receipt_verifications(id,status,flags,created_at,balance_request_id),booking_slots(status,hold_expires_at,balance_request_id)').eq('tenant_id',TENANT_ID).eq('reference',reference(body.bookingReference)).single();
   if(error||!booking)fail('STATUS_UNAVAILABLE','Booking status could not be refreshed.',503);
   const metadata=obj(booking!.metadata);
+  const upload=await db.from('picklestreet_receipt_attempts').select('idempotency_key').eq('tenant_id',TENANT_ID).eq('booking_id',booking!.id).in('action',['upload','replace']).order('version',{ascending:false}).limit(1).maybeSingle();
+  if(upload.error)fail('STATUS_UNAVAILABLE','Receipt upload status could not be refreshed.',503);
   const receipt=[...(booking!.receipt_verifications||[])].filter(r=>!r.balance_request_id).sort((a,b)=>b.created_at.localeCompare(a.created_at))[0];
   const session=[...(booking!.payment_sessions||[])].sort((a,b)=>b.created_at.localeCompare(a.created_at))[0];
   const flow=metadata.receiptFlow || null;
@@ -85,7 +88,7 @@ async function statusResponse(request:Request,db:DB,body:Obj,origin:string):Prom
   const slots=(booking!.booking_slots||[]).filter(s=>!s.balance_request_id);
   const held=slots.length>0&&slots.every(s=>s.status==='confirmed'||(s.status==='held'&&new Date(s.hold_expires_at).getTime()>Date.now()));
   const flags=receipt?.flags||[];
-  result.booking={...result.booking,receiptFlow:flow,receiptPending:pending,reservationHeld:held,reservationStatus:booking!.status,
+  result.booking={...result.booking,receiptUploadRequestId:upload.data?.idempotency_key||null,receiptFlow:flow,receiptPending:pending,reservationHeld:held,reservationStatus:booking!.status,
     status:pending?'payment_review':result.booking.status,
     canSubmitReceipt:pending && !!flow && ['manual_review','pending'].includes(receipt?.status),
     paymentMethod:obj(session?.provider_payload).paymentMethod||'',submittedReference:obj(session?.provider_payload).submittedReference||'',
@@ -211,7 +214,7 @@ export async function handleRequest(request:Request):Promise<Response>{
     if(slug!==TENANT_SLUG)fail('TENANT_ACCESS_DENIED','This endpoint serves Pickle Street only.',403);
     const db=dbClient();const context=await resolveTenantForRequest(db,slug,request.headers.get('origin'));
     if(context.tenantId!==TENANT_ID)fail('TENANT_ACCESS_DENIED','The venue identity could not be verified.',403);
-    origin=context.origin;if(request.method==='OPTIONS')return noContentResponse(origin);
+    origin=context.origin;if(request.method==='OPTIONS')return receiptPreflightResponse(origin);
     const isJson=request.headers.get('content-type')?.toLowerCase().startsWith('application/json');
     const body=isJson?await readJsonObject(request,4096):{};
     if(body.tenantSlug && body.tenantSlug!==TENANT_SLUG)fail('TENANT_ACCESS_DENIED','The venue identity could not be verified.',403);
@@ -249,7 +252,7 @@ export async function handleRequest(request:Request):Promise<Response>{
     let bytes:Uint8Array|undefined,type='',storagePath:string|null=null,fileSha:string|null=null,method:string|null=null,submitted:string|null=null;
     if(action==='upload'){
       method=String(request.headers.get('x-payment-method')||'').trim().toLowerCase();
-      if(!['gcash','maya','bdo','bdo_pay','bdopay','bpi','gotyme','pnb'].includes(method))fail('PAYMENT_METHOD_UNAVAILABLE','Choose an available payment method.',400);
+      if(!['gcash','maya','bdo','bdo_pay','bdopay','bpi','gotyme','maribank','pnb'].includes(method))fail('PAYMENT_METHOD_UNAVAILABLE','Choose an available payment method.',400);
       submitted=String(request.headers.get('x-payment-reference')||'').trim().toUpperCase();
       if(!/^[A-Z0-9][A-Z0-9 -]{5,63}$/.test(submitted))fail('PAYMENT_REFERENCE_INVALID','Enter the transaction reference from your receipt.',400);
       const image=await readImage(request);bytes=image.bytes;type=image.type;

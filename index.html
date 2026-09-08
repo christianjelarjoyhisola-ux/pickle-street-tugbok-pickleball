@@ -10253,7 +10253,8 @@ async function submitPlatformBooking() {
       ? `Booking ${access.reference} is confirmed.`
       : `Booking ${access.reference} is awaiting payment review.`), 'ok');
     if (DB.clearCache) DB.clearCache(['bookings', 'platformAvailability']);
-    await renderCourts();
+    // A later availability refresh must not turn a saved receipt into an upload error.
+    await renderCourts().catch(() => {});
   } catch (error) {
     // The upload may have reached the server even when the browser timed out or
     // lost the response. Reconcile against the protected status endpoint before
@@ -10269,7 +10270,11 @@ async function submitPlatformBooking() {
       ).toLowerCase();
       const receiptRecorded = Boolean(recovered?.receipt) ||
         !['', 'none', 'not_submitted', 'missing'].includes(receiptStatus);
-      if (receiptRecorded || (recoveredStatus && recoveredStatus !== 'pending_payment')) {
+      const paymentConfirmed = recoveredStatus === 'confirmed' &&
+        String(recovered?.paymentStatus || '').toLowerCase() === 'paid';
+      const thisProofRecorded = receiptRecorded && !!error?.receiptRequestId &&
+        recovered?.receiptUploadRequestId === error.receiptRequestId;
+      if (thisProofRecorded || paymentConfirmed) {
         savePlatformStatusAccess(access);
         stopSlotCountdown();
         await startSavedPlatformBookingPolling();
@@ -10278,7 +10283,11 @@ async function submitPlatformBooking() {
         return;
       }
     } catch (_) {}
-    toast(error?.message || 'We could not confirm the receipt upload. Please try again before the hold expires.', 'err');
+    const networkFailure = error?.name === 'TypeError' || error?.name === 'AbortError' ||
+      /load failed|failed to fetch|network|timed out/i.test(error?.message || '');
+    toast(networkFailure
+      ? 'Receipt upload is not confirmed yet. Your selected image is still here. Check your connection and retry. Do not pay again.'
+      : error?.message || 'We could not confirm the receipt upload. Please try again before the hold expires. Do not pay again.', 'err');
   } finally {
     if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Confirm Booking'; }
   }
@@ -11713,7 +11722,11 @@ async function submitBalanceReceipt() {
   } catch (error) {
     // Keep the same key and file for an interrupted request. A previous
     // receipt on this balance is not proof that this replacement was saved.
-    toast((error?.message || 'The receipt request could not be completed.') + ' Check status before retrying; your original booking has not been cancelled.', 'err');
+    const networkFailure = error?.name === 'TypeError' || error?.name === 'AbortError' ||
+      /load failed|failed to fetch|network|timed out/i.test(error?.message || '');
+    toast(networkFailure
+      ? 'Receipt upload is not confirmed yet. Your selected image is still here. Check your connection and the payment status before retrying. Do not pay again.'
+      : (error?.message || 'The receipt request could not be completed.') + ' Check status before retrying; your original booking has not been cancelled. Do not pay again.', 'err');
   } finally {
     _balanceReceiptSaving = false;
     controls.filter(control => document.contains(control)).forEach(control => { control.disabled = false; });
@@ -12172,7 +12185,7 @@ async function expireStaleVerifyingBookings() {
 </script>
 <script src="supabase.min.js"></script>
 <script src="tenant-config.js?v=20260908-routes2"></script>
-<script src="supabase-config.js?v=20260908-routes2"></script><script src="receipt-pending.js?v=20260908-routes2"></script>
+<script src="supabase-config.js?v=20260908-receipt-upload-fix"></script><script src="receipt-pending.js?v=20260908-routes2"></script>
 <script src="open-play-data.js?v=20260801-openplay-fee-settings"></script>
 <script src="open-play-public.js?v=20260801-openplay-fee-settings"></script>
 

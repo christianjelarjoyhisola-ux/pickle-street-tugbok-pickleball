@@ -1,0 +1,122 @@
+{
+  "checkedAt": "2026-09-08T01:56:03.859Z",
+  "productionUrl": "https://picklestreet.pages.dev/",
+  "pagesDeployment": "https://d77f6f75.picklestreet.pages.dev",
+  "tenantId": "f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a",
+  "receiptFunction": {
+    "name": "picklestreet-receipts",
+    "version": 6,
+    "otherEdgeFunctionsUnchanged": 29,
+    "sharedDatabaseFunctionsUnchanged": 48
+  },
+  "fixes": [
+    "Permit the idempotency header on only this tenant receipt endpoint",
+    "Accept configured MariBank uploads",
+    "Reuse receipt attempt identity for unchanged retries",
+    "Match the uploaded attempt when reconciling a lost response",
+    "Retain image and reference on network errors with actionable guidance",
+    "Do not report an upload failure after a successful submission when availability refresh fails"
+  ],
+  "validation": {
+    "frontendTestsPassed": 139,
+    "receiptParserAndCorsTestsPassed": 83,
+    "liveAccessChecksPassed": 17,
+    "rollbackChecksPassed": 29,
+    "rollbackSuites": [
+      {
+        "name": "rollback-tests.sql",
+        "rolledBack": true
+      },
+      {
+        "name": "balance-rollback-tests.sql",
+        "rolledBack": true
+      },
+      {
+        "name": "source-route-rollback-tests.sql",
+        "rolledBack": true
+      }
+    ],
+    "browserCors": {
+      "checkedAt": "2026-09-08T01:47:00.675Z",
+      "browser": "Chrome at mobile viewport 393x852",
+      "actualCrossOriginMultipartRequests": true,
+      "noBookingOrStorageWrites": true,
+      "results": [
+        {
+          "balance": false,
+          "status": 401,
+          "code": "BOOKING_ACCESS_DENIED",
+          "message": "The private booking access is invalid."
+        },
+        {
+          "balance": true,
+          "status": 401,
+          "code": "BOOKING_ACCESS_DENIED",
+          "message": "The private booking access is invalid."
+        }
+      ],
+      "pageErrors": []
+    },
+    "liveUpload": {
+      "checkedAt": "2026-09-08T01:54:42.853Z",
+      "targetTenant": "f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a",
+      "syntheticTestOnly": true,
+      "noCustomerCourtSlots": true,
+      "browser": "Chrome, 393x852 mobile viewport",
+      "actualMultipartUploadPassed": true,
+      "idempotentRetryPassed": true,
+      "result": {
+        "first": {
+          "ok": true,
+          "status": "manual_review",
+          "bookingStatus": "payment_review",
+          "paymentStatus": "pending"
+        },
+        "retry": {
+          "ok": true,
+          "status": "manual_review",
+          "bookingStatus": "payment_review",
+          "paymentStatus": "pending"
+        },
+        "status": {
+          "status": "payment_review",
+          "paymentStatus": "pending",
+          "receiptStatus": "manual_review",
+          "reservationHeld": false,
+          "matchingUpload": true
+        }
+      },
+      "assertions": [
+        {
+          "private_object_saved": true,
+          "receipt_pending": true,
+          "no_payment_approved": true,
+          "no_availability_occupied": true
+        }
+      ],
+      "counts": [
+        {
+          "attempts": 1,
+          "objects": 1
+        }
+      ],
+      "cleanup": {
+        "bookings": 0,
+        "courts": 0,
+        "objects": 0
+      }
+    },
+    "deployedFiles": [
+      "index.html",
+      "supabase-config.js",
+      "admin.html",
+      "booking-management.html",
+      "login.html"
+    ]
+  },
+  "limits": [
+    "Live transport test used an obvious non-payment image and verified pending status; it did not fabricate a paid booking.",
+    "Automatic paid approval and rescheduling were exercised with transaction-rollback fixtures.",
+    "Browser transport checked in Chrome at mobile dimensions; a physical iPhone Safari was not available."
+  ]
+}

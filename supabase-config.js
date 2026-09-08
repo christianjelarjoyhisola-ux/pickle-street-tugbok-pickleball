@@ -59,6 +59,19 @@ function _pbCaptureBusinessRevision(data) {
 }
 const PB_RECEIPT_TIMEOUT_MS = 90000;
 
+// Keep the same server request identity when retrying the same selected proof.
+// A different file, booking, reference or payment destination starts a new attempt.
+const _pbReceiptAttemptKeys = new WeakMap();
+function _pbReceiptAttemptKey(file, scope) {
+  let keys = _pbReceiptAttemptKeys.get(file);
+  if (!keys) {
+    keys = new Map();
+    _pbReceiptAttemptKeys.set(file, keys);
+  }
+  if (!keys.has(scope)) keys.set(scope, window.crypto.randomUUID());
+  return keys.get(scope);
+}
+
 async function _pbFetchWithTimeout(input, init = {}, timeoutMs = PB_REQUEST_TIMEOUT_MS) {
   const requestUrl = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
   if (requestUrl.origin !== 'https://neqvrwtofiolcuxewdze.supabase.co') throw new Error('Unexpected booking service address.');
@@ -3851,6 +3864,9 @@ window.DB = {
     const backendPaymentMethod = window.PB_PAYMENT_METHOD_CODES?.[paymentMethod] || paymentMethod;
     const automaticFlow = window.PB_TENANT_CONFIG?.receiptReviewMode === 'auto_pending' && PB_TENANT_SLUG === 'pickle-street-tugbok';
     const endpoint = automaticFlow ? 'picklestreet-receipts' : 'submit-payment-receipt';
+    const requestKey = automaticFlow ? idempotencyKey || _pbReceiptAttemptKey(receiptFile, JSON.stringify([
+      PB_TENANT_SLUG, bookingReference, bookingToken, balanceRequestId, backendPaymentMethod, paymentReference,
+    ])) : '';
     const form = new FormData();
     form.append('receiptFile', imageFile, imageFile.name || 'receipt.jpg');
     const response = await _pbFetchWithTimeout(
@@ -3864,19 +3880,23 @@ window.DB = {
           'X-Booking-Token': String(bookingToken || ''),
           ...(balanceRequestId ? { 'X-Balance-Request': String(balanceRequestId) } : {}),
           'X-Payment-Method': String(backendPaymentMethod || ''),
-          ...(automaticFlow ? {'X-Idempotency-Key': idempotencyKey || window.crypto.randomUUID()} : {}),
+          ...(automaticFlow ? {'X-Idempotency-Key': requestKey} : {}),
           ...(paymentReference ? { 'X-Payment-Reference': String(paymentReference) } : {}),
         },
         body: form,
       },
       PB_RECEIPT_TIMEOUT_MS
-    );
+    ).catch(error => {
+      if (error && typeof error === 'object') error.receiptRequestId = requestKey;
+      throw error;
+    });
     const text = await response.text();
     const result = _safeJsonParse(text) || {};
     if (!response.ok || result.ok !== true) {
       const failure = new Error(_pbApiErrorMessage(result, text, `Receipt upload failed (HTTP ${response.status}).`));
       failure.code = result?.error?.code || null;
       failure.httpStatus = response.status;
+      failure.receiptRequestId = requestKey;
       throw failure;
     }
     _pbClearFastCache(['bookings', 'platformAvailability']);

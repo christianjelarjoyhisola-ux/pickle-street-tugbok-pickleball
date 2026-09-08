@@ -23,3 +23,9 @@ function submitContext(resultOrError) {
 }
 test('replacement cannot claim schedule moved from OCR approval when balance stays pending',async()=>{const {c,calls,renders,messages}=submitContext({status:'auto_approved',balanceStatus:'payment_review',bookingStatus:'confirmed',paymentStatus:'paid',reservationHeld:false});await c.submitBalanceReceipt();assert.equal(calls[0].balanceRequestId,'balance-1');assert.equal(calls[0].idempotencyKey,'upload-key');assert.equal(renders[0].status,'payment_review');assert.equal(renders[0].canSubmitReceipt,true);assert.equal(messages[0][1],'inf');});
 test('interrupted replacement retains same attempt and file without treating old proof as success',async()=>{const {c,calls,renders,file}=submitContext(new Error('interrupted'));await c.submitBalanceReceipt();await c.submitBalanceReceipt();assert.equal(calls[0].idempotencyKey,calls[1].idempotencyKey);assert.equal(c._balanceReceiptFile,file);assert.equal(renders.length,0);assert.equal(c._balanceReceiptSaving,false);});
+
+test('balance network failures give retry guidance without requesting another payment',async()=>{
+  const {c,messages,file}=submitContext(new TypeError('Load failed'));await c.submitBalanceReceipt();
+  assert.match(messages[0][0],/Check your connection/);assert.match(messages[0][0],/Do not pay again/);
+  assert.doesNotMatch(messages[0][0],/Load failed/);assert.equal(c._balanceReceiptFile,file);
+});
