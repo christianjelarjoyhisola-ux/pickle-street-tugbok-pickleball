@@ -119,3 +119,16 @@ test('fresh paid bookings without a rain incident remain eligible for rescheduli
  context.booking={...booking,sessions:[],endsAt:'2099-09-09T06:00:00Z'};
  assert.equal(vm.runInContext('canRescheduleBooking(booking)',context),true);
 });
+
+test('shared times require the complete range to be available on every court',()=>{
+ const {commonOptions}=require('./admin-group-reschedule.js');
+ const slot=(startTime,endTime,available=true)=>({startTime,endTime,available});
+ assert.deepEqual(commonOptions([{options:[slot('06:00','07:00'),slot('07:00','08:00')]},{options:[slot('06:00','07:00'),slot('07:00','08:00',false)]},{options:[slot('06:00','07:00')]}]),[slot('06:00','07:00')]);
+ assert.deepEqual(commonOptions([{options:[slot('06:00','07:00')]},{options:[slot('06:00','08:00')]}]),[]);
+ assert.deepEqual(commonOptions([{options:[slot('06:00','07:00')]},{options:[]}]),[]);
+});
+test('one selected date and time generates every court change under one booking',()=>{
+ const uniform=sessions.map(s=>({...s,durationHours:1}));
+ const changes=collectChanges(uniform,Object.fromEntries(uniform.map(s=>[s.sessionId,{selected:true,newDate:'2026-09-16',newStartTime:'10:00'}])),'all');
+ assert.equal(changes.length,2);assert.ok(changes.every(c=>c.newDate==='2026-09-16' && c.newStartTime==='10:00'));
+});

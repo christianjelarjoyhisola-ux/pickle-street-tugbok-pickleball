@@ -51,7 +51,13 @@
     const hour = Number(match[1]);
     return `${hour % 12 || 12}:${match[2]} ${hour % 24 < 12 ? 'AM' : 'PM'}`;
   }
-  const helpers = { normalizeSession, collectChanges, validatePrice, scheduleLabel };
+  function commonOptions(results) {
+    if (!results.length) return [];
+    const key = o => String(o.startTime).slice(0,5) + '/' + String(o.endTime).slice(0,5);
+    const lists = results.map(r => (Array.isArray(r.options) ? r.options : []).filter(o => o.available === true));
+    return lists[0].filter((o,i,a) => a.findIndex(x=>key(x)===key(o))===i && lists.every(list=>list.some(x=>key(x)===key(o))));
+  }
+  const helpers = { normalizeSession, collectChanges, validatePrice, scheduleLabel, commonOptions };
   if (typeof module !== 'undefined' && module.exports) module.exports = helpers;
   if (!root?.document) return;
 
@@ -74,7 +80,7 @@
   function reasonCode() { return $('[name="grReason"]')?.value || ''; }
   function updateActionGuards() {
     if (!state) return;
-    const waiting = state.saving || state.loadingOptions > 0 || !state.sessions.length || state.eligible === false;
+    const waiting = state.saving || state.loadingOptions > 0 || !state.sessions.length || state.eligible === false || !state.newStartTime;
     $('[data-gr-preview]').disabled = waiting;
     $('[data-gr-save]').disabled = waiting || !state.preview;
   }
@@ -96,50 +102,37 @@
     });
     updateActionGuards();
   }
-  function sessionRows() {
-    return state.sessions.map((session, index) => {
-      const draft = state.drafts[session.sessionId];
-      return `<article class="gr-session" data-gr-session="${index}">
-        <label class="gr-session-heading"><input type="checkbox" data-gr-select="${index}" ${draft.selected ? 'checked' : ''} ${state.mode === 'all' ? 'disabled' : ''}><span><strong>${escape(session.courtName || 'Court')}</strong><span>${escape(scheduleLabel(session))}</span></span><small>${session.durationHours} hr${session.durationHours > 1 ? 's' : ''}</small></label>
-        <div class="gr-session-fields" ${draft.selected ? '' : 'hidden'}><label>New date<input type="date" data-gr-date="${index}" min="${dateKey(new Date())}" value="${escape(draft.newDate)}"></label><label>Available time<select data-gr-time="${index}" aria-label="New time for ${escape(session.courtName || 'court')}" disabled><option value="">Checking availability…</option></select></label></div>
-        <p class="gr-session-error" data-gr-option-error="${index}" role="status" hidden></p>
-      </article>`;
-    }).join('');
+  function renderTimes() {
+    $('[data-gr-times]').innerHTML = state.options.length ? state.options.map((option,index) => '<button type="button" class="gr-time" data-gr-slot="'+index+'" aria-pressed="'+(state.newStartTime===String(option.startTime).slice(0,5))+'">'+escape(clock(option.startTime))+'<span>– '+escape(clock(option.endTime))+'</span></button>').join('') : '<p class="gr-empty">No shared times available. Choose another date.</p>';
   }
-  async function loadOptions(index) {
-    const active = state;
-    const session = active?.sessions[index];
-    if (!session || !active.drafts[session.sessionId].selected) return;
-    const draft = active.drafts[session.sessionId];
-    const generation = ++draft.generation;
-    active.loadingOptions += 1;
+  async function loadOptions() {
+    const active=state, generation=++active.generation;
+    const previous=active.newStartTime;
+    active.newStartTime=''; active.options=[]; active.loadingOptions=1;
+    Object.values(active.drafts).forEach(d=>{d.newDate=active.newDate;d.newStartTime='';});
     updateActionGuards();
-    const target = $(`[data-gr-time="${index}"]`);
-    const errorBox = $(`[data-gr-option-error="${index}"]`);
-    target.disabled = true;
-    target.innerHTML = '<option value="">Checking availability…</option>';
-    errorBox.hidden = true;
-    const previous = draft.newStartTime;
-    draft.newStartTime = '';
+    $('[data-gr-times]').innerHTML='<p class="gr-empty" role="status">Checking availability across every court…</p>';
     try {
-      const result = await active.api.groupRescheduleOptions(active.reference, { sessionId: session.sessionId, bookingDate: draft.newDate, expectedVersion: active.version, reasonCode: reasonCode() });
-      if (state !== active || generation !== draft.generation) return;
-      const options = (Array.isArray(result.options) ? result.options : []).filter(option => option.available === true);
-      target.innerHTML = '<option value="">Choose an available time</option>' + options.map(option => `<option value="${escape(String(option.startTime).slice(0, 5))}">${escape(clock(option.startTime))} – ${escape(clock(option.endTime))}</option>`).join('');
-      if (options.some(option => String(option.startTime).slice(0, 5) === previous)) { target.value = previous; draft.newStartTime = previous; }
-      target.disabled = !options.length;
-      if (!options.length) { errorBox.textContent = 'No available times. Choose another date.'; errorBox.hidden = false; }
-    } catch (error) {
-      if (state !== active || generation !== draft.generation) return;
-      target.innerHTML = '<option value="">Availability unavailable</option>';
-      errorBox.textContent = error.message || 'Availability could not be checked. Choose a date to retry.'; errorBox.hidden = false;
+      const results=await Promise.all(active.sessions.map(session=>active.api.groupRescheduleOptions(active.reference,{sessionId:session.sessionId,bookingDate:active.newDate,expectedVersion:active.version,reasonCode:reasonCode()})));
+      if(state!==active || generation!==active.generation)return;
+      active.options=commonOptions(results).filter(o=>!active.sessions.some(session=>session.date===active.newDate && session.startTime===String(o.startTime).slice(0,5)));
+      if(active.options.some(o=>String(o.startTime).slice(0,5)===previous)) {
+        active.newStartTime=previous;Object.values(active.drafts).forEach(d=>d.newStartTime=previous);
+      }
+      renderTimes();
+    } catch(error) {
+      if(state!==active || generation!==active.generation)return;
+      $('[data-gr-times]').innerHTML='<p class="gr-empty" role="status">Availability could not be loaded. Choose a date to retry.</p>';
+      announce(error.message || 'Could not check availability.');
     } finally {
-      if (state === active) { active.loadingOptions = Math.max(0, active.loadingOptions - 1); updateActionGuards(); }
+      if(state===active && generation===active.generation){active.loadingOptions=0;updateActionGuards();}
     }
   }
   function renderSessions() {
-    $('[data-gr-sessions]').innerHTML = sessionRows();
-    state.sessions.forEach((session, index) => { if (state.drafts[session.sessionId].selected) void loadOptions(index); });
+    const sameDuration=state.sessions.every(s=>s.durationHours===state.sessions[0].durationHours);
+    $('[data-gr-sessions]').innerHTML='<div class="gr-court-chips">'+state.sessions.map(s=>'<span>'+escape(s.courtName)+'</span>').join('')+'</div><p class="gr-muted">'+escape(state.sessions[0].durationHours)+' hour'+(state.sessions[0].durationHours===1?'':'s')+' · All courts move together</p><label class="gr-date-label">New booking date<input type="date" data-gr-date min="'+dateKey(new Date())+'" value="'+state.newDate+'"></label><div class="gr-times-heading">Available times <span>Available on every court</span></div><div class="gr-times" data-gr-times role="group" aria-label="Available times for all courts"></div>';
+    if(!sameDuration){$('[data-gr-times]').innerHTML='<p class="gr-empty">These sessions have different durations. They cannot share one time range while keeping their booked hours.</p>';return;}
+    void loadOptions();
   }
   function reviewMarkup(preview, price) {
     const nextById = new Map(preview.sessions.map(session => [String(session.sessionId), session]));
@@ -269,7 +262,7 @@
         } else announce('Only a fully paid, confirmed booking that has not checked in can be rescheduled. This booking is unchanged.');
         return;
       }
-      active.mode = 'all'; active.preview = null; active.requestId = null;
+      active.mode = 'all'; active.preview = null; active.requestId = null; active.generation=0; active.options=[]; active.newStartTime=''; active.newDate=active.sessions[0].date < dateKey(new Date()) ? dateKey(new Date()) : active.sessions[0].date;
       active.drafts = Object.fromEntries(active.sessions.map(session => [session.sessionId, { selected: true, newDate: session.date < dateKey(new Date()) ? dateKey(new Date()) : session.date, newStartTime: '', generation: 0 }]));
       const reasons = result.reasonCodes || result.policies?.reasonCodes || [];
       $('[name="grReason"]').innerHTML = '<option value="">Select a reason</option>' + reasons.map(reason => {
@@ -285,7 +278,6 @@
       $('[data-gr-save]').hidden = true;
       $('[data-gr-preview]').hidden = false;
       $('[data-gr-reload]').hidden = true;
-      $('[name="grMode"][value="all"]').checked = true;
       announce('');
     } catch (error) { announce(error.message || 'The booking could not be loaded.'); $('[data-gr-reload]').hidden = false; }
     finally { if (state === active) { setBusy(false); $('[name="grNotify"]').disabled = !active.hasEmail; if (active.eligible && active.sessions?.length) renderSessions(); } }
@@ -296,7 +288,7 @@
     modal = root.document.createElement('dialog');
     modal.className = 'gr-dialog'; modal.setAttribute('aria-labelledby', 'grTitle');
     modal.innerHTML = `<div class="gr-shell"><header class="gr-header"><div><p class="gr-eyebrow">One booking. Every court.</p><h2 id="grTitle">Reschedule court sessions</h2><p class="gr-muted" data-gr-name></p></div><button class="gr-close" type="button" data-gr-close aria-label="Close reschedule">×</button></header>
-      <div class="gr-body"><div data-gr-form hidden><fieldset class="gr-mode"><legend>Sessions to change</legend><label><input type="radio" name="grMode" value="all" checked>All sessions</label><label><input type="radio" name="grMode" value="selected">Selected sessions</label></fieldset><p class="gr-muted">Keep the same courts and duration. Sessions you leave unselected stay unchanged.</p><div class="gr-sessions" data-gr-sessions></div>
+      <div class="gr-body"><div data-gr-form hidden><p class="gr-muted">Choose one date and time for your complete booking. Your courts, duration and booking reference stay together.</p><div class="gr-sessions" data-gr-sessions></div>
       <div class="gr-reasons"><label>Reason<select name="grReason"><option value="">Select a reason</option></select></label><label>Reason for the player<textarea name="grPublicReason" rows="2" maxlength="500" placeholder="Tell the player why the schedule is changing"></textarea></label><label>Internal note <span class="gr-muted">(optional)</span><textarea name="grInternalNote" rows="2" maxlength="1000"></textarea></label></div><label class="gr-notify"><input type="checkbox" name="grNotify" checked><span>Email the complete updated schedule after the change is confirmed</span></label></div>
       <section class="gr-summary" data-gr-summary hidden aria-live="polite"></section><p class="gr-feedback" data-gr-feedback role="status" hidden></p></div>
       <footer class="gr-footer"><button type="button" class="btn btn-g" data-gr-close>Close</button><button type="button" class="btn btn-g" data-gr-reload hidden>Refresh booking</button><button type="button" class="btn btn-p" data-gr-preview>Review changes</button><button type="button" class="btn btn-p" data-gr-save hidden>Confirm reschedule</button></footer></div>`;
@@ -304,6 +296,13 @@
     state = { reference: String(booking.ref || booking.reference), api, booking, returnFocus: returnFocus || root.document.activeElement, onSaved, saving: false, loadingOptions: 0, sessions: [], drafts: {}, mode: 'all' };
     modal.addEventListener('cancel', event => { event.preventDefault(); close(); });
     modal.addEventListener('click', event => {
+      const slot=event.target.closest('[data-gr-slot]');
+      if(slot && state && !state.saving && !state.loadingOptions){
+        const option=state.options[Number(slot.dataset.grSlot)];if(!option)return;
+        invalidate();state.newStartTime=String(option.startTime).slice(0,5);
+        Object.values(state.drafts).forEach(d=>{d.selected=true;d.newDate=state.newDate;d.newStartTime=state.newStartTime;});
+        renderTimes();updateActionGuards();return;
+      }
       if (event.target.closest('[data-gr-close]')) close();
       else if (event.target.closest('[data-gr-preview]')) void preview();
       else if (event.target.closest('[data-gr-save]')) void save();
@@ -318,17 +317,9 @@
       if (!state || state.saving) return;
       const input = event.target;
       invalidate();
-      if (input.name === 'grMode') {
-        state.mode = input.value;
-        if (state.mode === 'all') Object.values(state.drafts).forEach(draft => { draft.selected = true; });
-        renderSessions();
-      } else if (input.hasAttribute('data-gr-select')) {
-        const index = Number(input.dataset.grSelect); state.drafts[state.sessions[index].sessionId].selected = input.checked; renderSessions();
-      } else if (input.hasAttribute('data-gr-date')) {
-        const index = Number(input.dataset.grDate); state.drafts[state.sessions[index].sessionId].newDate = input.value; void loadOptions(index);
-      } else if (input.hasAttribute('data-gr-time')) {
-        state.drafts[state.sessions[Number(input.dataset.grTime)].sessionId].newStartTime = input.value;
-      } else if (input.name === 'grReason') { state.sessions.forEach((session, index) => { if (state.drafts[session.sessionId].selected) void loadOptions(index); }); }
+      if (input.hasAttribute('data-gr-date')) {
+        state.newDate=input.value;state.newStartTime='';void loadOptions();
+      } else if (input.name === 'grReason') void loadOptions();
     });
     modal.showModal();
     await loadContext();
