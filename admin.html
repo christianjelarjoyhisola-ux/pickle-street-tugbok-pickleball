@@ -4543,7 +4543,7 @@ function attachCachedPlayerRainClaim(booking) {
 }
 async function getBookingGroupByRef(ref) {
   const reference = String(ref || '').trim().toUpperCase();
-  const first = attachCachedPlayerRainClaim(await DB.getBookingByRef(reference).catch(() => null))
+  const first = attachCachedPlayerRainClaim(await DB.getBookingByRef(reference))
     || _weatherRefundSyntheticBookings.get(reference)
     || null;
   if (!first) return null;
@@ -5510,7 +5510,7 @@ function multiSessionRescheduleNotice(b) {
 }
 function canRescheduleCourtSessions(b) {
   return window.PB_PLATFORM_V1 && !!window.PBGroupReschedule && isMultiSessionBooking(b)
-    && !b.archivedAt && !b.playerRainClaim && !weatherRefundIncidents(b).length
+    && !b.archivedAt && !b.playerRainClaim && !weatherRefundIncidents({ weatherRefunds: Array.isArray(b.weatherRefunds) ? b.weatherRefunds : [b.weatherRefund].filter(Boolean) }).length
     && ['owner','court_owner'].includes(String(sess?.role || '').toLowerCase())
     && String(b.platformStatus || b.status || '').toLowerCase() === 'confirmed'
     && String(b.paymentStatus || '').toLowerCase() === 'paid';
@@ -5519,7 +5519,7 @@ function canRescheduleBooking(b) {
   if (isMultiSessionBooking(b)) return false;
   if (!b || b.archivedAt || (Array.isArray(b.items) && b.items.length > 1)) return false;
   if (b.playerRainClaim) return false;
-  if (weatherRefundIncidents(b).length) return false;
+  if (weatherRefundIncidents({ weatherRefunds: Array.isArray(b.weatherRefunds) ? b.weatherRefunds : [b.weatherRefund].filter(Boolean) }).length) return false;
   if (!['owner','court_owner'].includes(String(sess?.role || '').toLowerCase())) return false;
   const platformStatus = String(b.platformStatus || (b.status === 'pending' ? 'payment_review' : b.status) || '').toLowerCase();
   if (!['confirmed','payment_review'].includes(platformStatus)) return false;

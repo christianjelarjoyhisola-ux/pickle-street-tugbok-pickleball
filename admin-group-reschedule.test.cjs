@@ -100,3 +100,22 @@ test('available-time queries bind the session and exact booking version', async 
   assert.equal(calls[0].payload.expectedVersion, 'version-a');
   assert.deepEqual(Object.keys(calls[0].payload).sort(), ['action','bookingDate','bookingReference','expectedVersion','sessionId','tenantSlug'].sort());
 });
+
+test('fresh paid bookings without a rain incident remain eligible for rescheduling', () => {
+ const html = fs.readFileSync('admin.html','utf8');
+ const context = {window:{PB_PLATFORM_V1:true,PBGroupReschedule:{}},sess:{role:'owner'},Date};
+ vm.createContext(context);
+ vm.runInContext(html.slice(html.indexOf('function weatherRefundIncidents('),html.indexOf('function weatherRefundChildBookings(')),context);
+ vm.runInContext(html.slice(html.indexOf('function bookingCourtSessions('),html.indexOf('function canRestoreCancelledBooking(')),context);
+ const booking={ref:'PB-TEST',status:'confirmed',platformStatus:'confirmed',paymentStatus:'paid',sessions:[{courtId:'one'},{courtId:'two'}]};
+ context.booking=booking;
+ assert.equal(vm.runInContext('canRescheduleCourtSessions(booking)',context),true);
+ context.booking={...booking,weatherRefund:{id:'actual-incident'}};
+ assert.equal(vm.runInContext('canRescheduleCourtSessions(booking)',context),false);
+ context.booking={...booking,archivedAt:'2026-09-09'};
+ assert.equal(vm.runInContext('canRescheduleCourtSessions(booking)',context),false);
+ context.booking={...booking,paymentStatus:'for_verification'};
+ assert.equal(vm.runInContext('canRescheduleCourtSessions(booking)',context),false);
+ context.booking={...booking,sessions:[],endsAt:'2099-09-09T06:00:00Z'};
+ assert.equal(vm.runInContext('canRescheduleBooking(booking)',context),true);
+});
