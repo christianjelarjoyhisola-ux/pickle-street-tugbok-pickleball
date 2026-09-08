@@ -3415,7 +3415,7 @@ tr:hover td { background: var(--bg2); }
         <div class="blk-access-head">
           <div>
             <h4 id="blockedAccessOwnerTitle">Court Owner Access</h4>
-            <p>Only the System Owner has permanent access. You may temporarily allow the Court Owner to create and remove blocked dates for exactly 24, 48, or 72 hours.</p>
+            <p>Allow the Court Owner to create and remove blocked dates for 1, 2, or 3 days, or choose unlimited access until you revoke it.</p>
           </div>
           <span class="role-bdg r-owner">System Owner control</span>
         </div>
@@ -3427,6 +3427,7 @@ tr:hover td { background: var(--bg2); }
               <option value="1">1 day (24 hours)</option>
               <option value="2">2 days (48 hours)</option>
               <option value="3">3 days (72 hours)</option>
+              <option value="0">Unlimited (until revoked)</option>
             </select>
           </div>
           <button class="btn btn-p" id="grantBlockedAccessBtn" type="button" onclick="setCourtOwnerBlockedDateAccess('grant')">Grant / Replace Access</button>
@@ -14144,7 +14145,7 @@ function renderBlockedDateAccessState() {
   if (ownerStatus && isOwner) {
     ownerStatus.className = `blk-access-status ${_blockedDateAccess.status}`;
     if (_blockedDateAccess.status === 'active') {
-      ownerStatus.innerHTML = `<strong>Court Owner access is active.</strong> It ends ${esc(blockedAccessExpiryLabel(_blockedDateAccess.expiresAt))}. <span class="blk-access-countdown">${esc(blockedAccessCountdownText())}</span> remaining.`;
+      ownerStatus.innerHTML = _blockedDateAccess.unlimited ? '<strong>Unlimited Court Owner access is active.</strong> Access remains active until you revoke it.' : `<strong>Court Owner access is active.</strong> It ends ${esc(blockedAccessExpiryLabel(_blockedDateAccess.expiresAt))}. <span class="blk-access-countdown">${esc(blockedAccessCountdownText())}</span> remaining.`;
     } else if (_blockedDateAccess.status === 'expired') {
       ownerStatus.innerHTML = `<strong>The previous grant has expired.</strong> The Court Owner can no longer open or manage Blocked Dates.`;
     } else if (_blockedDateAccess.status === 'revoked') {
@@ -14152,18 +14153,18 @@ function renderBlockedDateAccessState() {
     } else if (_blockedDateAccess.status === 'unavailable') {
       ownerStatus.innerHTML = `<strong>Access status is unavailable.</strong> Your permanent System Owner access remains active, but temporary access cannot be changed until the protected service responds.`;
     } else {
-      ownerStatus.innerHTML = `<strong>No temporary access is active.</strong> Only the System Owner can manage blocked dates.`;
+      ownerStatus.innerHTML = `<strong>No Court Owner access is active.</strong> Only the System Owner can manage blocked dates.`;
     }
   }
 
   const courtStatus = $('blockedAccessCourtOwnerStatus');
   if (courtStatus && isCourtOwner && allowed) {
-    courtStatus.innerHTML = `Access ends <strong>${esc(blockedAccessExpiryLabel(_blockedDateAccess.expiresAt))}</strong>. <span class="blk-access-countdown">${esc(blockedAccessCountdownText())}</span> remaining.`;
+    courtStatus.innerHTML = _blockedDateAccess.unlimited ? 'Unlimited access — active until the System Owner revokes it.' : `Access ends <strong>${esc(blockedAccessExpiryLabel(_blockedDateAccess.expiresAt))}</strong>. <span class="blk-access-countdown">${esc(blockedAccessCountdownText())}</span> remaining.`;
   }
   const revoke = $('revokeBlockedAccessBtn');
   if (revoke) revoke.disabled = _blockedDateAccess.status !== 'active';
   const duration = $('blockedAccessDuration');
-  if (duration && _blockedDateAccess.status === 'active' && _blockedDateAccess.durationDays) {
+  if (duration && _blockedDateAccess.status === 'active' && _blockedDateAccess.durationDays !== null) {
     duration.value = String(_blockedDateAccess.durationDays);
   }
 }
@@ -14248,7 +14249,7 @@ async function setCourtOwnerBlockedDateAccess(action) {
     _blockedDateAccess = BlockedDateAccess.normalize(result);
     applyBlockedDateAccessVisibility();
     if (normalizedAction === 'grant') {
-      toast(`Court Owner access granted until ${blockedAccessExpiryLabel(_blockedDateAccess.expiresAt)}.`);
+      toast(_blockedDateAccess.unlimited ? 'Unlimited Court Owner access granted until revoked.' : `Court Owner access granted until ${blockedAccessExpiryLabel(_blockedDateAccess.expiresAt)}.`);
     } else {
       toast('Court Owner blocked-date access revoked.', 'inf');
     }

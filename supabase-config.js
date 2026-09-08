@@ -3261,8 +3261,8 @@ window.DB = {
     const normalizedAction = String(action || '').toLowerCase();
     const normalizedDuration = durationDays == null ? null : Number(durationDays);
     if (!['grant', 'revoke'].includes(normalizedAction)) throw new Error('Choose a valid access action.');
-    if (normalizedAction === 'grant' && ![1, 2, 3].includes(normalizedDuration)) {
-      throw new Error('Choose an access duration of 1, 2, or 3 days.');
+    if (normalizedAction === 'grant' && ![0, 1, 2, 3].includes(normalizedDuration)) {
+      throw new Error('Choose 1, 2, or 3 days, or unlimited access.');
     }
     const { data, error } = await _sb.rpc('set_blocked_date_access', {
       p_tenant_slug: PB_TENANT_SLUG,

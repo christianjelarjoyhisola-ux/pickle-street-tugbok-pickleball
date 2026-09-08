@@ -1,7 +1,7 @@
 (function blockedDateAccessModule(global) {
   'use strict';
 
-  const ALLOWED_DURATIONS = Object.freeze([1, 2, 3]);
+  const ALLOWED_DURATIONS = Object.freeze([0, 1, 2, 3]);
 
   function timestamp(value) {
     const parsed = Date.parse(String(value || ''));
@@ -24,7 +24,8 @@
     const durationDays = Number(source.durationDays ?? source.duration_days);
     const serverStatus = String(source.status || '').toLowerCase();
     const expired = expiresAtMs !== null && expiresAtMs <= effectiveNowMs;
-    const active = source.canManage === true && expiresAtMs !== null && !revokedAt && !expired;
+    const unlimited = durationDays === 0 && expiresAt === 'infinity';
+    const active = source.canManage === true && (unlimited || expiresAtMs !== null) && !revokedAt && !expired;
     const status = active
       ? 'active'
       : revokedAt || serverStatus === 'revoked'
@@ -37,6 +38,7 @@
 
     return Object.freeze({
       canManage: active,
+      unlimited,
       status,
       durationDays: ALLOWED_DURATIONS.includes(durationDays) ? durationDays : null,
       grantedAt,
@@ -52,7 +54,7 @@
     if (role === 'owner') return true;
     if (role !== 'court_owner') return false;
     const state = normalize(access, nowMs);
-    return state.canManage && state.expiresAtMs !== null && state.expiresAtMs > nowMs + state.clockOffsetMs;
+    return state.canManage && (state.unlimited || (state.expiresAtMs !== null && state.expiresAtMs > nowMs + state.clockOffsetMs));
   }
 
   function remainingParts(access, nowMs = Date.now()) {

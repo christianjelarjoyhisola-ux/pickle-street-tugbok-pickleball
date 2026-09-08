@@ -56,3 +56,13 @@ test('expiry follows server time when the device clock is inaccurate', () => {
   assert.equal(Access.canManage('court_owner', access, slowDeviceNow), true);
   assert.equal(Access.canManage('court_owner', access, slowDeviceNow + 60000), false);
 });
+
+ test('unlimited access survives time passage, but revocation and role restrictions still apply', () => {
+ const access = {canManage:true, durationDays:0, expiresAt:'infinity'};
+ assert.equal(Access.canManage('court_owner', access, NOW + 1000 * 86400 * 36500), true);
+ assert.equal(Access.normalize(access, NOW).unlimited, true);
+ assert.equal(Access.canManage('staff', access, NOW), false);
+ assert.equal(Access.canManage('court_owner', {...access, revokedAt:new Date(NOW).toISOString()}, NOW), false);
+ assert.equal(Access.canManage('court_owner', {...access, expiresAt:null}, NOW), false);
+ assert.equal(Access.canManage('court_owner', {...access, canManage:false}, NOW), false);
+ });
