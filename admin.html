@@ -4766,12 +4766,11 @@ function receiptFlagsForDisplay(b){
 }
 function receiptBadge(b){
   const s = b.receiptStatus || 'none';
-  if (s === 'none') return '';
+  if (s === 'none' || s === 'approved') return '';
   const displayFlags = receiptFlagsForDisplay(b);
   const reason = receiptReasonText(displayFlags);
   const map = {
     auto_approved: ['var(--green)','rgba(var(--green-rgb),.15)','✅ Auto-verified'],
-    approved: ['var(--green)','rgba(var(--green-rgb),.15)','Confirmed by staff'],
     manual_review: ['#b87e00','rgba(184,126,0,.15)','🕓 Review receipt'],
     short_payment: ['#b87e00','rgba(184,126,0,.15)','Balance requested'],
     rejected:      ['#e53935','rgba(229,57,53,.12)','⚠️ Receipt flagged'],
@@ -9260,7 +9259,7 @@ async function vmPopulateReceipt(b){
   const st = $('vmReceiptStatus');
   const map = {
     auto_approved: ['var(--green)','rgba(var(--green-rgb),.12)','✅ Auto-verified — all checks passed'],
-    approved: ['var(--green)','rgba(var(--green-rgb),.12)','Payment confirmed by staff'],
+    approved: ['var(--green)','rgba(var(--green-rgb),.12)','Payment confirmed'],
     manual_review: ['#b87e00','rgba(184,126,0,.12)','🕓 Needs review — see flags below'],
     short_payment: ['#b87e00','rgba(184,126,0,.12)','Short payment accepted — balance requested'],
     rejected:      ['#e53935','rgba(229,57,53,.1)','⚠️ Flagged — review carefully before confirming'],
