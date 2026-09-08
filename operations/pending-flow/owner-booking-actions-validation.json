@@ -1,0 +1,59 @@
+{
+  "at": "2026-09-08T17:55:32.489Z",
+  "hash": "3ca79b3f1821b4c669ce01f10adddbb7d296f0417f12615340d6025e060ecdcc",
+  "rolledBack": true,
+  "result": [
+    {
+      "name": "Court owner cancels entire multi-court booking",
+      "passed": true
+    },
+    {
+      "name": "Court owner denied delete",
+      "passed": true
+    },
+    {
+      "name": "Court owner denied archive",
+      "passed": true
+    },
+    {
+      "name": "Court owner denied restore",
+      "passed": true
+    },
+    {
+      "name": "Admin mapped to Court Owner may cancel",
+      "passed": true
+    },
+    {
+      "name": "Staff cannot cancel",
+      "passed": true
+    },
+    {
+      "name": "System owner archives active paid booking and retains payment",
+      "passed": true
+    },
+    {
+      "name": "Restore unarchives without reclaiming released times",
+      "passed": true
+    },
+    {
+      "name": "Delete hides record and retains paid evidence",
+      "passed": true
+    },
+    {
+      "name": "Deleted entry cannot be restored by this endpoint",
+      "passed": true
+    },
+    {
+      "name": "Cancellation closes extra-payment request and releases old and new slots",
+      "passed": true
+    },
+    {
+      "name": "Wrong actual origin denied",
+      "passed": true
+    },
+    {
+      "name": "Anonymous action denied",
+      "passed": true
+    }
+  ]
+}

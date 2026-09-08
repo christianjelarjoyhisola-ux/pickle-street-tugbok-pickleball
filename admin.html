@@ -5543,8 +5543,9 @@ function bookingActionsHtml(b, canDelete){
   const grouped = Array.isArray(b.items) && b.items.length > 1;
   const actionRef = b.primaryRef || b.ref;
   if (window.PB_PLATFORM_V1) {
-    const canCancel = !window.PBReceiptPending?.automatic(b) && !['cancelled', 'forfeited', 'completed'].includes(String(b.status || '').toLowerCase());
-  const canArchive = canDelete && ['cancelled', 'forfeited', 'completed'].includes(String(b.status || '').toLowerCase());
+    const isSystemOwner = !!sess && Auth.can('owner_only', sess.role);
+    const canCancel = !!sess && ['owner','court_owner'].includes(sess.role) && !['cancelled','forfeited','expired','completed'].includes(String(b.status || '').toLowerCase());
+    const canArchive = isSystemOwner;
     const canReview = !!window.PBReceiptPending?.manualReviewTarget(b);
     return `${bookingDetailsButton(b)}
       ${canReview ? `<button class="btn btn-p btn-sm" onclick="openVerifyModal('${jsArg(actionRef)}',{reviewAction:'approve'})">Confirm</button><button class="btn btn-d btn-sm" onclick="openVerifyModal('${jsArg(actionRef)}',{reviewAction:'reject'})">Reject</button>` : ''}
@@ -5554,7 +5555,7 @@ function bookingActionsHtml(b, canDelete){
       ${b.status==='confirmed' && b.email ? `<button class="btn btn-sm" style="background:rgba(var(--green-rgb),.12);color:var(--green);border:1px solid rgba(var(--green-rgb),.3)" onclick="resendConfirmationEmail('${jsArg(actionRef)}')">Resend Email</button>` : ''}
       ${canRestoreCancelledBooking(b) ? `<button class="btn btn-sm" style="background:rgba(var(--green-rgb),.12);color:var(--green);border:1px solid rgba(var(--green-rgb),.3);font-weight:700" onclick="restoreCancelledBooking('${jsArg(actionRef)}')">Restore to Confirmed</button>` : ''}
       ${canCancel ? `<button class="btn btn-d btn-sm" onclick="cancelPlatformBooking('${jsArg(actionRef)}')">Cancel</button>` : ''}
-      ${canArchive ? `<button class="btn btn-d btn-sm" onclick="archiveBooking('${jsArg(actionRef)}')">Archive</button>` : ''}`;
+      ${canArchive ? `<button class="btn btn-sm" onclick="archiveBooking('${jsArg(actionRef)}')">Archive</button><button class="btn btn-d btn-sm" onclick="permanentlyDeleteArchivedBooking('${jsArg(actionRef)}')">Delete</button>` : ''}`;
   }
   const forfeited = b.status === 'forfeited' || b.paymentStatus === 'deposit_retained';
   const hasBalance = b.hostBooking && b.paymentStatus === 'downpayment_paid';
@@ -8496,7 +8497,7 @@ async function renderBookingArchive(){
         <td data-label="Archived On">${archivedLabel}</td>
         <td data-label="Actions"><div style="display:flex;gap:6px;flex-wrap:wrap">
           <button class="btn btn-g btn-sm" onclick="restoreArchivedBooking('${jsArg(b.ref)}')">Restore</button>
-          <button class="btn btn-d btn-sm" onclick="permanentlyDeleteArchivedBooking('${jsArg(b.ref)}')">Delete Permanently</button>
+          <button class="btn btn-d btn-sm" onclick="permanentlyDeleteArchivedBooking('${jsArg(b.ref)}')">Delete</button>
         </div></td>
       </tr>`;
     }).join('');
@@ -9100,9 +9101,13 @@ async function updateStatus(ref, status) {
 }
 
 async function cancelPlatformBooking(ref) {
+  if (!sess || !['owner','court_owner'].includes(sess.role)) { toast('Only the Court Owner or System Owner can cancel bookings.','err'); return; }
   if (!confirm(`Cancel booking ${ref}? The reserved slot will be released.`)) return;
   try {
-    await updateStatus(ref, 'cancelled');
+    await DB.manageOwnerBooking(ref, 'cancel');
+    toast('Booking cancelled. All reserved times have been released.');
+    await Promise.all([renderBookings(), renderDash()]);
+    await notifyBookingUpdateSafe(ref, 'booking_cancelled');
   } catch (error) {
     console.error('cancelPlatformBooking:', error);
     toast(error?.message || 'Could not cancel the booking.', 'err');
@@ -9584,7 +9589,7 @@ async function archiveBooking(ref){
     toast('Only the System Owner can archive bookings.','err');
     return;
   }
-  if(!confirm(`Move booking ${ref} to the Booking Archive?\n\nYou can restore it later.`)) return;
+  if(!confirm(`Move booking ${ref} to the Booking Archive?\n\nAny active reservation will be cancelled and all its times released. You can restore the archived record later; this does not rebook its times.`)) return;
   try{
     await DB.archiveBooking(ref);
     await Promise.all([renderBookings(),renderDash()]);
@@ -9614,14 +9619,14 @@ async function restoreArchivedBooking(ref){
 
 async function permanentlyDeleteArchivedBooking(ref){
   if(!sess||!Auth.can('owner_only',sess.role)){
-    toast('Only the System Owner can permanently delete bookings.','err');
+    toast('Only the System Owner can delete bookings.','err');
     return;
   }
-  if(!confirm(`Permanently delete booking ${ref}?\n\nThis action cannot be undone.`)) return;
+  if(!confirm(`Delete booking ${ref} from the dashboard?\n\nAll reserved times will be released. Payment records are retained for audit and duplicate receipt protection.`)) return;
   try{
     const result=await DB.permanentlyDeleteArchivedBooking(ref);
-    toast(result?.storageCleanupWarning?'Booking deleted. Its private receipt file needs cleanup.':'Booking permanently deleted.','inf');
-    await renderBookingArchive();
+    toast('Booking deleted from the dashboard.','inf');
+    await Promise.all([renderBookingArchive(), renderBookings(), renderDash()]);
   }catch(error){
     toast(error?.message||'Could not permanently delete the booking.','err');
   }
@@ -15062,8 +15067,8 @@ async function checkAgreementGate(session) {
 </script>
 
 <script src="supabase.min.js"></script>
-<script src="tenant-config.js?v=20260909-receipt-only"></script>
-<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260909-receipt-only"></script><script src="payment-source-ui.js?v=20260909-native-maya"></script>
+<script src="tenant-config.js?v=20260909-owner-actions"></script>
+<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260909-owner-actions"></script><script src="payment-source-ui.js?v=20260909-native-maya"></script>
 <script src="receipt-pending.js?v=20260908-routes2"></script>
 <script src="payment-method-brand.js?v=20260908-routes2"></script>
 <script src="payment-settings.js?v=20260909-native-maya"></script>

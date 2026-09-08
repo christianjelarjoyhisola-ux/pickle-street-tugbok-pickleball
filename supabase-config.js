@@ -3136,16 +3136,19 @@ window.DB = {
     return data || null;
   },
 
+  async manageOwnerBooking(ref, action) {
+    const {data,error} = await _sb.rpc('manage_picklestreet_booking', {
+      p_tenant_slug: PB_TENANT_SLUG, p_hostname: _pbTenantHostname(),
+      p_reference: String(ref || ''), p_action: action
+    });
+    if (error) throw new Error(error.message || 'Could not update the booking.');
+    _pbClearFastCache(['bookings', 'platformAvailability']);
+    return data;
+  },
+
   async archiveBooking(ref) {
     if (!PB_PLATFORM_V1) return this.deleteBooking(ref);
-    const result = await _invokeEdgeFunction(
-      `manage-booking-archive?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
-      { action: 'archive', tenantSlug: PB_TENANT_SLUG, bookingReference: String(ref || '') },
-      { preferDirect: true }
-    );
-    if (!result?.ok) throw new Error(result?.message || result?.error || 'Could not archive the booking.');
-    _pbClearFastCache(['bookings', 'platformAvailability']);
-    return result.booking || null;
+    return this.manageOwnerBooking(ref, 'archive');
   },
 
   async getArchivedBookings() {
@@ -3176,7 +3179,7 @@ window.DB = {
       throw new Error('The tenant booking archive could not be loaded.');
     }
     const courtMap = new Map(courts.map(court => [String(court.id), court]));
-    return result.bookings.map(row => _pbPlatformBookingToLegacy(
+    return result.bookings.filter(row => !String(row.archive_reason || '').startsWith('[deleted]')).map(row => _pbPlatformBookingToLegacy(
       row,
       courtMap,
       bootstrap?.tenant?.timezone || 'Asia/Manila'
@@ -3190,26 +3193,12 @@ window.DB = {
       if (!entry) throw new Error('Archived booking not found.');
       return this.restoreDeletedBookingArchive(entry.id);
     }
-    const result = await _invokeEdgeFunction(
-      `manage-booking-archive?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
-      { action: 'restore', tenantSlug: PB_TENANT_SLUG, bookingReference: String(ref || '') },
-      { preferDirect: true }
-    );
-    if (!result?.ok) throw new Error(result?.message || result?.error || 'Could not restore the booking.');
-    _pbClearFastCache(['bookings', 'platformAvailability']);
-    return result.booking || null;
+    return this.manageOwnerBooking(ref, 'restore');
   },
 
   async permanentlyDeleteArchivedBooking(ref) {
     if (!PB_PLATFORM_V1) throw new Error('Permanent deletion is available only on the protected platform archive.');
-    const result = await _invokeEdgeFunction(
-      `manage-booking-archive?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
-      { action: 'delete', tenantSlug: PB_TENANT_SLUG, bookingReference: String(ref || '') },
-      { preferDirect: true }
-    );
-    if (!result?.ok) throw new Error(result?.message || result?.error || 'Could not permanently delete the booking.');
-    _pbClearFastCache(['bookings', 'platformAvailability']);
-    return result;
+    return this.manageOwnerBooking(ref, 'delete');
   },
 
   async getDeletedBookingArchive(filters = {}) {
