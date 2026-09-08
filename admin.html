@@ -12806,7 +12806,7 @@ async function uploadPlatformPaymentQrFile(elements, file, methodCode, displayNa
     const asset = await DB.uploadTenantPaymentQr({ methodCode, file });
     if (!asset?.url) throw new Error('The upload did not return an image URL.');
     setPlatformQrPreview(elements, asset.url, displayName);
-    setPlatformQrStatus(elements, 'Uploaded. Click Save Payment Settings to publish it.', 'ok');
+    setPlatformQrStatus(elements, 'QR image saved. Save Payment Settings if you also changed account details or enabled methods.', 'ok');
     toast(`${displayName} QR image uploaded.`);
   } catch (error) {
     console.error('uploadPlatformPaymentQr:', error);
@@ -12824,8 +12824,19 @@ async function removePlatformPaymentQr(button) {
   if (!elements.row || !elements.url?.value) return;
   const displayName = elements.row.dataset.displayName || 'Payment';
   if (!confirm(`Remove the ${displayName} QR image?`)) return;
-  setPlatformQrPreview(elements, '', displayName);
-  setPlatformQrStatus(elements, 'Removed. Click Save Payment Settings to publish the change.', 'ok');
+  button.disabled = true;
+  if (elements.uploadButton) elements.uploadButton.disabled = true;
+  setPlatformQrStatus(elements, 'Removing QR image...');
+  try {
+    await DB.removeTenantPaymentQr({ methodCode: elements.row.dataset.code, url: elements.url.value });
+    setPlatformQrPreview(elements, '', displayName);
+    setPlatformQrStatus(elements, 'QR image removed.', 'ok');
+  } catch (error) {
+    setPlatformQrStatus(elements, error?.message || 'Could not remove the QR image. Reload settings and try again.', 'err');
+  } finally {
+    button.disabled = false;
+    if (elements.uploadButton) elements.uploadButton.disabled = false;
+  }
 }
 
 function platformActivationReadinessChecks(activation) {
@@ -15055,7 +15066,7 @@ async function checkAgreementGate(session) {
 <script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260908-group-booking"></script><script src="payment-source-ui.js?v=20260908-routes2"></script>
 <script src="receipt-pending.js?v=20260908-routes2"></script>
 <script src="payment-method-brand.js?v=20260908-routes2"></script>
-<script src="payment-settings.js?v=20260908-routes2"></script>
+<script src="payment-settings.js?v=20260909-managed-qr"></script>
 <script src="open-play-data.js?v=20260803-openplay-reports"></script>
 <script src="open-play-admin.js?v=20260907-audit"></script>
 <script src="open-play-reporting.js?v=20260907-audit"></script>

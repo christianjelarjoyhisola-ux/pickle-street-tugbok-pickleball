@@ -42,7 +42,7 @@
     return `<div class="platform-qr-upload">
       <div class="platform-qr-preview">${url ? `<img src="${url}" alt="${esc(name)} QR preview" />` : '<span>No QR</span>'}</div>
       <div class="platform-qr-copy"><div class="platform-qr-title">${esc(name)} QR code image</div>
-        <p class="platform-qr-help">JPEG, PNG or WebP, up to 2 MB. Changes take effect when you save.</p>
+        <p class="platform-qr-help">JPEG, PNG or WebP, up to 2 MB. QR images are saved immediately after upload.</p>
         <div class="platform-qr-actions"><button class="btn btn-g platform-qr-upload-btn" type="button" onclick="choosePlatformPaymentQr(this)">${url?'Replace':'Upload'} ${esc(name)} QR image</button>
           <button class="btn btn-g platform-qr-remove-btn" type="button" onclick="removePlatformPaymentQr(this)" ${url?'':'hidden'}>Remove QR</button></div>
         <div class="platform-qr-status" role="status" aria-live="polite">${url?'QR image saved.':'No QR image uploaded.'}</div>

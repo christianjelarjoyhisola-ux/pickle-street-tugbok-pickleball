@@ -3650,6 +3650,25 @@ window.DB = {
     return result.asset;
   },
 
+  async removeTenantPaymentQr({ methodCode, url }) {
+    if (!PB_PLATFORM_V1 || PB_PAGE_DATA_SCOPE !== 'manager') throw new Error('Sign in to manage payment QR images.');
+    const code = String(methodCode || '').trim().toLowerCase();
+    const parsed = new URL(url);
+    const prefix = '/storage/v1/object/public/tenant-public-assets/';
+    if (!/^[a-z][a-z0-9_-]{1,39}$/.test(code) || parsed.origin !== SUPABASE_URL.replace(/\/+$/, '') || !parsed.pathname.startsWith(prefix)) {
+      throw new Error('Reload payment settings before removing this QR image.');
+    }
+    const { data, error } = await _sb.rpc('manage_tenant_payment_qr_asset', {
+      p_tenant_slug: PB_TENANT_SLUG, p_hostname: _pbTenantHostname(), p_method_code: code,
+      p_expected_qr_image_url: String(url), p_expected_qr_storage_path: decodeURIComponent(parsed.pathname.slice(prefix.length)),
+      p_qr_image_url: null, p_qr_storage_path: null, p_remove: true,
+    });
+    if (error) throw new Error(_extractFnError(error, 'The QR image could not be removed. Reload settings and try again.'));
+    _pbCaptureBusinessRevision(data);
+    _pbClearFastCache(['settings', 'platformBootstrap']);
+    return data;
+  },
+
   async saveTenantPlatformBilling({ feeMode, feeAmount }) {
     const mode = String(feeMode || '');
     const amount = Number(feeAmount);
