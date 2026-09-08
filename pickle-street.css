@@ -296,7 +296,11 @@ html.ps-welcome-open {overflow:hidden}
 .court-name-row {display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
 .court-promo-label {display:inline-flex;align-items:center;gap:5px;flex-wrap:wrap;padding:4px 7px;border:1px solid var(--court-slot-border);border-radius:5px;background:var(--court-header);color:var(--accent);font-size:10px;font-weight:750;line-height:1.3;letter-spacing:.025em}
 .court-promo-label small {font-size:9px;font-weight:500;letter-spacing:0;color:var(--muted)}
-#courts .csl-promo-rate {color:var(--accent);font-weight:800;animation:promo-price-glow 6s ease-in-out infinite}
+#courts .csl-promo-rate {color:var(--accent);font-weight:800;animation:promo-price-glow 2s ease-in-out infinite}
 #courts .cc-slot-btn.selected .csl-promo-rate {color:var(--court-selected-text)}
-@keyframes promo-price-glow {0%,65%,100% {text-shadow:none}80% {text-shadow:0 0 8px rgba(49,162,180,.55)}}
+@keyframes promo-price-glow {0%,100% {text-shadow:none}50% {text-shadow:0 0 7px rgba(49,162,180,.65)}}
+.court-promo-label,.ps-welcome-enter {position:relative;overflow:hidden;isolation:isolate;animation:promo-surface-glow 2s ease-in-out infinite}
+.court-promo-label::after,.ps-welcome-enter::after {content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.24) 50%,transparent 70%);transform:translateX(-120%);animation:promo-light-sweep 2s ease-in-out infinite}
+@keyframes promo-light-sweep {0%,15% {transform:translateX(-120%)}85%,100% {transform:translateX(120%)}}
+@keyframes promo-surface-glow {0%,100% {filter:brightness(1)}50% {filter:brightness(1.12)}}
 @media(prefers-reduced-motion:reduce) {#courts .csl-promo-rate {animation:none}}
