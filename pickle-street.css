@@ -200,7 +200,7 @@ input,select,textarea {font-size:1rem!important}
 #courts .cc-slot-btn .csl-price {font-size:10px;font-weight:500;color:inherit;opacity:.85}
 #courts .cc-slot-btn.selected {background:var(--court-selected);border:1px solid var(--court-selected);color:var(--court-selected-text);box-shadow:0 0 0 1px var(--court-selected);transform:none}
 #courts .cc-slot-btn.selected .csl-time,#courts .cc-slot-btn.selected .csl-price {color:var(--court-selected-text);opacity:1}
-#courts .cc-slot-btn.selected::after {content:'✓';position:absolute;top:2px;right:4px;font-size:9px;font-weight:800;color:var(--court-selected-text)}
+#courts .cc-slot-btn.selected::after {content:none}
 #courts .cc-slot-btn.past-slot,#courts .cc-slot-btn.taken,#courts .cc-slot-btn.maintenance {background:var(--court-inactive);border:1px solid var(--border);color:var(--court-inactive-text);opacity:1}
 #courts .cc-slot-btn.maintenance {border-style:dashed}
 #courts .cc-slot-btn.taken .csl-time,#courts .cc-slot-btn.taken .csl-name,
