@@ -190,5 +190,38 @@
   "limits": [
     "Browser booking flows use simulated backend responses; real database integration was checked in rollback-only fixtures. No live payment or successful production booking was created for verification.",
     "Per-IP throttling assumes the gateway supplies trusted forwarded IP headers; Turnstile and tenant/capability checks are enforced independently."
-  ]
+  ],
+  "popupOrderFix": {
+    "releasedAt": "2026-09-08T04:22:41.986Z",
+    "deployment": "https://c47bd498.picklestreet.pages.dev",
+    "change": "Book Now hides Details during security/hold creation, shows the server-confirmed countdown introduction, then Details. Existing holds reopen with remaining-time introduction. Failed requests expose a separate retry screen.",
+    "frontendTests": 190,
+    "browserScenarios": {
+      "passed": 20,
+      "cases": [
+        "regular click→hold→Details→method→policy→completion 320",
+        "regular click→hold→Details→method→policy→completion 607",
+        "slow server: preparation → intro → Details without form flash 320",
+        "slow server: preparation → intro → Details without form flash 607",
+        "Book Now reopening an existing hold shows remaining-time intro first",
+        "lost create explicit retry",
+        "lost create reopen retry",
+        "preliminary recovery remains Details and keeps expiry",
+        "preliminary cancel uses correct route",
+        "lost completion reconciles then reaccepts without duplicate completion",
+        "normal completed hold policy reaccept never invokes preliminary complete",
+        "changed policy submit returns method without automatic popup",
+        "event details collected only on completion",
+        "Escape cannot dismiss pending completion",
+        "inactive future/deadline response {\"status\":\"cancelled\"}",
+        "inactive future/deadline response {\"status\":\"expired\"}",
+        "inactive future/deadline response {\"reservationHeld\":false}",
+        "inactive future/deadline response {\"expiresAt\":\"2026-09-08T04:21:50.477Z\"}",
+        "server receipt POLICY_CHANGED returns Method without popup",
+        "hold expiry closes open policy and wizard"
+      ]
+    },
+    "backendChanges": false,
+    "liveSourceVerified": true
+  }
 }
