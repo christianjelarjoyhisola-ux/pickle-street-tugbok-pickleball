@@ -18,7 +18,7 @@ import type {
 
 export const SOURCE_ROUTE_TENANT_ID = "f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a";
 export const SOURCE_ROUTE_TENANT_SLUG = "pickle-street-tugbok";
-export const SOURCE_ROUTE_WINDOW_MINUTES = 10;
+export const SOURCE_ROUTE_WINDOW_MINUTES = 15;
 export const SOURCE_ROUTE_MIN_NATIVE_CONFIDENCE = 0.90;
 export type SecondaryReference = {
   kind: "instapay" | "maya_instapay" | "bdopay_invoice" | "bpi_transaction";

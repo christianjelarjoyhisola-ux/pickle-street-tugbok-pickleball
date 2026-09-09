@@ -7,7 +7,7 @@ import { resolveTenantForRequest } from "../_shared/tenant.ts";
 import { detectReceiptText,inspectReceiptImage,parseReceiptObjectPath,RECEIPT_BUCKET,MAX_RECEIPT_BYTES,sha256Hex } from "../_shared/receipt-verification.ts";
 import { originalBookingStatus } from "./status.ts";
 import { originalBalanceStatus } from "./balance-status.ts";
-import { verifyByMethod,publicPendingReason } from "./parsers.ts";
+import { verifyByMethod,publicPendingReason,PICKLESTREET_PAYMENT_WINDOW_MINUTES } from "./parsers.ts";
 import { canonicalSourceProvider,verifySourceRoute } from "./source-routes.ts";
 import { deliverEmail } from "../_shared/reschedule-booking.ts";
 import { sendMailerooEmail } from "../_shared/maileroo.ts";
@@ -267,7 +267,7 @@ export async function staffReviewResponse(db:DB,body:Obj,actor:string,origin:str
     }
     const canApprove=receiptApprovalTiming(booking.data!,requestDetails);
     return jsonResponse({ok:true,verificationId,attemptId:job.data.current_attempt_id,balanceRequestId:balanceId||null,
-      bookingReference,paymentWindowMinutes:10,canApprove,
+      bookingReference,paymentWindowMinutes:PICKLESTREET_PAYMENT_WINDOW_MINUTES,canApprove,
       approvalUnavailableReason:canApprove?'':requestDetails?.groupRescheduleV1===true?'The proposed sessions or booking status no longer allow approval. Refresh the booking before reviewing payment.':'This court time has already started or the booking is no longer eligible for payment confirmation.'},200,origin);
   }
   const decision=String(body.decision||'');

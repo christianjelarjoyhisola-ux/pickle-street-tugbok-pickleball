@@ -161,7 +161,7 @@ for (const provider of Object.keys(receipts) as Provider[]) {
       provider === "maya" ? "maya_configured_receiver" : `${provider}_to_gcash`,
     );
     assert.equal(r.extractedData.comparison.amountMatched, true);
-    assert.equal(r.extractedData.timing.allowedWindowMinutes, 10);
+    assert.equal(r.extractedData.timing.allowedWindowMinutes, 15);
     assert.equal(
       r.extractedData.timing.receiptDateTime,
       "2026-09-08T02:05:00Z",
@@ -329,7 +329,7 @@ Deno.test("removing a secondary reference stays pending even with matching prima
 });
 Deno.test("ten-minute bounds are inclusive and the status-bar clock cannot replace transaction time", () => {
   for (
-    const [time, passed] of [["10:10 am", true], ["10:11 am", false]] as const
+    const [time, passed] of [["10:10 am", true], ["10:11 am", true], ["10:15 am", true], ["10:16 am", false]] as const
   ) {
     const f = fixture("maya");
     f.vision.text = f.vision.text.replace("10:05 am", time);

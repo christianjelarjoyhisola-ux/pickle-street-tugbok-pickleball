@@ -3867,8 +3867,8 @@ body.dark #splashScreen {
 
     <div class="booking-intro" id="bookingIntro" aria-hidden="true" inert>
       <div id="bookingIntroCard" tabindex="-1" role="group" aria-labelledby="bookingIntroTitle" aria-describedby="bookingIntroCopy">
-        <p class="booking-intro-kicker">10-MINUTE CHECKOUT</p>
-        <h2 class="booking-intro-title" id="bookingIntroTitle">Complete your booking within 10 minutes</h2>
+        <p class="booking-intro-kicker">15-MINUTE CHECKOUT</p>
+        <h2 class="booking-intro-title" id="bookingIntroTitle">Complete your booking within 15 minutes</h2>
         <div class="booking-intro-timer" id="bookingIntroTimer">--:--</div>
         <p class="booking-intro-copy" id="bookingIntroCopy">Keep an eye on the timer at the top of the booking form.</p>
         <button type="button" class="booking-intro-continue" id="bookingIntroContinue" onclick="continueBookingIntro()">Continue to booking</button>
@@ -7979,7 +7979,7 @@ let _reservationStartedAt = null;
 let _countdownInterval = null;
 let _countdownTick = null;
 let _reservationIntroTimeout = null;
-const RESERVATION_MINUTES = 10;
+const RESERVATION_MINUTES = 15;
 const GUEST_RESUME_KEY = 'pb_guest_booking_resume_v1';
 let _refundPolicyReturnFocus = null;
 let _refundPolicyPreviousBodyOverflow = '';
@@ -8871,8 +8871,8 @@ function startSlotCountdown(initialSeconds = null) {
     // Give a newly acknowledged hold its 10:00 opening frame. Subsequent ticks
     // use the unchanged server deadline; recovered holds never get this frame.
     const opening=window._bookingTimerOpening;
-    const openingFrame=opening?.reference===_platformBookingAccess?.reference && Date.now()<opening.until && remaining>=595 && remaining<=600;
-    const shown=openingFrame?600:remaining;
+    const openingFrame=opening?.reference===_platformBookingAccess?.reference && Date.now()<opening.until && remaining>=RESERVATION_MINUTES*60-5 && remaining<=RESERVATION_MINUTES*60;
+    const shown=openingFrame?RESERVATION_MINUTES*60:remaining;
     const display=String(Math.floor(shown/60)).padStart(2,'0')+':'+String(shown%60).padStart(2,'0');
     for(const id of ['scdTime','scdTimerBig','bookingIntroTimer'])if($(id))$(id).textContent=display;
     updatePaymentWindowText();
@@ -11977,7 +11977,7 @@ async function createPlatformBookingHold() {
       const deadline = bookingReservationDeadlineMs();
       _reservationStartedAt=Number.isFinite(deadline)?new Date(deadline-RESERVATION_MINUTES*60000).toISOString():null;
       updatePrice();
-      // Deadline always comes from the server. Never start a fresh local 10 minutes.
+      // Deadline always comes from the server. Never start a fresh local 15 minutes.
       if (!platformHoldIsUsable(_platformBookingAccess)) {
         savePlatformStatusAccess(_platformBookingAccess); stopSlotCountdown(); hideBookingIntro();
         startSavedPlatformBookingPolling().catch(()=>{});
