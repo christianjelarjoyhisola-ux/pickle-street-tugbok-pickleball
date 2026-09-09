@@ -7,6 +7,9 @@ const { chromium } = require('C:/Users/hisol/.cache/codex-runtimes/codex-primary
 // backend is contacted and no booking, payment, or customer data is created.
 const root = path.resolve(__dirname, '..');
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+const approvedPolicy = JSON.parse(fs.readFileSync(path.join(root, 'operations/booking-rebooking-policy.json'), 'utf8'));
+const {version,title,intro,content} = approvedPolicy;
+const expectedConsent = {version,signature:JSON.stringify({version,title,intro,content})};
 const initial = html.slice(0, html.indexOf('<div class="toasts"'))
   .replace(/<script\b[^>]*\bsrc=[^>]*><\/script>/gi, '') + `
   <main id="courts" style="max-width:1100px;margin:auto;padding:24px;box-sizing:border-box">
@@ -80,11 +83,14 @@ const passed = [];
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('#psEntryPolicy').evaluate(el => el.matches(':modal')), true);
     assert.equal(await page.evaluate(() => window.entryFinished), false);
+    assert.equal(await page.evaluate(() => window.PB_ENTRY_POLICY_CONSENT || null), null);
     passed.push('Escape does not acknowledge policy');
     await page.locator('[data-entry-policy-continue]').click();
     await page.waitForFunction(() => window.entryFinished === true);
     assert.equal(await page.locator('#psEntryPolicy').evaluate(el => el.open), false);
     assert.equal(await page.evaluate(() => document.activeElement?.id), 'courts');
+    assert.deepEqual(await page.evaluate(() => window.PB_ENTRY_POLICY_CONSENT), expectedConsent);
+    passed.push('Explicit early agreement matches the exact published policy version and terms');
     passed.push('Continue completes entry and places focus on courts');
     await loadRest();
 
@@ -93,6 +99,7 @@ const passed = [];
     await page.waitForFunction(() => window.entryFinished === true);
     assert.equal(await page.locator('#psWelcome').evaluate(el => el.open), false);
     assert.equal(await page.locator('#psEntryPolicy').evaluate(el => el.open), false);
+    assert.equal(await page.evaluate(() => window.PB_ENTRY_POLICY_CONSENT || null), null);
     passed.push('Automatic recovery skips policy');
     await loadRest();
 
@@ -102,6 +109,7 @@ const passed = [];
     await page.waitForFunction(() => window.entryFinished === true);
     assert.equal(await page.locator('#psEntryPolicy').evaluate(el => el.open), false);
     assert.equal(await page.evaluate(() => document.documentElement.classList.contains('ps-entry-policy-open')), false);
+    assert.equal(await page.evaluate(() => window.PB_ENTRY_POLICY_CONSENT || null), null);
     passed.push('Automatic recovery closes an already-open policy');
     await loadRest();
 

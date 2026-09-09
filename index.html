@@ -3532,7 +3532,7 @@ body.dark #splashScreen {
     </div>
   </div>
 </dialog>
-<dialog class="ps-entry-policy" id="psEntryPolicy" aria-labelledby="psEntryPolicyTitle">
+<dialog class="ps-entry-policy" id="psEntryPolicy" aria-labelledby="psEntryPolicyTitle" data-policy-version="booking-rebooking-20260909-v1">
   <div class="ps-entry-policy-shell">
     <header class="ps-entry-policy-header">
       <p class="ps-entry-policy-brand"><span aria-hidden="true">🏓</span> PICKLE STREET – TGBK</p>
@@ -3583,6 +3583,24 @@ body.dark #splashScreen {
   policy.addEventListener('cancel', event => { event.preventDefault(); });
   policy.addEventListener('keydown', event => event.stopPropagation());
   policy.querySelector('[data-entry-policy-continue]').addEventListener('click', () => {
+    if (phase !== 'policy' || !policy.open) return;
+    // Capture exactly the displayed terms, even before booking settings load.
+    const text = element => {
+      const copy = element.cloneNode(true);
+      copy.querySelectorAll('[aria-hidden="true"]').forEach(icon => icon.remove());
+      return copy.textContent.replace(/\s+/g, ' ').trim();
+    };
+    const blocks = [...policy.querySelector('.ps-entry-policy-content').children];
+    const blockText = block => [...block.children].some(child => child.tagName === 'H3')
+      ? [...block.children].map(text).join('\n') : text(block);
+    const terms = {
+      version: policy.dataset.policyVersion,
+      title: text(policy.querySelector('.ps-entry-policy-brand')) + ' — ' + text(document.getElementById('psEntryPolicyTitle')),
+      intro: blockText(blocks[0]),
+      content: blocks.slice(1).map(blockText).join('\n\n'),
+    };
+    window.PB_ENTRY_POLICY_CONSENT = {version:terms.version,signature:JSON.stringify(terms)};
+    window.dispatchEvent(new Event('picklestreet:entry-policy-agreed'));
     dismiss();
     const target = document.getElementById('courts');
     if (target) { target.setAttribute('tabindex', '-1'); target.focus({ preventScroll:true }); }
@@ -7028,6 +7046,10 @@ function configureRefundPolicyFromSettings(settings = {}) {
       previousSignature !== REFUND_POLICY_SIGNATURE) {
     clearRefundPolicyAcceptance();
   }
+  if (policy && window.PB_ENTRY_POLICY_CONSENT && !currentEntryPolicyConsent()) {
+    window.PB_ENTRY_POLICY_CONSENT = null;
+  }
+  applyEntryPolicyAcceptance();
   return REFUND_POLICY_CONFIGURED;
 }
 
@@ -8081,6 +8103,7 @@ function restoreGuestResumeDraft(form = {}) {
     REFUND_POLICY_ACCEPTED_VERSION = accepted ? REFUND_POLICY_VERSION : '';
     REFUND_POLICY_ACCEPTED_SIGNATURE = accepted ? REFUND_POLICY_SIGNATURE : '';
   }
+  applyEntryPolicyAcceptance();
   syncRefundPolicyAcceptanceUi();
   if (form.payMethod && paymentMethods[form.payMethod]) pickPay(form.payMethod);
   if ($('bGcashRef')) {
@@ -8456,6 +8479,7 @@ async function proceedToBookSelection(courtId = null) {
     if (isEventBooking()) payFull = EVENT_FULL_PAYMENT_REQUIRED;
     updatePaymentAmountUI();
     clearRefundPolicyAcceptance();
+    applyEntryPolicyAcceptance();
     wizStartStep = 3;
     setBookingPreparation('loading');
     $('bookModal').classList.add('active');
@@ -8575,15 +8599,15 @@ function syncRefundPolicyAcceptanceUi() {
   if (icon) icon.textContent = accepted ? '✓' : '!';
   if (text) {
     text.innerHTML = accepted
-      ? '<strong>Refund & Reschedule Policy accepted.</strong> You agreed before continuing to payment.'
+      ? '<strong>Booking & Rebooking Policy accepted.</strong> You have already agreed to this policy.'
       : REFUND_POLICY_CONFIGURED
         ? '<strong>Policy acceptance required.</strong> Return to Payment Method and review the full policy before paying.'
         : '<strong>Policy setup required.</strong> Booking cannot continue until an owner-approved, versioned policy is published.';
   }
   if (review) review.textContent = accepted
-    ? 'Review the full Refund & Reschedule Policy'
+    ? 'Review the Booking & Rebooking Policy'
     : REFUND_POLICY_CONFIGURED
-      ? 'Read the full Refund & Reschedule Policy'
+      ? 'Read the Booking & Rebooking Policy'
       : 'View policy setup status';
 }
 
@@ -8594,6 +8618,25 @@ function clearRefundPolicyAcceptance() {
   if (policy) policy.checked = false;
   syncRefundPolicyAcceptanceUi();
 }
+
+function currentEntryPolicyConsent() {
+  const consent = window.PB_ENTRY_POLICY_CONSENT;
+  return window.PB_PLATFORM_V1 && refundPolicyFeatureEnabled() &&
+    platformPolicyContextStillCurrent(consent) ? consent : null;
+}
+
+function applyEntryPolicyAcceptance() {
+  const consent = currentEntryPolicyConsent();
+  const checkbox = $('bookingPolicyAgree');
+  if (!consent || !checkbox) return false;
+  REFUND_POLICY_ACCEPTED_VERSION = consent.version;
+  REFUND_POLICY_ACCEPTED_SIGNATURE = consent.signature;
+  checkbox.checked = true;
+  syncRefundPolicyAcceptanceUi();
+  return true;
+}
+
+window.addEventListener('picklestreet:entry-policy-agreed', applyEntryPolicyAcceptance);
 
 function configureRefundPolicyMode(requireAcceptance = false) {
   if (!refundPolicyFeatureEnabled()) return;
@@ -10289,6 +10332,7 @@ async function submitPlatformBooking() {
     await renderCourts().catch(() => {});
   } catch (error) {
     if (/^POLICY_/i.test(String(error?.code || '')) || /policy.*changed/i.test(String(error?.message || ''))) {
+      window.PB_ENTRY_POLICY_CONSENT = null;
       clearRefundPolicyAcceptance(); DB.clearCache?.(['settings','platformBootstrap']);
       await loadOperatingHours().catch(()=>{});
       wizGoTo(4);
@@ -11894,9 +11938,10 @@ async function createPlatformBookingHold() {
     const firstHoldAttempt = !readPlatformPendingDraft();
     const identity = await platformHoldRequestIdentity(draft);
     draft.clientRequestId = identity.clientRequestId;
-    const form = {...guestResumeFormDraft(),step:3,policyAgreed:false,policyVersion:'',policySignature:''};
+    // Retain matching consent restored with an interrupted hold request.
+    applyEntryPolicyAcceptance();
+    const form = {...guestResumeFormDraft(),step:3};
     savePlatformPendingDraft({kind:'selection_hold',draft,form,fingerprint:identity.fingerprint,clientRequestId:identity.clientRequestId,savedAt:new Date().toISOString()});
-    clearRefundPolicyAcceptance();
     {
       const server = await DB.createPublicBookingHold(draft);
       if (!server?.reference || !server?.bookingToken) throw new Error('The hold service did not return secure access. Retry the saved request.');
@@ -12016,7 +12061,7 @@ async function completePlatformBookingHold(consent = null) {
   const pending=(async()=>{
     const result=await DB.completePublicBookingHold({
       bookingReference:access.reference,bookingToken:access.bookingToken,...details,
-      // Consent is captured only by the explicit step-4 Agree action.
+      // Consent comes from an explicit Agree action for these exact policy terms.
       policyAccepted:policyEnabled && !!consent,policyVersion:policyEnabled?consent.version:'',
     });
     if (_platformBookingAccess!==access) throw new Error('This booking changed while details were being saved. Reopen its status.');
@@ -12059,7 +12104,8 @@ async function acceptRefundPolicyAndContinue() {
     if(access?.bookingToken&&_platformBookingAccess===access) {
       await fetchAndAdoptPlatformBookingStatus(access).then(()=>savePlatformRecovery(access)).catch(()=>{});
     }
-    if(/^POLICY_/i.test(String(error?.code||''))) {
+    if(/^(POLICY_|BOOKING_POLICY_)/i.test(String(error?.code||''))) {
+      window.PB_ENTRY_POLICY_CONSENT=null;
       DB.clearCache?.(['settings','platformBootstrap']);await loadOperatingHours().catch(()=>{});
       closeRefundPolicy({restoreFocus:false});wizGoTo(4);
     }
@@ -12096,9 +12142,37 @@ async function platformWizardNext() {
     if(!platformHoldHasDetails()) {
       try{platformDetailsFromForm();}catch(error){bookingValidationError(error.message,error.field,3);return;}
     }
-    if(refundPolicyFeatureEnabled()&&(!currentRefundPolicyAccepted()||!platformHoldHasDetails())) {openRefundPolicyForBooking($('wizNextBtn'));return;}
-    if(!refundPolicyFeatureEnabled()&&!platformHoldHasDetails()) {
-      try{await completePlatformBookingHold();}catch(error){toast(error.message,'err');return;}
+    applyEntryPolicyAcceptance();
+    if(refundPolicyFeatureEnabled()&&!currentRefundPolicyAccepted()) {openRefundPolicyForBooking($('wizNextBtn'));return;}
+    if(!platformHoldHasDetails()) {
+      const consent=refundPolicyFeatureEnabled()?{version:REFUND_POLICY_ACCEPTED_VERSION,signature:REFUND_POLICY_ACCEPTED_SIGNATURE}:null;
+      const access=_platformBookingAccess;
+      const controls=[$('wizCancelBtn'),$('wizBackBtn'),$('wizNextBtn')].filter(Boolean);
+      const previous=controls.map(button=>({button,disabled:button.disabled}));
+      const label=$('wizNextBtn')?.textContent;
+      controls.forEach(button=>button.disabled=true);
+      if($('wizNextBtn'))$('wizNextBtn').textContent='Saving booking details…';
+      try {
+        await completePlatformBookingHold(consent);
+      } catch(error) {
+        // Keep the original hold and reconcile a reply lost after the server saved.
+        if(access?.bookingToken&&_platformBookingAccess===access) {
+          await fetchAndAdoptPlatformBookingStatus(access).then(()=>savePlatformRecovery(access)).catch(()=>{});
+        }
+        if(/^(POLICY_|BOOKING_POLICY_)/i.test(String(error?.code||''))) {
+          window.PB_ENTRY_POLICY_CONSENT=null;
+          clearRefundPolicyAcceptance();
+          DB.clearCache?.(['settings','platformBootstrap']);await loadOperatingHours().catch(()=>{});
+        }
+        if(error?.field)bookingValidationError(error.message,error.field,3);
+        else toast(error?.message||'Booking details could not be saved. Try again.','err');
+        if(!platformHoldIsUsable())closeBookModal();
+        return;
+      } finally {
+        previous.forEach(({button,disabled})=>{if(button.isConnected)button.disabled=disabled;});
+        if($('wizNextBtn'))$('wizNextBtn').textContent=label||'Next →';
+      }
+      if(_platformBookingAccess!==access||!$('bookModal')?.classList.contains('active'))return;
     }
     if(!platformHoldHasDetails()) {toast('Complete your booking details before paying.','inf');return;}
     wizGoTo(5);return;
