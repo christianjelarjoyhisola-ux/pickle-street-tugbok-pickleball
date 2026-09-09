@@ -66,7 +66,7 @@ const passed = [];
     passed.push('Tap to book opens policy before booking scripts load; startup remains pending');
     const copy = (await page.locator('#psEntryPolicy').innerText()).replace(/\s+/g, ' ');
     for (const expected of [
-      'PICKLE STREET – TGBK', 'Booking & Rebooking Policy',
+      'PICKLE STREET – TGBK', 'BOOKING & REBOOKING POLICY',
       'Pickle Street – TGBK operates as an open court. Bookings are considered final and are non-refundable.',
       'Rebooking will only be allowed if rain or wet court conditions make the court unsafe or unusable for play.',
       'For safety and convenience, rebooking may be arranged subject to court availability.',
