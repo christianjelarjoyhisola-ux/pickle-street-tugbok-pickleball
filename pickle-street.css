@@ -14,7 +14,9 @@
   --slot-selected-dark:#126372; --slot-selected-rgb:24,125,139;
   --court-header:#edf4f6; --court-slot:#f8fbfc; --court-slot-border:#a6c3cd; --court-slot-text:#234a5b;
   --court-selected:#126b7a; --court-selected-text:#fff; --court-inactive:#e9eef0; --court-inactive-text:#536873;
-  --court-processing:#e2edf5; --court-processing-text:#35627f;
+  --court-booked:#faedf0; --court-booked-text:#8c3543; --court-booked-border:#c96c78;
+  --court-processing:#fff4df; --court-processing-text:#795411; --court-processing-border:#d6a34a;
+  --court-done:#e9eef0; --court-done-text:#536873; --court-done-border:#cbd5dc;
   background:var(--bg); color:var(--text);
 }
 body.dark, body.dark-mode, body[data-theme="dark"] {
@@ -31,7 +33,9 @@ body.dark, body.dark-mode, body[data-theme="dark"] {
   --slot-available:#71a9bb; --slot-available-rgb:113,169,187; --slot-selected:#187d8b; --slot-selected-dark:#126372; --slot-selected-rgb:24,125,139;
   --court-header:#233943; --court-slot:#192c35; --court-slot-border:#476c7a; --court-slot-text:#dcecf1;
   --court-selected:#61c4d0; --court-selected-text:#092c35; --court-inactive:#28363e; --court-inactive-text:#a7bac2;
-  --court-processing:#263c4d; --court-processing-text:#a3c5dc;
+  --court-booked:#3b2932; --court-booked-text:#f0b7c0;
+  --court-processing:#393324; --court-processing-text:#f0cd88;
+  --court-done:#303d46; --court-done-text:#cbd5dc; --court-done-border:#657680;
 }
 body {font-family:'DM Sans',sans-serif;font-size:1rem;line-height:1.5}
 body::before {display:none!important}
@@ -202,20 +206,23 @@ input,select,textarea {font-size:1rem!important}
 #courts .cc-slot-btn.selected .csl-time,#courts .cc-slot-btn.selected .csl-price {color:var(--court-selected-text);opacity:1}
 #courts .cc-slot-btn.selected::after {content:none}
 #courts .cc-slot-btn.past-slot,#courts .cc-slot-btn.taken,#courts .cc-slot-btn.maintenance {background:var(--court-inactive);border:1px solid var(--border);color:var(--court-inactive-text);opacity:1}
+#courts .cc-slot-btn.taken {background:var(--court-booked);border-color:var(--court-booked-border);color:var(--court-booked-text)}
+#courts .cc-slot-btn.past-slot {background:var(--court-done);border-color:var(--court-done-border);color:var(--court-done-text)}
+#courts .cc-slot-btn.past-slot .csl-time,#courts .cc-slot-btn.past-slot .csl-tag {color:inherit;opacity:1}
 #courts .cc-slot-btn.maintenance {border-style:dashed}
 #courts .cc-slot-btn.taken .csl-time,#courts .cc-slot-btn.taken .csl-name,
 #courts .cc-slot-btn.maintenance .csl-time,#courts .cc-slot-btn.maintenance .csl-tag {color:inherit;opacity:1}
 #courts .cc-slot-btn .csl-tag,#courts .cc-slot-btn .csl-name {font-size:8px;font-weight:600;letter-spacing:.025em}
-#courts .cc-slot-btn.processing {background:var(--court-processing);border:1px dashed var(--court-slot-border);color:var(--court-processing-text);animation:none}
+#courts .cc-slot-btn.processing {background:var(--court-processing);border:1px dashed var(--court-processing-border);color:var(--court-processing-text);animation:none}
 #courts .cc-slot-btn.processing .csl-time,#courts .cc-slot-btn.processing .csl-tag {color:inherit}
 #courts .cc-slot-btn:focus-visible {outline:2px solid var(--accent);outline-offset:2px}
 #courts .cc-slot-legend {gap:8px 12px;margin-top:6px;padding-top:12px;border-color:var(--border);font-size:10px;font-weight:500;letter-spacing:0;color:var(--muted)}
 #courts .cc-dot {border:1px solid var(--court-slot-border);box-shadow:none}
 #courts .cc-dot.available {background:var(--court-slot)}
 #courts .cc-dot.selected {background:var(--court-selected);border-color:var(--court-selected)}
-#courts .cc-dot.processing {background:var(--court-processing-text);border-style:dashed}
-#courts .cc-dot.booked {background:var(--court-inactive-text);border-color:var(--court-inactive-text)}
-#courts .cc-dot.done {background:var(--court-inactive)}
+#courts .cc-dot.processing {background:#d6a34a;border-color:#d6a34a;border-style:dashed}
+#courts .cc-dot.booked {background:#c96c78;border-color:#c96c78}
+#courts .cc-dot.done {background:#cbd5dc;border-color:var(--court-done-border)}
 #courts .cc-dot.maintenance {background:var(--court-inactive);border-style:dashed}
 .booking-mode-btn.active {background:var(--court-header)!important;color:var(--accent)!important}
 .pb-ball,.pb-loader.mini .pb-ball {background:radial-gradient(circle at 32% 30%,#b8e3ea,#458f9f 60%,#2b6474);box-shadow:inset -4px -4px 10px #14384533,0 4px 14px #23475122}
