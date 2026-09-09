@@ -141,6 +141,9 @@ const passed = [];
       await page.locator('.ps-entry-policy-content').evaluate(el => { el.scrollTop=el.scrollHeight; });
       const thanks = await page.locator('.ps-entry-policy-thanks').boundingBox();
       assert.ok(thanks.y >= layout.content.top - 1 && thanks.y + thanks.height <= layout.footer.top + 1, view.name + ': final policy paragraph not reachable');
+      if (view.name === 'mobile-short' || view.name === 'mobile-320') {
+        await page.screenshot({ path:path.join(out, view.name + '-bottom.png') });
+      }
       await page.locator('.ps-entry-policy-content').evaluate(el => { el.scrollTop=0; });
       await page.screenshot({ path:path.join(out, view.name + '.png') });
       passed.push(view.name + ': no overflow, blurred backdrop, footer/buttons fit, full policy reachable');
