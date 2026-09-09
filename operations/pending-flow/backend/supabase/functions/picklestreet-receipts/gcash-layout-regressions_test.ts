@@ -38,7 +38,7 @@ for(const columnOrder of [false,true]) {
     assert.equal(r.extractedData.detected.route.recipient?.phoneMatch,'exact');
     assert.equal(r.extractedData.detected.route.recipient?.nameMatch,'masked_compatible');
     assert.equal(r.extractedData.detected.route.parserVersion,'gcash_v1');
-    assert.equal(r.extractedData.detected.route.verifierVersion,'picklestreet_sources_20260908_2');
+    assert.equal(r.extractedData.detected.route.verifierVersion,'picklestreet_sources_20260909_1');
   });
   Deno.test(`Legacy GCash entry point also accepts this supported receipt (${label})`,()=>{
     const f=fixture(columnOrder);
@@ -50,6 +50,64 @@ Deno.test('same-line Amount2.00 and Total Amount Sent₱2.00 remain explicit amo
   const f=fixture();f.vision.text=f.vision.text.replace('Amount\n2.00','Amount2.00').replace('Total Amount Sent\n₱2.00','Total Amount Sent₱2.00');
   const p=parseGcashReceipt(f.vision.text,{typedReference:reference});
   assert.equal(p.amount.amount,2);assert.equal(p.amount.reliable,true);assert.equal(p.amount.matchingPrimaryAmountDisplays,true);
+});
+// Android Express Send may yield a black-circle OCR mask rather than a bullet.
+// Keep every visible letter significant; the mask does not replace the phone check.
+for (const mask of ['⚫', '⚫️']) {
+  Deno.test(`Express Send recipient supports a black-circle mask (${mask})`,()=>{
+    const f=fixture();
+    f.payment.receiverName='Renato Vhal Alves';
+    f.vision.text=f.vision.text.replace('M•• DA•••A C.',`RE....O VH${mask}L A.`);
+    const p=parseGcashReceipt(f.vision.text,{typedReference:reference});
+    const recipient=compareGcashRecipient(p.receiver,{name:f.payment.receiverName,phone});
+    assert.equal(recipient.phone,'exact');
+    assert.equal(recipient.name,'masked_compatible');
+    assert.equal(verifySourceRoute(f).autoApprove,true);
+    f.vision.text=f.vision.text.replace(`VH${mask}L`,`VH${mask}Z`);
+    assert.equal(verifySourceRoute(f).autoApprove,false,'A different visible letter must stay pending');
+  });
+}
+function expressSendFixture(amountBlock:string):SourceRouteInput {
+  const f=fixture();
+  f.expectedAmount=160;
+  f.payment.receiverName='Renato Vhal Alves';
+  f.payment.submittedReference='0044123456789';
+  f.timing.bookingStartedAt='2026-09-09T09:53:48Z';
+  f.vision.confidence=.92;
+  f.vision.text=`TNT GLOBE 5:55\nExpress Send\nRE....O VH⚫L A.\n${phone}\nSent via GCash\n${amountBlock}\nRef No. 0044 123 456789\nSep 09, 2026 5:55 PM\n279g (gCO2e)\nDownload`;
+  return f;
+}
+// Layout reconstructions, not a replay of retained production OCR.
+for (const [label,amountBlock] of Object.entries({
+  row:'Amount\n160.00\nTotal Amount Sent\n₱160.00',
+  column:'Amount\nTotal Amount Sent\n160.00\n₱160.00',
+  flattened:'Amount 160.00 Total Amount Sent ₱160.00',
+})) Deno.test(`Express Send amount displays and leading-zero reference (${label})`,()=>{
+  const f=expressSendFixture(amountBlock);
+  const p=parseGcashReceipt(f.vision.text,{typedReference:f.payment.submittedReference});
+  const r=verifySourceRoute(f);
+  assert.equal(p.amount.amount,160);
+  assert.equal(p.amount.matchingPrimaryAmountDisplays,true);
+  assert.equal(p.reference.value,'0044123456789');
+  assert.equal(p.reference.typedMatch,'match');
+  assert.equal(r.autoApprove,true,JSON.stringify(r.flags));
+});
+for (const [label,amountBlock] of Object.entries({
+  one_display_collected_by_currency_and_label:'Total Amount Sent ₱160.00',
+  unlabeled_repeated_currency:'Amount ₱160.00 ₱160.00\nTotal Amount Sent',
+  conflicting_displays:'Amount 160.00 Total Amount Sent ₱161.00',
+  fee_is_not_confirmation:'Amount\n160.00\nTotal Amount Sent\nTransfer Fee ₱160.00',
+  reference_is_not_confirmation:'Amount\n160.00\nTotal Amount Sent\nRef No. 160.00',
+  statusbar_is_not_confirmation:'160.00\n57%\nAmount\n160.00\nTotal Amount Sent',
+})) Deno.test(`Express Send stays pending: ${label}`,()=>{
+  const f=expressSendFixture(amountBlock);
+  const p=parseGcashReceipt(f.vision.text,{typedReference:f.payment.submittedReference});
+  const r=verifySourceRoute(f);
+  assert.equal(r.autoApprove,false,JSON.stringify(r.flags));
+  if(label==='one_display_collected_by_currency_and_label') {
+    assert.equal(p.amount.candidates.length,1);
+    assert.equal(p.amount.matchingPrimaryAmountDisplays,false);
+  }
 });
 for(const [name,mutate] of Object.entries({
   wrong_phone:(f:SourceRouteInput)=>{f.vision.text=f.vision.text.replace(phone,'+639170000002')+'\nSender\nMarta Davina Cruz\n'+phone;},

@@ -225,16 +225,33 @@ export function receiptApprovalTiming(booking:Obj,requestDetails:Obj|null=null,n
   }
   return Date.parse(String(booking.starts_at||''))>now;
 }
+export function receiptRecipientDiagnostics(extracted:unknown):Obj{
+  // The shared manager projection intentionally omits route evidence. Expose
+  // only these observed fields to authorized Pickle Street reviewers.
+  const route=obj(obj(obj(extracted).detected).route);
+  const recipient=obj(route.recipient);
+  const observed=(value:unknown,max:number)=>typeof value==='string'?value.trim().slice(0,max)||null:null;
+  return {
+    observedName:observed(recipient.observedName,160),
+    observedNumber:observed(recipient.observedNumber,80),
+    nameMatch:observed(recipient.nameMatch,40),
+    phoneMatch:observed(recipient.phoneMatch,40),
+    recipientMatched:typeof route.recipientMatched==='boolean'?route.recipientMatched:null,
+  };
+}
 export async function staffReviewResponse(db:DB,body:Obj,actor:string,origin:string):Promise<Response>{
   const verificationId=uuid(body.verificationId);
   const bookingReference=reference(body.bookingReference);
-  const receipt=await db.from('receipt_verifications').select('id,booking_id,balance_request_id,status,storage_path')
+  const receipt=await db.from('receipt_verifications').select('id,booking_id,balance_request_id,status,storage_path,extracted_data')
     .eq('tenant_id',TENANT_ID).eq('id',verificationId).maybeSingle();
   if(receipt.error)fail('REVIEW_UNAVAILABLE','Receipt details could not be loaded. Please try again.',503);
   if(!receipt.data)fail('RECEIPT_NOT_FOUND','The receipt is not available for this venue.',404);
   const booking=await db.from('bookings').select('id,reference,status,payment_status,starts_at,checked_in_at').eq('tenant_id',TENANT_ID)
     .eq('id',receipt.data!.booking_id).eq('reference',bookingReference).maybeSingle();
   if(booking.error||!booking.data)fail('RECEIPT_NOT_FOUND','The receipt does not match this booking.',404);
+  if(body.action==='receipt_diagnostics'){
+    return jsonResponse({ok:true,verificationId,...receiptRecipientDiagnostics(receipt.data!.extracted_data)},200,origin);
+  }
   if(body.action==='review_context'){
     if(!['pending','manual_review'].includes(receipt.data!.status)||!receipt.data!.storage_path)fail('RECEIPT_NOT_PENDING','This receipt is no longer awaiting review. Refresh the booking.');
     const balanceId=receipt.data!.balance_request_id;
@@ -289,7 +306,7 @@ export async function handleRequest(request:Request):Promise<Response>{
     if(body.tenantSlug && body.tenantSlug!==TENANT_SLUG)fail('TENANT_ACCESS_DENIED','The venue identity could not be verified.',403);
     if(body.action==='status')return await statusResponse(request,db,body,origin);
     if(body.action==='balance_status')return await balanceStatusResponse(request,db,body,origin);
-    if(body.action==='review_context'||body.action==='review'){
+    if(body.action==='review_context'||body.action==='review'||body.action==='receipt_diagnostics'){
       const actor=await operator(db,request.headers.get('authorization'));
       return await staffReviewResponse(db,body,actor,origin);
     }

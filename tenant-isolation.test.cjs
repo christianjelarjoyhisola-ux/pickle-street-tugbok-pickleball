@@ -45,6 +45,18 @@ test('private payment settings reject public access before sending a manager req
   assert.equal(calls.length,0);
 });
 
+test('private receipt diagnostics use authenticated tenant-scoped requests and reject public access',async()=>{
+  const publicSite=boot();await assert.rejects(publicSite.context.DB.getReceiptDiagnostics('PB-TEST','receipt-test'),/Sign in/);
+  assert.equal(publicSite.calls.length,0);
+  const manager=boot({scope:'manager',response:{ok:true,verificationId:'receipt-test',observedName:'TE•• VE••',recipientMatched:false}});
+  const result=await manager.context.DB.getReceiptDiagnostics('PB-TEST','receipt-test');
+  assert.equal(result.observedName,'TE•• VE••');
+  const request=manager.calls.find(c=>c.kind==='fetch');
+  assert.match(request.url,/picklestreet-receipts\?tenantSlug=pickle-street-tugbok/);
+  assert.equal(new Headers(request.init.headers).get('Authorization'),'Bearer test-manager-token');
+  assert.deepEqual(JSON.parse(request.init.body),{tenantSlug:SLUG,action:'receipt_diagnostics',bookingReference:'PB-TEST',verificationId:'receipt-test'});
+});
+
 test('shared payment settings keep private receipt identity and both revisions on the isolated save route',async()=>{
   const settings={tenant:{id:TENANT,slug:SLUG},tenantRevision:'2026-09-08T00:00:00Z',
     receiptVerification:{gcashQrAlias:'TEST VENUE ALIAS',gcashQrToken:'TEST12345678'},receiptVerificationRevision:4,paymentMethods:[]};

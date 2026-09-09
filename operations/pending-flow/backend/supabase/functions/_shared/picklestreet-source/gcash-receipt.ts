@@ -148,8 +148,8 @@ const AMOUNT_LABEL_RE = /\bamount\b/i;
 const FULL_MOBILE_RE =
   /(?<!\d)(?:(?:\+?\s*63)\s*|0\s*)?9(?:[\s-]*\d){9}(?![\s-]*\d)/gi;
 const MASKED_MOBILE_RE =
-  /(?<!\d)(?:(?:\+?\s*63)\s*|0\s*)?9[\d\s\-•‣●◦∙·*xX#._]{4,32}\d(?!\d)/i;
-const NAME_MASK_RE = /[•‣●◦∙·*#]|\.\.|[xX]{2,}/;
+  /(?<!\d)(?:(?:\+?\s*63)\s*|0\s*)?9[\d\s\-•‣●⚫◦∙·*xX#._]{4,32}\d(?!\d)/i;
+const NAME_MASK_RE = /[•‣●⚫◦∙·*#]|\.\.|[xX]{2,}/;
 
 function normalizeText(rawText: string): string {
   return String(rawText || "")
@@ -626,19 +626,36 @@ function matchingPrimaryAmountDisplays(
   amount: ReceiptAmountExtraction,
 ): boolean {
   if (amount.amount == null) return false;
-  const matchingLocations = new Set(
-    amount.candidates
-      .filter((candidate) =>
-        !candidate.excluded && candidate.amount === amount.amount &&
-        (
-          candidate.evidence.includes("amount_label") ||
-          candidate.evidence.includes("total_label") ||
-          candidate.evidence.includes("gcash_concordant_amount_block")
-        )
-      )
-      .map((candidate) => candidate.lineIndex),
+  const matchingCandidates = amount.candidates.filter((candidate) =>
+    !candidate.excluded && candidate.amount === amount.amount &&
+    (
+      candidate.evidence.includes("amount_label") ||
+      candidate.evidence.includes("total_label") ||
+      candidate.evidence.includes("gcash_concordant_amount_block")
+    )
   );
-  return matchingLocations.size >= 2;
+  const matchingLines = new Set(
+    matchingCandidates.map((candidate) => candidate.lineIndex),
+  );
+  if (matchingLines.size >= 2) {
+    return true;
+  }
+
+  // Vision can return "Amount 160.00 Total Amount Sent ₱160.00" as one line.
+  // Count separate positions only when each has its own explicit primary
+  // label. Currency and label passes for one occurrence share a position.
+  const amountDisplays = matchingCandidates.filter((candidate) =>
+    candidate.evidence.includes("gcash_explicit_amount_display")
+  );
+  const totalDisplays = matchingCandidates.filter((candidate) =>
+    candidate.evidence.includes("gcash_explicit_total_display")
+  );
+  return amountDisplays.some((primary) =>
+    totalDisplays.some((confirmation) =>
+      primary.lineIndex !== confirmation.lineIndex ||
+      primary.start !== confirmation.start
+    )
+  );
 }
 
 function normalizedExpectedNameTokens(expectedName: string): string[] {
@@ -663,7 +680,7 @@ function observedNameToken(rawToken: string): ObservedNameToken | null {
   let pattern = folded
     .replace(/[xX]{2,}/g, (run) => "*".repeat(run.length))
     .replace(/\.{2,}/g, (run) => "*".repeat(run.length))
-    .replace(/[•‣●◦∙·#]/g, "*")
+    .replace(/[•‣●⚫◦∙·#]/g, "*")
     .toUpperCase()
     .replace(/[^A-Z*]/g, "");
   if (initial) pattern = folded[0].toUpperCase();

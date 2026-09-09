@@ -4845,6 +4845,9 @@ function receiptObservedRecipient(extracted) {
   const value = extracted?.detected?.route?.recipient;
   return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
 }
+function receiptHasHistoricalChecks(booking) {
+  return booking?.receiptStatus === 'approved' && booking?.receiptExtracted?.review?.decision === 'approved';
+}
 function receiptReceiverValue(extracted) {
   const recipient = receiptObservedRecipient(extracted);
   const parts = [recipient?.observedName, recipient?.observedNumber]
@@ -4911,7 +4914,7 @@ function receiptDetailsHtml(b){
     ['Recipient check', receiptRecipientCheckValue(ex, b), true],
     ...(ex.ocrFallbackReason ? [['OCR Fallback', receiptDetailValue(ex.ocrFallbackReason), true]] : []),
     ...(ex.amountReliable !== undefined ? [['Amount Parse', receiptDetailValue(amountParse), true]] : []),
-    ['Reason', receiptDetailValue(reason), true],
+    [receiptHasHistoricalChecks(b) ? 'Earlier automatic-check reason' : 'Reason', receiptDetailValue(reason), true],
     ['OCR Confidence', receiptDetailValue(ocrConfidence)],
     ...(ex.review?.decision ? [['Staff decision', receiptDetailValue(ex.review.decision)], ['Review note', receiptDetailValue(ex.review.note), true]] : []),
   ];
@@ -9350,6 +9353,18 @@ function verifyPaymentModalKeydown(event) {
   else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
 }
 
+async function receiptWithDiagnostics(b){
+  if (!window.PB_PLATFORM_V1 || !b?.receiptVerificationId || !b?.ref || typeof DB.getReceiptDiagnostics !== 'function') return b;
+  const diagnostics = await DB.getReceiptDiagnostics(b.ref, b.receiptVerificationId);
+  if (diagnostics?.verificationId !== b.receiptVerificationId) throw new Error('Receipt details changed.');
+  const ex = b.receiptExtracted || {};
+  const detected = ex.detected || {};
+  return {...b, receiptExtracted:{...ex, detected:{...detected, route:{...(detected.route || {}),
+    recipientMatched:typeof diagnostics.recipientMatched === 'boolean' ? diagnostics.recipientMatched : null,
+    recipient:{observedName:diagnostics.observedName, observedNumber:diagnostics.observedNumber,
+      nameMatch:diagnostics.nameMatch, phoneMatch:diagnostics.phoneMatch},
+  }}}};
+}
 async function vmPopulateReceipt(b){
   const seq = ++_vmReceiptLoadSeq;
   const link = $('vmReceiptLink'), img = $('vmReceiptImg'), noImg = $('vmReceiptNoImg');
@@ -9358,6 +9373,14 @@ async function vmPopulateReceipt(b){
   if (link) { link.removeAttribute('href'); link.style.display = 'none'; }
   if (retry) { retry.style.display = 'none'; retry.disabled = false; }
   if (noImg) { noImg.style.display = 'none'; noImg.textContent = 'No receipt image was uploaded for this booking.'; }
+  const previousDetails = $('vmReceiptDetails'), previousFlags = $('vmReceiptFlags'), previousStatus = $('vmReceiptStatus');
+  if (previousDetails) { previousDetails.innerHTML = ''; previousDetails.style.display = 'none'; }
+  if (previousFlags) previousFlags.innerHTML = '';
+  if (previousStatus) previousStatus.textContent = 'Loading receipt details…';
+  let diagnosticsUnavailable = false;
+  try { b = await receiptWithDiagnostics(b); }
+  catch (_) { diagnosticsUnavailable = true; }
+  if (seq !== _vmReceiptLoadSeq) return;
   const wrap = $('vmReceiptWrap');
   const s = b.receiptStatus || 'none';
   const displayFlags = receiptFlagsForDisplay(b);
@@ -9378,11 +9401,13 @@ async function vmPopulateReceipt(b){
   if (s === 'manual_review' && displayFlags.length) lbl = `Needs review: ${receiptReasonText(displayFlags)}`;
   if (window.PBReceiptPending?.receiptPending(b)) lbl = 'Pending — '+(displayFlags.length ? receiptReasonText(displayFlags) : 'automatic checks are not complete');
   if (st) { st.style.color = c; st.style.background = bg; st.textContent = lbl; }
-  $('vmReceiptFlags').innerHTML = receiptFlagChips(displayFlags);
+  $('vmReceiptFlags').innerHTML = (receiptHasHistoricalChecks(b) && displayFlags.length
+    ? '<div style="flex-basis:100%;color:var(--muted);font-size:.76rem">Earlier automatic checks — recorded before payment confirmation</div>' : '') + receiptFlagChips(displayFlags);
   const detailBox = $('vmReceiptDetails');
   if (detailBox) {
     detailBox.innerHTML = receiptDetailsHtml(b) + (window.PBReceiptPending?.receiptPending(b) ? `<p>${esc(window.PBReceiptPending.receiptReason(b))}</p><p>${esc(window.PBReceiptPending.receiptHold(b))}</p><p>The customer can upload corrected proof from their private ${b.receiptBalanceRequestId ? 'balance payment' : 'booking'} link. Retry runs the automatic payment checks again. Staff may confirm or reject after reviewing the payment.</p>` : '');
     detailBox.style.display = '';
+    if (diagnosticsUnavailable) detailBox.insertAdjacentHTML('beforeend','<div class="receipt-detail-item receipt-detail-full"><div class="receipt-detail-label">Recipient details</div><div class="receipt-detail-value">Could not load the saved recipient details. Close and reopen this receipt to try again.</div></div>');
   }
   if (b.receiptImageUrl) {
     if (noImg) { noImg.style.display = ''; noImg.textContent = 'Loading uploaded receipt…'; }
@@ -15066,7 +15091,7 @@ async function checkAgreementGate(session) {
 
 <script src="supabase.min.js"></script>
 <script src="tenant-config.js?v=20260909-owner-actions"></script>
-<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260909-owner-actions"></script><script src="payment-source-ui.js?v=20260909-native-maya"></script>
+<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260909-receipt-diagnostics"></script><script src="payment-source-ui.js?v=20260909-native-maya"></script>
 <script src="receipt-pending.js?v=20260908-routes2"></script>
 <script src="payment-method-brand.js?v=20260908-routes2"></script>
 <script src="payment-settings.js?v=20260909-native-maya"></script>

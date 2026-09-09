@@ -13,6 +13,8 @@ export type ReceiptAmountEvidence =
   | "currency_ascii_p"
   | "amount_label"
   | "total_label"
+  | "gcash_explicit_amount_display"
+  | "gcash_explicit_total_display"
   | "gcash_amount_block_observation"
   | "gcash_concordant_amount_block"
   | "gcash_multiple_total_amount_anchors"
@@ -380,11 +382,25 @@ function collectCandidates(
     LABELED_AMOUNT_RE.lastIndex = 0;
     for (const match of line.matchAll(LABELED_AMOUNT_RE)) {
       const label = match.groups?.label || "";
+      // Keep an occurrence-level label for GCash when Vision flattens both
+      // amount rows onto one line. General line context must not turn a nearby
+      // unlabeled currency value into a second confirmation display.
+      const explicitGcashDisplay: ReceiptAmountEvidence[] =
+        options.provider !== "gcash" ? [] : /^amount$/i.test(label)
+          ? ["gcash_explicit_amount_display"]
+          : /^total\s+amount\s+sent$/i.test(label)
+          ? ["gcash_explicit_total_display"]
+          : [];
       addMatch(
         line,
         lineIndex,
         match,
-        TOTAL_LABEL_RE.test(label) ? ["total_label"] : ["amount_label"],
+        [
+          ...(TOTAL_LABEL_RE.test(label)
+            ? ["total_label" as const]
+            : ["amount_label" as const]),
+          ...explicitGcashDisplay,
+        ],
       );
     }
 

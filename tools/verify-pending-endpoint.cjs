@@ -15,6 +15,7 @@ const cases=[
  ['Invalid private booking link denied',endpoint,{method:'POST',headers,body:JSON.stringify({action:'status',tenantSlug:'pickle-street-tugbok',bookingReference:'PS-NO-SUCH-BOOKING',bookingToken:'a'.repeat(43)})},401],
  ['Staff retry requires sign-in',endpoint,{method:'POST',headers,body:JSON.stringify({action:'retry',bookingReference:'PS-NO-SUCH-BOOKING',idempotencyKey:'00000000-0000-4000-8000-000000000000'})},401],
  ['Staff review context requires sign-in',endpoint,{method:'POST',headers,body:JSON.stringify({action:'review_context'})},401],
+ ['Private receipt diagnostics require sign-in',endpoint,{method:'POST',headers,body:JSON.stringify({action:'receipt_diagnostics',bookingReference:'PS-NO-SUCH-BOOKING',verificationId:'00000000-0000-4000-8000-000000000000'})},401],
  ['Manual approval requires sign-in',endpoint,{method:'POST',headers,body:JSON.stringify({action:'review',decision:'approve'})},401],
  ['Guest cannot call manual payment review',base+'/rest/v1/rpc/review_picklestreet_pending_receipt',{method:'POST',headers,body:JSON.stringify({p_verification_id:'00000000-0000-4000-8000-000000000000',p_expected_attempt_id:'00000000-0000-4000-8000-000000000000',p_idempotency_key:'00000000-0000-4000-8000-000000000000',p_decision:'approve',p_review_note:'Guest denied',p_actor_user_id:'00000000-0000-4000-8000-000000000000'})},401],
  ['Private balance link required',endpoint,{method:'POST',headers,body:JSON.stringify({action:'balance_status',balanceRequestId:'00000000-0000-4000-8000-000000000000',balanceToken:'a'.repeat(43)})},401],

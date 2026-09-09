@@ -4217,6 +4217,19 @@ window.DB = {
     return {...booking, detailsCompleted:true};
   },
 
+  async getReceiptDiagnostics(bookingReference, verificationId) {
+    if (!PB_PLATFORM_V1 || PB_PAGE_DATA_SCOPE !== 'manager' || PB_TENANT_SLUG !== 'pickle-street-tugbok') {
+      throw new Error('Sign in to review this receipt.');
+    }
+    const result = await _invokeEdgeFunction(`picklestreet-receipts?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`, {
+      tenantSlug:PB_TENANT_SLUG, action:'receipt_diagnostics', bookingReference, verificationId,
+    }, {preferDirect:true});
+    if (!result?.ok || result.verificationId !== verificationId) {
+      throw new Error('The receipt details could not be loaded. Refresh its details.');
+    }
+    return result;
+  },
+
   async getPendingReceiptReviewContext(bookingReference, verificationId) {
     if (!PB_PLATFORM_V1 || PB_PAGE_DATA_SCOPE !== 'manager' || !window.PB_TENANT_CONFIG?.manualReceiptReviewEnabled) {
       throw new Error('Sign in to review this receipt.');

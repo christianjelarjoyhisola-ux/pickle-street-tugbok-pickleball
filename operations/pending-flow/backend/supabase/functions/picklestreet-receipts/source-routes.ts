@@ -57,7 +57,7 @@ export type RouteEvidence = {
   destinationProvider: "gcash" | "maya";
   destinationMethodCode: "gcash" | "maya";
   parserVersion: string;
-  verifierVersion: "picklestreet_sources_20260908_2";
+  verifierVersion: "picklestreet_sources_20260909_1";
   sourceMatched: boolean;
   destinationMatched: boolean;
   recipientMatched: boolean;
@@ -262,7 +262,7 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
     destinationProvider: source === "maya" ? "maya" : "gcash",
     destinationMethodCode: source === "maya" ? "maya" : "gcash",
     parserVersion: "unsupported",
-    verifierVersion: "picklestreet_sources_20260908_2",
+    verifierVersion: "picklestreet_sources_20260909_1",
     sourceMatched: false,
     destinationMatched: false,
     recipientMatched: false,

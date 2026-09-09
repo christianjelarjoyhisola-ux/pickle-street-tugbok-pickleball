@@ -22,6 +22,7 @@ function element() {
   return { value: '', hidden: false, disabled: false, textContent: '', innerHTML: '', src: '', href: '',
     dataset: {}, style: {}, classList: { add() {}, remove() {}, contains() { return true; } },
     removeAttribute(name) { this[name] = ''; }, setAttribute(name, value) { this[name] = value; },
+    insertAdjacentHTML(_position, value) { this.innerHTML += value; },
     querySelectorAll() { return []; }, focus() {} };
 }
 function elements() {
@@ -90,12 +91,12 @@ test('clearing the reschedule date invalidates a pending availability response',
   assert.equal(state.selectedIndex, -1);
 });
 
-function receiptHarness(getReceiptSignedUrl) {
+function receiptHarness(getReceiptSignedUrl, getReceiptDiagnostics) {
   const $ = elements();
-  const context = { $, window:{}, DB: { getReceiptSignedUrl }, _vmReceiptLoadSeq: 0,
+  const context = { $, window:{PB_PLATFORM_V1:Boolean(getReceiptDiagnostics)}, DB: { getReceiptSignedUrl, getReceiptDiagnostics }, _vmReceiptLoadSeq: 0,
     receiptFlagsForDisplay: () => [], receiptFlagChips: () => '', receiptDetailsHtml: () => '',
     receiptReasonText: () => '', _verifyModalOpenSeq: 0 };
-  vm.runInNewContext(extract(admin, 'vmPopulateReceipt'), context);
+  vm.runInNewContext(['receiptHasHistoricalChecks','receiptWithDiagnostics','vmPopulateReceipt'].map(name=>extract(admin,name)).join('\n'), context);
   return { $, context, populate: context.vmPopulateReceipt };
 }
 test('a failed receipt load removes the previous customer receipt', async () => {
@@ -106,6 +107,7 @@ test('a failed receipt load removes the previous customer receipt', async () => 
   const loading = h.populate({ ref: 'PS-NEXT', receiptImageUrl: 'protected', receiptStatus: 'manual_review' });
   assert.equal(h.$('vmReceiptImg').src, '', 'Previous receipt must disappear before awaiting the next URL');
   assert.equal(h.$('vmReceiptLink').href, '');
+  await new Promise(resolve=>setImmediate(resolve)); // Let the independent image request start before rejecting it.
   pending.reject(new Error('Receipt unavailable'));
   await loading;
   assert.equal(h.$('vmReceiptImg').src, '');
@@ -115,6 +117,7 @@ test('a slower previous receipt cannot replace the currently selected receipt', 
   const first = deferred(), second = deferred();
   const h = receiptHarness(ref => ref === 'PS-FIRST' ? first.promise : second.promise);
   const a = h.populate({ ref: 'PS-FIRST', receiptImageUrl: 'protected', receiptStatus: 'manual_review' });
+  await new Promise(resolve=>setImmediate(resolve)); // Keep an actual first signing request in flight.
   const b = h.populate({ ref: 'PS-SECOND', receiptImageUrl: 'protected', receiptStatus: 'manual_review' });
   second.resolve('https://example.test/second-receipt');
   await b;
@@ -123,6 +126,18 @@ test('a slower previous receipt cannot replace the currently selected receipt', 
   await a;
   assert.equal(h.$('vmReceiptImg').src, 'https://example.test/second-receipt');
   assert.equal(h.$('vmReceiptLink').href, 'https://example.test/second-receipt');
+});
+
+test('a delayed diagnostic lookup clears previous image and evidence before waiting', async () => {
+  const pending=deferred();let signed=0;
+  const h=receiptHarness(async()=>{signed++;return 'https://example.test/current-receipt';},()=>pending.promise);
+  h.$('vmReceiptImg').src='https://example.test/previous-receipt';h.$('vmReceiptLink').href='https://example.test/previous-receipt';
+  h.$('vmReceiptDetails').innerHTML='Previous customer evidence';h.$('vmReceiptFlags').innerHTML='Previous flags';
+  const loading=h.populate({ref:'PS-CURRENT',receiptVerificationId:'current',receiptImageUrl:'protected',receiptStatus:'approved'});
+  assert.equal(h.$('vmReceiptImg').src,'');assert.equal(h.$('vmReceiptLink').href,'');
+  assert.equal(h.$('vmReceiptDetails').innerHTML,'');assert.equal(h.$('vmReceiptFlags').innerHTML,'');assert.equal(signed,0);
+  pending.resolve({verificationId:'current',recipientMatched:true,observedName:'CURRENT'});
+  await loading;assert.equal(signed,1);assert.equal(h.$('vmReceiptImg').src,'https://example.test/current-receipt');
 });
 
 function normalizeBooking(row) {

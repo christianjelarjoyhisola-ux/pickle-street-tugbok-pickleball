@@ -131,3 +131,52 @@ test('missing review context keeps financial actions disabled after saving',()=>
   const {c,buttons}=actionSavingHarness({hasContext:false,retryDisabled:false});c.setVerifyPaymentSaving(true);c.setVerifyPaymentSaving(false);
   assert.equal(buttons.vmRejectPaymentBtn.disabled,true);assert.equal(buttons.vmManualConfirmBtn.disabled,true);assert.equal(buttons.vmRetryReceiptBtn.disabled,false);
 });
+
+test('staff-confirmed receipts keep earlier failure evidence under a historical label',()=>{
+  const h=display(),b=fixture();b.receiptStatus='approved';b.receiptExtracted.review={decision:'approved',note:'Payment reviewed'};
+  const html=h.receiptDetailsHtml(b);
+  assert.match(html,/Earlier automatic-check reason/);assert.match(html,/Transferred amount could not be verified/);
+  assert.equal(h.receiptHasHistoricalChecks(b),true);
+  b.receiptStatus='manual_review';assert.equal(h.receiptHasHistoricalChecks(b),false);
+  assert.doesNotMatch(h.receiptDetailsHtml(b),/Earlier automatic-check reason/);
+});
+
+function diagnosticsHarness() {
+  const h=display(),pending=new Map(),elements=new Map();
+  h.window.PB_PLATFORM_V1=true;h._vmReceiptLoadSeq=0;
+  h.DB={getReceiptDiagnostics:(ref)=>new Promise(resolve=>pending.set(ref,resolve))};
+  h.$=id=>{
+    if(!elements.has(id))elements.set(id,{style:{},innerHTML:'',textContent:'',removeAttribute(){},insertAdjacentHTML(_place,value){this.innerHTML+=value;}});
+    return elements.get(id);
+  };
+  vm.runInContext(part(admin,'async function receiptWithDiagnostics(','async function vmReloadReceiptPreview('),h);
+  return {h,pending,elements};
+}
+
+test('saved observed recipient diagnostics hydrate the modal without rewriting the original audit evidence',async()=>{
+  const {h,pending}=diagnosticsHarness(),b={...fixture(),ref:'PB-CURRENT',receiptVerificationId:'receipt-current'},original=JSON.stringify(b);
+  const loading=h.receiptWithDiagnostics(b);
+  pending.get(b.ref)({verificationId:b.receiptVerificationId,observedName:'TE•• VE••',observedNumber:'09171111111',recipientMatched:false,nameMatch:'mismatch',phoneMatch:'exact'});
+  const hydrated=await loading;
+  assert.equal(h.receiptReceiverValue(hydrated.receiptExtracted),'TE•• VE•• / 09171111111');
+  assert.equal(JSON.stringify(b),original);assert.deepEqual(hydrated.receiptFlags,b.receiptFlags);
+  assert.deepEqual(hydrated.receiptExtracted.timing,b.receiptExtracted.timing);
+});
+
+test('slow recipient diagnostic replies cannot overwrite a newer receipt modal',async()=>{
+  const {h,pending,elements}=diagnosticsHarness();
+  const earlier=h.vmPopulateReceipt({...fixture(),ref:'PB-OLD',receiptVerificationId:'old'});
+  const current=h.vmPopulateReceipt({...fixture(),ref:'PB-NEW',receiptVerificationId:'new'});
+  pending.get('PB-NEW')({verificationId:'new',observedName:'CURRENT RECIPIENT',observedNumber:'09171111111',recipientMatched:true});
+  await current;
+  const html=elements.get('vmReceiptDetails').innerHTML;assert.match(html,/CURRENT RECIPIENT/);
+  pending.get('PB-OLD')({verificationId:'old',observedName:'STALE RECIPIENT',recipientMatched:false});
+  await earlier;assert.equal(elements.get('vmReceiptDetails').innerHTML,html);
+});
+
+test('a diagnostic response for another verification is refused',async()=>{
+  const {h,pending}=diagnosticsHarness();
+  const loading=h.receiptWithDiagnostics({...fixture(),ref:'PB-CURRENT',receiptVerificationId:'current'});
+  pending.get('PB-CURRENT')({verificationId:'another',observedName:'OTHER RECIPIENT'});
+  await assert.rejects(loading,/changed/);
+});
