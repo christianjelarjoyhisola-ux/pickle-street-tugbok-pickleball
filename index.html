@@ -3502,7 +3502,7 @@ body.dark #splashScreen {
 
 </style>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="pickle-street.css?v=20260909-entry-policy-v2">
+<link rel="stylesheet" href="pickle-street.css?v=20260909-entry-policy-v3">
 <meta name="robots" content="noindex,nofollow">
 </head>
 <body class="light">
@@ -3544,7 +3544,7 @@ body.dark #splashScreen {
       <aside class="ps-entry-policy-note"><h3><span aria-hidden="true">⚠️</span> Please note:</h3><p>Light rain, passing showers, or weather conditions that do not make the court unsafe or unplayable will not automatically qualify for rebooking.</p></aside>
       <p class="ps-entry-policy-thanks"><span aria-hidden="true">🙏</span> Thank you for understanding and for helping us keep our courts safe and enjoyable for everyone.</p>
     </div>
-    <footer class="ps-entry-policy-footer"><button type="button" class="ps-entry-policy-back" data-entry-policy-back>Back</button><button type="button" class="ps-entry-policy-continue" data-entry-policy-continue>I understand — View courts</button></footer>
+    <footer class="ps-entry-policy-footer"><button type="button" class="ps-entry-policy-continue" data-entry-policy-continue>Agree &amp; Continue</button></footer>
   </div>
 </dialog>
 <script>
@@ -3572,14 +3572,6 @@ body.dark #splashScreen {
     policy.querySelector('.ps-entry-policy-content').scrollTop = 0;
     document.getElementById('psEntryPolicyTitle').focus({ preventScroll:true });
   };
-  const back = () => {
-    phase = 'welcome';
-    policy.close();
-    document.documentElement.classList.remove('ps-entry-policy-open');
-    document.documentElement.classList.add('ps-welcome-open');
-    welcome.showModal();
-    welcome.querySelector('[data-welcome-dismiss]').focus({ preventScroll:true });
-  };
   // Active checkout recovery bypasses the introduction without starting a new hold.
   window.dismissPickleStreetWelcome = dismiss;
   welcome.querySelectorAll('[data-welcome-dismiss]').forEach(button => button.addEventListener('click', showPolicy));
@@ -3588,9 +3580,8 @@ body.dark #splashScreen {
   welcome.addEventListener('close', () => {
     if (phase === 'welcome' && !welcome.open) dismiss();
   });
-  policy.addEventListener('cancel', event => { event.preventDefault(); back(); });
+  policy.addEventListener('cancel', event => { event.preventDefault(); });
   policy.addEventListener('keydown', event => event.stopPropagation());
-  policy.querySelector('[data-entry-policy-back]').addEventListener('click', back);
   policy.querySelector('[data-entry-policy-continue]').addEventListener('click', () => {
     dismiss();
     const target = document.getElementById('courts');
