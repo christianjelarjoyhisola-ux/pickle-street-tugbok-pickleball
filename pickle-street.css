@@ -322,7 +322,7 @@ html.ps-entry-policy-open{overflow:hidden}
 .ps-entry-policy h3 span{font-size:18px;line-height:1.3;flex:none}
 .ps-entry-policy p{margin:0;font:400 14px/1.55 'DM Sans',sans-serif;letter-spacing:normal;color:var(--text,#eef7f9);text-align:left}
 .ps-entry-policy strong{font-weight:700}
-.ps-entry-policy-note{display:block;position:static;margin:14px 0 0;padding:11px 12px;min-height:0;width:auto;border:1px solid #27889933;border-radius:11px;background:#27889909}
+.ps-entry-policy-note{display:block;position:static;margin:14px 0 0;padding:0;min-height:0;width:auto;border:0;border-radius:0;background:none}
 .ps-entry-policy-note h3{margin-bottom:6px}
 .ps-entry-policy .ps-entry-policy-thanks{margin:12px 0 0;color:var(--text3,#a3b6bf);font-size:12px;line-height:1.5}
 .ps-entry-policy-thanks span{font-size:15px}
