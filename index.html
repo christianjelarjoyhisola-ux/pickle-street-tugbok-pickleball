@@ -3490,6 +3490,18 @@ body.dark #splashScreen {
 .booking-intro-kicker { margin:0 0 14px;color:#97d9e3;font-size:clamp(.75rem,2.5vw,1rem);font-weight:800;letter-spacing:.12em;line-height:1.5; }
 .booking-intro-title { margin:0;color:#f2f6f8;font-size:clamp(1.35rem,4.6vw,2rem);font-weight:800;letter-spacing:-.035em;line-height:1.25;text-wrap:balance; }
 .booking-intro-copy { margin:0;color:#b6c6ce;font-size:clamp(.875rem,2.7vw,1.125rem);line-height:1.65;text-wrap:balance; }
+.booking-intro-continue { display:block;width:100%;max-width:280px;min-height:44px;margin:22px auto 0;padding:12px 18px;border:1px solid #87cbd6;border-radius:12px;background:#97d9e3;color:#102b35;font:700 .9375rem/1.3 'Manrope',sans-serif;cursor:pointer;touch-action:manipulation; }
+.booking-intro-continue:hover { background:#b0e5ec; }
+.booking-intro-continue:focus-visible { outline:3px solid #f2f6f8;outline-offset:4px; }
+.booking-intro-continue:active { background:#83cbd6; }
+@media (max-height:600px) {
+  #bookingIntroCard { padding:18px; }
+  .booking-intro-kicker { margin-bottom:10px;font-size:.75rem; }
+  .booking-intro-title { font-size:clamp(1.2rem,4vw,1.6rem); }
+  .booking-intro-timer { margin:16px 0;font-size:clamp(3.5rem,14vh,4.5rem); }
+  .booking-intro-copy { font-size:.875rem;line-height:1.5; }
+  .booking-intro-continue { margin-top:16px; }
+}
 #bookModal.booking-intro-active .bk-modal { background:rgba(15,27,34,.88)!important;border-color:#40545f!important;box-shadow:0 24px 80px #0004!important; }
 #bookModal.booking-intro-active .wiz-steps,
 #bookModal.booking-intro-active .bk-modal-body,
@@ -3858,6 +3870,7 @@ body.dark #splashScreen {
         <h2 class="booking-intro-title" id="bookingIntroTitle">Complete your booking within 10 minutes</h2>
         <div class="booking-intro-timer" id="bookingIntroTimer">--:--</div>
         <p class="booking-intro-copy" id="bookingIntroCopy">Keep an eye on the timer at the top of the booking form.</p>
+        <button type="button" class="booking-intro-continue" id="bookingIntroContinue" onclick="continueBookingIntro()">Continue to booking</button>
       </div>
     </div>
     <div class="booking-countdown-announcer" id="bookingCountdownAnnouncement" role="status" aria-live="polite" aria-atomic="true"></div>
@@ -8825,9 +8838,15 @@ function showBookingIntro() {
   intro.inert=false;intro.setAttribute('aria-hidden','false');
   if ($('bookingCountdownAnnouncement')) $('bookingCountdownAnnouncement').textContent='Your court is temporarily held. Complete payment before the displayed timer ends.';
   requestAnimationFrame(()=>card.focus({preventScroll:true}));
-  // Show only the live countdown for five seconds, then move it into its banner.
+  // Players can continue immediately; otherwise the timer docks after five seconds.
   _reservationIntroTimeout=setTimeout(()=>hideBookingIntro({restoreFocus:true,animate:true}),5000);
   return true;
+}
+
+function continueBookingIntro() {
+  if (!$('bookModal')?.classList.contains('booking-intro-active') ||
+      $('bookingIntro')?.getAttribute('aria-hidden') !== 'false') return;
+  hideBookingIntro({restoreFocus:true,animate:true});
 }
 
 function startSlotCountdown(initialSeconds = null) {
