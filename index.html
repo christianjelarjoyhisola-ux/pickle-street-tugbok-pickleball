@@ -8199,7 +8199,7 @@ async function maybeResumeGuestBooking() {
   toast('Your reserved booking was restored. Continue before the timer ends.', 'ok');
 }
 
-async function cancelReservedBookings(refs = reservedRefs()) {
+async function cancelReservedBookings(refs = reservedRefs(), cancellationReason = 'unknown') {
   const uniqueRefs = [...new Set((refs || []).filter(Boolean))];
   if (window.PB_PLATFORM_V1) {
     const access = _platformBookingAccess || readPlatformRecovery();
@@ -8207,7 +8207,7 @@ async function cancelReservedBookings(refs = reservedRefs()) {
       clearReservationState();
       return [];
     }
-    const result = await DB.cancelPublicBookingHold(platformAccessRequest(access));
+    const result = await DB.cancelPublicBookingHold({...platformAccessRequest(access),cancellationReason});
     clearReservationState();
     return [result];
   }
@@ -8233,12 +8233,12 @@ function clearSelectedBookingUi() {
   updatePrice();
 }
 
-async function releaseReservedBookingViews(items = activeBookingItems()) {
+async function releaseReservedBookingViews(items = activeBookingItems(), cancellationReason = 'unknown') {
   const refreshItems = (items || []).map(item => ({
     courtId: item.courtId,
     date: item.date,
   })).filter(item => item.courtId && item.date);
-  await cancelReservedBookings();
+  await cancelReservedBookings(reservedRefs(), cancellationReason);
   clearSelectedBookingUi();
   if (refreshItems.length) await refreshBookingItemViews(refreshItems);
   else await renderCourts();
@@ -8246,7 +8246,7 @@ async function releaseReservedBookingViews(items = activeBookingItems()) {
 
 let _bookingCancelInFlight = false;
 
-async function cancelBookingWizard({ expired = false } = {}) {
+async function cancelBookingWizard({ expired = false, reason = 'customer_cancel' } = {}) {
   if(window.PB_PLATFORM_V1 && (_platformHoldCreatePromise || _platformHoldCompletePromise)) return;
   if (_bookingCancelInFlight) return;
   const itemsToRelease = activeBookingItems();
@@ -8266,7 +8266,7 @@ async function cancelBookingWizard({ expired = false } = {}) {
   if (cancelButton) cancelButton.textContent = hasServerHold ? 'Releasing...' : 'Cancelling...';
 
   try {
-    if (hasServerHold) await releaseReservedBookingViews(itemsToRelease);
+    if (hasServerHold) await releaseReservedBookingViews(itemsToRelease, expired ? 'browser_timer_elapsed' : reason);
     else clearSelectedBookingUi();
     if (window.PB_PLATFORM_V1) clearPlatformRequestState();
     closeBookModal({ cancel: true });
@@ -9069,7 +9069,7 @@ async function wizNext() {
 }
 
 function wizBack() {
-  if (wizStep <= wizStartStep) { cancelBookingWizard(); return; }
+  if (wizStep <= wizStartStep) { cancelBookingWizard({reason:'checkout_back'}); return; }
   if (window.PB_PLATFORM_V1 && platformHoldHasDetails() && wizStep === 4) {
     toast('Your slot is already held with these details. Cancel and start again if you need to change them.', 'inf');
     return;
@@ -11238,7 +11238,7 @@ async function cancelPlatformBookingRecovery() {
   prompt?.querySelectorAll('button').forEach(button => { button.disabled = true; });
   try {
     if (hasServerHold) {
-      await DB.cancelPublicBookingHold(platformAccessRequest(access));
+      await DB.cancelPublicBookingHold({...platformAccessRequest(access),cancellationReason:'recovery_cancel'});
     }
     clearReservationState();
     clearPlatformRequestState();
@@ -12590,7 +12590,7 @@ async function expireStaleVerifyingBookings() {
 </script>
 <script src="supabase.min.js"></script>
 <script src="tenant-config.js?v=20260909-receipt-only"></script>
-<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260909-owner-actions"></script><script src="receipt-pending.js?v=20260908-routes2"></script>
+<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260910-cancellation-reason"></script><script src="receipt-pending.js?v=20260908-routes2"></script>
 <script src="open-play-data.js?v=20260801-openplay-fee-settings"></script>
 <script src="open-play-public.js?v=20260801-openplay-fee-settings"></script>
 

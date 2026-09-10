@@ -4942,6 +4942,12 @@ function bookingSourceMeta(b){
   const actor = b?.createdByName || b?.createdByEmail || b?.hostName || b?.hostEmail || '';
   return actor && label !== 'Customer Website' ? `${label}: ${actor}` : label;
 }
+function bookingCustomerDisplayName(b){
+  const name = String(b?.fullName || '').trim();
+  if (name === 'Reservation pending' && b?.status === 'cancelled') return 'Checkout cancelled — details not submitted';
+  if (name === 'Reservation pending' && b?.status === 'expired') return 'Checkout expired — details not submitted';
+  return name || 'Guest';
+}
 function bookingSourceBadge(b){
   const via = String(b?.createdVia || '').toLowerCase();
   const isAdmin = via === 'admin';
@@ -7921,7 +7927,7 @@ async function renderDash(){
   }
   const recent=activeTxns.slice(0,5);
   $('recentBody').innerHTML=recent.length===0?'<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">No bookings yet.</td></tr>':
-    recent.map(b=>`<tr><td data-label="Ref"><code style="color:var(--green);font-size:.78rem">${esc(b.displayRef || b.ref)}</code></td><td data-label="Name">${esc(b.fullName)}</td><td data-label="Court">${esc(b.courtName)}</td><td data-label="Schedule">${esc(b.scheduleLabel || b.dateLabel || fmtD(b.date))}</td><td data-label="Status">${statusBdg(b.status)}</td></tr>`).join('');
+    recent.map(b=>`<tr><td data-label="Ref"><code style="color:var(--green);font-size:.78rem">${esc(b.displayRef || b.ref)}</code></td><td data-label="Name">${esc(bookingCustomerDisplayName(b))}</td><td data-label="Court">${esc(b.courtName)}</td><td data-label="Schedule">${esc(b.scheduleLabel || b.dateLabel || fmtD(b.date))}</td><td data-label="Status">${statusBdg(b.status)}</td></tr>`).join('');
 
   // ── Charts ──
   renderDashCharts(activeTxns);
@@ -8411,7 +8417,7 @@ async function renderBookings(){
     : `<tr class="booking-row">
       <td class="booking-mobile-card">${mobileBookingCard(b, canDelete)}</td>
       <td data-label="Ref"><code style="color:var(--green);font-size:.76rem">${esc(b.displayRef || b.ref)}</code>${b.isGroup?`<div style="font-size:.68rem;color:var(--muted);margin-top:3px">${b.items.length} courts</div>`:''}</td>
-      <td data-label="Customer"><div style="font-weight:600">${esc(b.fullName)}</div><div style="font-size:.75rem;color:var(--text)">${esc(b.email)}</div><div style="margin-top:4px">${bookingSourceBadge(b)}</div></td>
+      <td data-label="Customer"><div style="font-weight:600">${esc(bookingCustomerDisplayName(b))}</div><div style="font-size:.75rem;color:var(--text)">${esc(b.email)}</div><div style="margin-top:4px">${bookingSourceBadge(b)}</div></td>
       <td data-label="Court">${esc(b.courtName)}</td>
       <td data-label="Schedule">${bookingScheduleSummaryHtml(b)}</td>
       <td data-label="Booked On">${b.createdAt ? (() => { const d=new Date(b.createdAt); return d.toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'}) + '<div style="font-size:.75rem;color:var(--muted);font-weight:600">' + d.toLocaleTimeString('en-PH',{hour:'numeric',minute:'2-digit',hour12:true}) + '</div>'; })() : '<span style="color:var(--muted)">—</span>'}</td>
@@ -8493,7 +8499,7 @@ async function renderBookingArchive(){
         : '--';
       return `<tr>
         <td data-label="Ref"><code style="color:var(--green);font-size:.76rem">${esc(b.ref)}</code></td>
-        <td data-label="Customer"><div style="font-weight:600">${esc(b.fullName||'Guest')}</div><div style="font-size:.75rem;color:var(--muted)">${esc(b.email||'')}</div></td>
+        <td data-label="Customer"><div style="font-weight:600">${esc(bookingCustomerDisplayName(b))}</div><div style="font-size:.75rem;color:var(--muted)">${esc(b.email||'')}</div></td>
         <td data-label="Court">${esc(b.courtName||'Court')}</td>
         <td data-label="Schedule">${bookingScheduleSummaryHtml(b)}</td>
         <td data-label="Amount">${fmt(b.total||0)}</td>

@@ -62,7 +62,7 @@ export interface HoldStore {
   policy(): Promise<{ value: unknown; is_public: boolean } | null>;
   create(args: Obj): Promise<Obj>;
   status(args: Access): Promise<Obj>;
-  cancel(args: Access): Promise<Obj>;
+  cancel(args: Access & {p_reason: string}): Promise<Obj>;
   complete(args: Access & Obj): Promise<Obj>;
 }
 export type Dependencies = {
@@ -454,6 +454,7 @@ export function createHoldHandler(deps: Dependencies) {
         "action",
         "bookingReference",
         "bookingToken",
+        ...(action === "cancel" ? ["cancellationReason"] : []),
         ...(action === "complete"
           ? [
             "customer",
@@ -482,7 +483,11 @@ export function createHoldHandler(deps: Dependencies) {
         );
       }
       if (action === "cancel") {
-        const cancelled = await deps.store.cancel(access);
+        const reason = String(body.cancellationReason ?? "unknown");
+        if (!["unknown", "customer_cancel", "checkout_back", "browser_timer_elapsed", "recovery_cancel"].includes(reason)) {
+          fail("CANCELLATION_REASON_INVALID", "This cancellation reason is invalid.");
+        }
+        const cancelled = await deps.store.cancel({...access,p_reason:reason});
         return jsonResponse(
           {
             ok: true,

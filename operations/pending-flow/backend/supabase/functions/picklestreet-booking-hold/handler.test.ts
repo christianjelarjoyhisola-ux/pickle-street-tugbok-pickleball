@@ -697,3 +697,11 @@ for(const sessions of [[{...selection,durationHours:10},{...selection,startTime:
  Deno.test('invalid group cannot create slots '+JSON.stringify(sessions),async()=>{const f=fixture();const r=await f.invoke({tenantSlug:TENANT_SLUG,action:'create',clientRequestId:CLIENT,sessions});assert.ok(r.response.status>=400);assert.equal(f.calls.create.length,0)});
 }
 Deno.test('group accepts separate hours and same hour on distinct courts',()=>{assert.equal(parseGroupSelections([selection,{...selection,startTime:'15:00'},{...selection,courtId:'afb62052-cc6b-435e-a8b1-0265b613a771'}]).length,3)});
+
+for (const reason of ['customer_cancel','checkout_back','browser_timer_elapsed','recovery_cancel','unknown']) {
+ Deno.test('cancellation forwards reason through authenticated store: '+reason, async()=>{
+ const f=fixture(), b=await f.created(); const r=await f.invoke({tenantSlug:TENANT_SLUG,action:'cancel',bookingReference:b.reference,bookingToken:b.bookingToken,cancellationReason:reason});
+ assert.equal(r.response.status,200);assert.equal(f.calls.cancel[0].p_reason,reason);
+ });
+}
+Deno.test('invalid cancellation reason cannot reach the store',async()=>{const f=fixture(),b=await f.created();const r=await f.invoke({tenantSlug:TENANT_SLUG,action:'cancel',bookingReference:b.reference,bookingToken:b.bookingToken,cancellationReason:'staff_cancel'});assert.equal(r.response.status,400);assert.equal(f.calls.cancel.length,0);});

@@ -52,7 +52,7 @@ export function createHoldStore(db:Obj):HoldStore{
     async policy(){const r=await db.from('settings').select('value,is_public').eq('tenant_id',TENANT_ID).eq('key','refund_reschedule_policy').maybeSingle();if(r.error)throw new RequestError(503,'BOOKING_POLICY_NOT_CONFIGURED','The current venue policy could not be loaded.');return r.data;},
     create:args=>rpc(args.p_sessions?'create_picklestreet_group_hold':'create_picklestreet_provisional_hold',args),
     status:(args:Access)=>rpc('get_picklestreet_provisional_hold',args),
-    cancel:(args:Access)=>rpc('cancel_picklestreet_provisional_hold',args),
+    cancel:args=>rpc('cancel_picklestreet_hold_with_reason',args),
     complete:args=>rpc('complete_picklestreet_provisional_hold',args),
   };
 }

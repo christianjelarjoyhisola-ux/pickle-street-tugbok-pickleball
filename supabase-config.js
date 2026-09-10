@@ -4270,12 +4270,12 @@ window.DB = {
     return result;
   },
 
-  async cancelPublicBookingHold({ bookingReference, bookingToken, preliminaryHold = false }) {
+  async cancelPublicBookingHold({ bookingReference, bookingToken, preliminaryHold = false, cancellationReason = 'unknown' }) {
     if (!PB_PLATFORM_V1) throw new Error('The tenant booking-cancellation service is not enabled.');
     const result = await _invokeEdgeFunction(
       `${preliminaryHold && PB_TENANT_SLUG === 'pickle-street-tugbok' ? 'picklestreet-booking-hold' : 'cancel-booking'}?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
       {
-        ...(preliminaryHold && PB_TENANT_SLUG === 'pickle-street-tugbok' ? {action:'cancel'} : {}),
+        ...(preliminaryHold && PB_TENANT_SLUG === 'pickle-street-tugbok' ? {action:'cancel',cancellationReason} : {}),
         tenantSlug: PB_TENANT_SLUG,
         bookingReference: String(bookingReference || ''),
         bookingToken: String(bookingToken || ''),
