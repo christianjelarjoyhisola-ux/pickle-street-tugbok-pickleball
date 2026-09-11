@@ -6498,7 +6498,7 @@ function playerRainClaimRecordHtml(claim) {
       <div class="wr-record-row"><span>Estimated amount</span><strong>${esc(weatherRefundMoney(claim.estimatedRefundAmount,claim.currency))}</strong></div>
       <div class="wr-record-row"><span>Rule version</span><strong>${esc(weatherRefundRuleVersionLabel(claim))}</strong></div>
       <div class="wr-record-row"><span>Proof</span><strong>${claim.proofAvailable ? 'Private court photo attached' : 'No proof available'}</strong></div>
-      <div class="wr-record-row"><span>Player access</span><strong>${esc(claim.accessMethod === 'booking_token' ? 'Saved secure booking token' : 'Booking contact + Turnstile')}</strong></div>
+      <div class="wr-record-row"><span>Player access</span><strong>${esc(claim.accessMethod === 'booking_token' ? 'Saved secure booking token' : 'Verified booking contact')}</strong></div>
     </div>
     ${playerRainPayoutDestinationHtml(claim)}
     ${claim.reportNote ? `<div class="wr-callout"><strong>Player note:</strong> ${esc(claim.reportNote)}</div>` : ''}

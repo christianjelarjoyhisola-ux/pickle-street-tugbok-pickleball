@@ -7,7 +7,6 @@
   const SECTION_ID = 'openPlayPublic';
   const OVERLAY_ID = 'openPlayPublicOverlay';
   const STYLE_ID = 'openPlayPublicStyles';
-  const TURNSTILE_ACTION = 'open_play_reserve';
   const MANILA_TIME_ZONE = 'Asia/Manila';
   const FOCUSABLE = [
     'a[href]',
@@ -43,9 +42,6 @@
     joinQuantity: 1,
     joinLimit: 1,
     joinRequestId: '',
-    turnstileWidgetId: null,
-    turnstileToken: '',
-    turnstileGeneration: 0,
     refreshSequence: 0,
     statusSequence: 0,
     refreshPromise: null,
@@ -1095,7 +1091,6 @@
       announceDialog('Please wait for the current request to finish.');
       return;
     }
-    disposeTurnstile();
     global.clearInterval(state.holdTimer);
     state.holdTimer = null;
     clearReceiptPreview();
@@ -1209,7 +1204,6 @@
   function renderJoinStep() {
     const session = state.currentSession;
     if (!session || !state.dialogBody) return;
-    disposeTurnstile();
     clear(state.dialogBody);
     state.dialogBody.appendChild(sessionSummary(session));
     appendSessionInstructions(state.dialogBody, session);
@@ -1246,10 +1240,6 @@
       '    <input id="oppCustomerEmail" name="email" type="email" autocomplete="email" maxlength="254" required>',
       '  </div>',
       '</div>',
-      '<div class="opp-turnstile-panel">',
-      '  <div class="opp-turnstile" aria-label="Security check"></div>',
-      '  <p class="opp-field-hint opp-turnstile-status" role="status">Loading the secure check…</p>',
-      '</div>',
       '<dl class="opp-order-summary" aria-label="Estimated Open Play total">',
       '  <div>',
       '    <dt>Open Play price</dt>',
@@ -1264,7 +1254,7 @@
       '    <dd class="opp-order-total"></dd>',
       '  </div>',
       '</dl>',
-      '<button class="opp-button opp-button--primary opp-button--wide opp-join-submit" type="submit" disabled>',
+      '<button class="opp-button opp-button--primary opp-button--wide opp-join-submit" type="submit">',
       '  Hold my spot',
       '</button>',
       '<p class="opp-fine-print">The service fee is added per player. The final total is confirmed after the hold is created. Your contact details are sent securely and are never saved in browser recovery storage.</p>',
@@ -1284,7 +1274,6 @@
     form.addEventListener('submit', event => submitJoin(event, form));
     updateJoinQuantity(1, form);
     focusStepHeading();
-    setupTurnstile(form);
   }
 
   function updateJoinQuantity(next, form) {
@@ -1324,121 +1313,6 @@
     return normalized;
   }
 
-  async function waitForTurnstile(timeoutMs) {
-    const started = Date.now();
-    while (!global.turnstile) {
-      if (Date.now() - started >= timeoutMs) {
-        throw new Error('The security check did not load. Check your connection and try again.');
-      }
-      await new Promise(resolve => global.setTimeout(resolve, 100));
-    }
-    return global.turnstile;
-  }
-
-  function configuredTurnstileAction() {
-    const config = global.PB_TENANT_CONFIG || {};
-    const configured = asText(
-      config.openPlayTurnstileAction ||
-      (config.turnstileActions && (config.turnstileActions.openPlay || config.turnstileActions.openPlayReserve)),
-      32
-    );
-    return /^[a-zA-Z0-9_-]{1,32}$/.test(configured) ? configured : TURNSTILE_ACTION;
-  }
-
-  async function setupTurnstile(form) {
-    const generation = ++state.turnstileGeneration;
-    state.turnstileToken = '';
-    const host = form.querySelector('.opp-turnstile');
-    const status = form.querySelector('.opp-turnstile-status');
-    const submit = form.querySelector('.opp-join-submit');
-    const sitekey = asText(global.PB_TENANT_CONFIG && global.PB_TENANT_CONFIG.turnstileSiteKey, 200);
-    if (!sitekey) {
-      status.textContent = 'The security check is not configured. Registration is unavailable.';
-      return;
-    }
-    try {
-      const turnstile = await waitForTurnstile(12000);
-      if (generation !== state.turnstileGeneration || !host.isConnected) return;
-      state.turnstileWidgetId = turnstile.render(host, {
-        sitekey,
-        action: configuredTurnstileAction(),
-        size: 'flexible',
-        appearance: 'always',
-        execution: 'render',
-        retry: 'auto',
-        'retry-interval': 1500,
-        'refresh-expired': 'auto',
-        'refresh-timeout': 'auto',
-        callback: token => {
-          if (generation !== state.turnstileGeneration) return;
-          state.turnstileToken = asText(token, 3000);
-          status.textContent = state.turnstileToken
-            ? 'Security check complete.'
-            : 'Complete the security check to continue.';
-          submit.disabled = !state.turnstileToken;
-        },
-        'expired-callback': () => {
-          state.turnstileToken = '';
-          status.textContent = 'The security check expired. Please complete it again.';
-          submit.disabled = true;
-        },
-        'error-callback': () => {
-          state.turnstileToken = '';
-          status.textContent = 'The security check could not finish. Please retry it.';
-          submit.disabled = true;
-        },
-        'timeout-callback': () => {
-          state.turnstileToken = '';
-          status.textContent = 'The security check timed out. Please try again.';
-          submit.disabled = true;
-        },
-        'unsupported-callback': () => {
-          state.turnstileToken = '';
-          status.textContent = 'This browser cannot run the security check.';
-          submit.disabled = true;
-        },
-      });
-      status.textContent = 'Complete the secure check to continue.';
-    } catch (error) {
-      if (generation !== state.turnstileGeneration || !host.isConnected) return;
-      status.textContent = friendlyError(error, 'The security check is unavailable.');
-      submit.disabled = true;
-    }
-  }
-
-  function resetTurnstileAfterAttempt(form) {
-    state.turnstileToken = '';
-    const submit = form.querySelector('.opp-join-submit');
-    const status = form.querySelector('.opp-turnstile-status');
-    if (submit) submit.disabled = true;
-    if (status) status.textContent = 'Complete the security check again to retry.';
-    if (state.turnstileWidgetId != null && global.turnstile) {
-      try {
-        global.turnstile.reset(state.turnstileWidgetId);
-      } catch (_) {
-        disposeTurnstile();
-        setupTurnstile(form);
-      }
-    }
-  }
-
-  function disposeTurnstile() {
-    state.turnstileGeneration += 1;
-    state.turnstileToken = '';
-    if (state.turnstileWidgetId != null && global.turnstile) {
-      try {
-        if (typeof global.turnstile.remove === 'function') {
-          global.turnstile.remove(state.turnstileWidgetId);
-        } else {
-          global.turnstile.reset(state.turnstileWidgetId);
-        }
-      } catch (_) {
-        // The widget may already have been removed with its step.
-      }
-    }
-    state.turnstileWidgetId = null;
-  }
-
   async function submitJoin(event, form) {
     event.preventDefault();
     if (state.busy) return;
@@ -1449,10 +1323,6 @@
     }
     const phone = validatePhoneInput(form.elements.phone);
     if (!form.reportValidity()) return;
-    if (!state.turnstileToken) {
-      announceDialog('Complete the security check before reserving.');
-      return;
-    }
     if (!methodAvailable('createPublicOpenPlayRegistration')) {
       announceDialog('Open Play registration is temporarily unavailable.');
       return;
@@ -1460,7 +1330,6 @@
 
     const fieldset = Array.from(form.elements);
     const button = form.querySelector('.opp-join-submit');
-    const token = state.turnstileToken;
     const requestId = state.joinRequestId || createRequestId();
     state.joinRequestId = requestId;
     fieldset.forEach(control => { control.disabled = true; });
@@ -1479,7 +1348,6 @@
           email: asText(form.elements.email.value, 254).toLowerCase(),
         },
         clientRequestId: requestId,
-        turnstileToken: token,
       });
       updateServerClockFromResult(result, clockStarted);
       const registration = normalizeRegistration(result && result.registration);
@@ -1491,7 +1359,6 @@
       state.selectedPaymentMethod = state.paymentMethods[0] ? state.paymentMethods[0].code : '';
       saveRecovery(registration.reference, registration.accessToken);
       renderRecoveryCard();
-      disposeTurnstile();
       announceDialog(`Registration ${registration.reference} created.`);
       if (registration.total > 0) {
         renderPaymentStep();
@@ -1502,7 +1369,6 @@
       announceDialog(friendlyError(error, 'Your registration could not be created.'));
       fieldset.forEach(control => { control.disabled = false; });
       updateJoinQuantity(state.joinQuantity, form);
-      resetTurnstileAfterAttempt(form);
       button.textContent = 'Hold my spot';
     } finally {
       setModalBusy(false);

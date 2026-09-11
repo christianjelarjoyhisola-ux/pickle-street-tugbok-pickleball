@@ -46,3 +46,9 @@ verify_jwt = true
 
 [functions.integration-status]
 verify_jwt = true
+
+[functions.player-rain-report]
+verify_jwt = false
+
+[functions.open-play-public]
+verify_jwt = false

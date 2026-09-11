@@ -15,7 +15,7 @@ Configure the venue inside the dashboard:
 5. Set platform billing, remittance destination, booking email preferences, and Open Play fees if needed.
 6. Complete server readiness checks and initial activation. Booking is closed until readiness passes.
 
-**Cloudflare deployment:** https://picklestreet.pages.dev is the public website. The Pages hostname is registered as this tenant's primary domain and has an approved Turnstile widget. Customer bookings remain closed until the venue setup above is completed. The earlier Sites preview remains separate and owner-private.
+**Cloudflare deployment:** https://picklestreet.pages.dev is the public website. The Pages hostname is registered as this tenant's primary domain. Customer bookings remain closed until the venue setup above is completed. The earlier Sites preview remains separate and owner-private.
 
 ## Tenant boundary
 

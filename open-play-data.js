@@ -724,8 +724,7 @@
     const quantity = asInteger(input.quantity);
     const customer = input.customer && typeof input.customer === 'object' ? input.customer : {};
     const clientRequestId = asText(input.clientRequestId, 80).toLowerCase();
-    const turnstileToken = asText(input.turnstileToken, 3000);
-    if (!validUuid(sessionId) || quantity < 1 || quantity > 4 || !validRequestId(clientRequestId) || !turnstileToken) {
+    if (!validUuid(sessionId) || quantity < 1 || quantity > 4 || !validRequestId(clientRequestId)) {
       throw new Error('The Open Play reservation details are incomplete.');
     }
     const payload = await invoke('open-play-public', {
@@ -738,7 +737,6 @@
         phone: asText(customer.phone, 40),
       },
       clientRequestId,
-      turnstileToken,
     });
     const registration = normalizeRegistration(payload.registration, {
       requireAccess: true,

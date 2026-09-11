@@ -736,20 +736,6 @@
   text-align: center;
 }
 
-.opp-turnstile-panel {
-  min-height: 72px;
-  padding: 10px;
-  border: 1px solid var(--opp-border);
-  border-radius: 13px;
-  background: rgba(var(--ac, 4, 88, 150), .025);
-}
-
-.opp-turnstile {
-  width: 100%;
-  min-height: 0;
-  overflow: hidden;
-}
-
 .opp-order-line {
   display: flex;
   align-items: center;

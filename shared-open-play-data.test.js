@@ -258,7 +258,7 @@ test('receipt references are constrained to backend printable ASCII length', () 
   assert.doesNotMatch(source, /X-Payment-Reference': asText\(paymentReference,\s*120\)/);
 });
 
-test('public reservation uses the protected Edge endpoint with Turnstile and idempotency', async () => {
+test('public reservation uses the protected Edge endpoint with idempotency and no challenge token', async () => {
   let request;
   const client = loadClient({
     fetchImpl: async (url, init) => {
@@ -285,13 +285,12 @@ test('public reservation uses the protected Edge endpoint with Turnstile and ide
     quantity: 2,
     customer: { name: 'Player One', email: 'player@example.com', phone: '09171234567' },
     clientRequestId: REQUEST_ID,
-    turnstileToken: 'verified-turnstile-token',
   });
   assert.match(request.url, /\/functions\/v1\/open-play-public\?tenantSlug=qdink-garage$/);
   assert.equal(request.body.action, 'reserve');
   assert.equal(request.body.tenantSlug, 'qdink-garage');
   assert.equal(request.body.clientRequestId, REQUEST_ID);
-  assert.equal(request.body.turnstileToken, 'verified-turnstile-token');
+  assert.equal(Object.hasOwn(request.body, 'turnstileToken'), false);
   assert.equal(request.init.headers.Authorization, 'Bearer public-key');
   assert.equal(result.registration.reference, 'OP-ABC123');
   assert.equal(result.paymentMethods.length, 1);
@@ -358,7 +357,6 @@ test('existing registration recovery stays available when new reservations are p
       quantity: 1,
       customer: { name: 'Player One', email: 'player@example.com', phone: '09171234567' },
       clientRequestId: REQUEST_ID,
-      turnstileToken: 'verified-turnstile-token',
     }),
     /not available yet/i
   );

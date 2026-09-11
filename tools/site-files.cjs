@@ -17,5 +17,5 @@ module.exports = Object.freeze([
   'assets/pickle-street-mark.svg', 'assets/pickle-street-courts.jpg', 'logopickle.jpg',
   'assets/pickle-street-logo-transparent.png',
   'assets/pickle-street-share-v1.jpg',
-  'assets/payment-not-configured.svg', '_headers',
+  'assets/payment-not-configured.svg', '_headers', '_worker.js',
 ]);

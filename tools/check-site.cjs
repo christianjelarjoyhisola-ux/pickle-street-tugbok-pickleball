@@ -8,7 +8,14 @@ const root = path.resolve(__dirname, '..');
 let scripts = 0;
 for (const file of files) {
   const source = fs.readFileSync(path.join(root, file));
-  if (file.endsWith('.js')) { new vm.Script(source.toString(), {filename:file}); scripts++; }
+  if (file === '_worker.js') {
+    const workerSource = source.toString().replace(/^export\s+default\s+/, 'return ');
+    new vm.Script(`(function(){${workerSource}\n})`, {filename:file});
+    scripts++;
+  } else if (file.endsWith('.js')) {
+    new vm.Script(source.toString(), {filename:file});
+    scripts++;
+  }
   if (!file.endsWith('.html')) continue;
   const html = source.toString();
   assert.match(html, /data-pb-data-scope="(?:public|manager|auth)"/, file + ' must declare its data scope');
@@ -25,5 +32,5 @@ for (const file of files) {
   }
   assert.ok(!html.includes('qhvrow'), file + ' must not use the reference database');
 }
-assert.ok(!files.some(file => /^(feature-preview\/|supabase\/|operations\/|\.env|_worker\.js|host\.html|player-live\.html)/.test(file)));
+assert.ok(!files.some(file => /^(feature-preview\/|supabase\/|operations\/|\.env|host\.html|player-live\.html)/.test(file)));
 console.log('Checked ' + scripts + ' scripts and all page asset links.');

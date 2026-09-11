@@ -303,9 +303,9 @@ test('fee forms show persistent validation, pending, success, and server error f
   elements.openPlayServiceFeeInput.value='7.25';await context.saveOpenPlayServiceFee();assert.match(elements.openPlayFeeSaveStatus.textContent,/Saved:.*7.25/);
 });
 
-test('booking availability follows server readiness without a CAPTCHA key',async()=>{
+test('booking availability follows server readiness without a challenge configuration',async()=>{
   for(const hostname of [HOST,'pickle-street-tugbok.boothsandbeyondoffic.chatgpt.site']) {
-    const {context:c}=boot({hostname,bootstrap:{readiness:{publicBookingEnabled:true}}});await c.DB.getResolvedTenantId();assert.equal(c.PB_PUBLIC_BOOKING_ENABLED,true);assert.equal(c.PB_TENANT_CONFIG.turnstileSiteKey,'');
+    const {context:c}=boot({hostname,bootstrap:{readiness:{publicBookingEnabled:true}}});await c.DB.getResolvedTenantId();assert.equal(c.PB_PUBLIC_BOOKING_ENABLED,true);assert.equal(Object.hasOwn(c.PB_TENANT_CONFIG,'turnstileSiteKey'),false);
   }
   const {context:c}=boot({bootstrap:{readiness:{publicBookingEnabled:false}}});await c.DB.getResolvedTenantId();assert.equal(c.PB_PUBLIC_BOOKING_ENABLED,false);
 });

@@ -3446,7 +3446,6 @@ body.dark #splashScreen {
   background:rgba(194,65,58,.09); color:#c2413a; font-size:.72rem; line-height:1.45;
 }
 .player-rain-alert[hidden] { display:none; }
-.player-rain-turnstile { min-height:0; margin-top:11px; }
 .player-rain-overlay .sr-only {
   position:absolute!important; width:1px!important; height:1px!important; padding:0!important; margin:-1px!important;
   overflow:hidden!important; clip:rect(0,0,0,0)!important; white-space:nowrap!important; border:0!important;
@@ -4535,14 +4534,9 @@ function syncRefundPolicyFeatureUi() {
 }
 const PLATFORM_PERSISTED_STATUS_KEY_BASE = 'pb_last_booking_access_v2';
 const PLATFORM_RESUME_HASH_PARAM = 'resume';
-let _playerRainTurnstileWidgetId = null;
-let _playerRainTurnstileToken = '';
-let _playerRainTurnstileResolve = null;
-let _playerRainTurnstileReject = null;
 let _playerRainCountdown = null;
 let _playerRainPhotoPreviewUrl = '';
 const PLAYER_RAIN_STORAGE_KEY_BASE = 'pb_player_rain_claim_v1';
-const PLAYER_RAIN_TURNSTILE_ACTION = 'rain_report';
 const _playerRainState = {
   stage:'start',
   busy:false,
@@ -5295,7 +5289,6 @@ function playerRainStartHtml() {
             <small>For privacy, the reference and contact must match the booking exactly.</small>
           </div>
         </div>
-        <div class="player-rain-turnstile" id="playerRainTurnstile" aria-label="Security check"></div>
       `}
       <button type="button" class="player-rain-now" id="playerRainStartButton" onclick="submitPlayerRainStart()">
         Report Rain Now
@@ -5562,60 +5555,6 @@ function playerRainUseDifferentBooking() {
   requestAnimationFrame(() => $('playerRainBookingReference')?.focus({ preventScroll:true }));
 }
 
-function playerRainTurnstileCallback(token) {
-  _playerRainTurnstileToken = String(token || '');
-  const resolve = _playerRainTurnstileResolve;
-  _playerRainTurnstileResolve = null;
-  _playerRainTurnstileReject = null;
-  if (resolve) resolve(_playerRainTurnstileToken);
-}
-
-function playerRainTurnstileError() {
-  _playerRainTurnstileToken = '';
-  const reject = _playerRainTurnstileReject;
-  _playerRainTurnstileResolve = null;
-  _playerRainTurnstileReject = null;
-  if (reject) reject(new Error('The security check could not be completed.'));
-}
-
-function resetPlayerRainTurnstile() {
-  _playerRainTurnstileToken = '';
-  if (_playerRainTurnstileWidgetId !== null && window.turnstile) {
-    try { window.turnstile.reset(_playerRainTurnstileWidgetId); } catch (_) {}
-  }
-}
-
-async function getPlayerRainTurnstileToken() {
-  const sitekey = String(window.PB_TENANT_CONFIG?.turnstileSiteKey || '').trim();
-  if (!sitekey) throw new Error('The security check is not configured.');
-  const turnstile = await waitForTurnstile();
-  if (_playerRainTurnstileWidgetId === null || !$('playerRainTurnstile')?.hasChildNodes()) {
-    _playerRainTurnstileWidgetId = turnstile.render('#playerRainTurnstile', {
-      sitekey,
-      action:PLAYER_RAIN_TURNSTILE_ACTION,
-      execution:'execute',
-      appearance:'interaction-only',
-      size:'flexible',
-      callback:playerRainTurnstileCallback,
-      'expired-callback':resetPlayerRainTurnstile,
-      'error-callback':playerRainTurnstileError,
-      'timeout-callback':playerRainTurnstileError,
-    });
-  }
-  if (_playerRainTurnstileToken) return _playerRainTurnstileToken;
-  return new Promise((resolve,reject) => {
-    let timer = null;
-    const finish = callback => value => {
-      clearTimeout(timer);
-      callback(value);
-    };
-    _playerRainTurnstileResolve = finish(resolve);
-    _playerRainTurnstileReject = finish(reject);
-    timer = setTimeout(() => playerRainTurnstileError(), 20000);
-    try { turnstile.execute(_playerRainTurnstileWidgetId); } catch (error) { playerRainTurnstileError(); }
-  });
-}
-
 function playerRainClientRequestId(reference) {
   const normalized = String(reference || '').trim().toUpperCase();
   const recovery = readPlayerRainRecovery();
@@ -5647,7 +5586,6 @@ async function submitPlayerRainStart() {
   }
   if (!access && (!referenceControl?.reportValidity() || !contactControl?.reportValidity())) return;
   const switchingToDifferentBooking = Boolean(priorReference && bookingReference !== priorReference);
-  let turnstileToken = '';
   try {
     const stateReference = String(_playerRainState.bookingReference || '').trim().toUpperCase();
     const clientRequestId = stateReference === bookingReference && _playerRainState.clientRequestId
@@ -5660,13 +5598,12 @@ async function submitPlayerRainStart() {
     }
     playerRainSetBusy(true, 'Recording the rain time securely…');
     playerRainSetError('');
-    if (!access) turnstileToken = await getPlayerRainTurnstileToken();
     const result = await DB.startPlayerRainReport({
       bookingReference,
       clientRequestId,
       ...(access?.bookingToken
         ? { bookingToken:access.bookingToken }
-        : { bookingContact, turnstileToken }),
+        : { bookingContact }),
     });
     _playerRainState.claim = result.claim;
     _playerRainState.claimToken = result.claimToken;
@@ -5686,7 +5623,6 @@ async function submitPlayerRainStart() {
     playerRainSetError(playerRainSafeError(error,'start'));
     playerRainSetLive('The rain report could not be started.');
   } finally {
-    if (!access) resetPlayerRainTurnstile();
     playerRainSetBusy(false);
   }
 }
@@ -5907,7 +5843,6 @@ function closePlayerRainReport({ restoreFocus = true } = {}) {
   _playerRainPhotoPreviewUrl = '';
   _playerRainState.proofFile = null;
   clearPlayerRainPrivateDetails();
-  resetPlayerRainTurnstile();
   overlay.setAttribute('aria-hidden','true');
   overlay.inert = true;
   overlay.hidden = true;
@@ -5994,15 +5929,6 @@ function clearPlatformRequestState({ clearAccess = true } = {}) {
 
 
 
-
-async function waitForTurnstile(timeoutMs = 10000) {
-  const started = Date.now();
-  while (!window.turnstile) {
-    if (Date.now() - started >= timeoutMs) throw new Error('Security verification did not load. Check your connection and try again.');
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  return window.turnstile;
-}
 
 
 

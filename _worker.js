@@ -2,7 +2,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    const primaryHostname = String(env.PRIMARY_HOSTNAME || 'pickle-street-tugbok.boothsandbeyondoffic.chatgpt.site').trim().toLowerCase();
+    const primaryHostname = String(env.PRIMARY_HOSTNAME || 'picklestreetcourt.com').trim().toLowerCase();
     if (primaryHostname && url.hostname === `www.${primaryHostname}`) {
       url.hostname = primaryHostname;
       return Response.redirect(url.toString(), 301);
@@ -20,6 +20,9 @@ export default {
       '/owner-insights.css',
       '/manage-booking.js',
       '/manage-booking.css',
+      '/open-play-data.js',
+      '/open-play-public.js',
+      '/open-play.css',
     ]);
     const isSharedRuntime = url.pathname === '/supabase-config.js' ||
       releaseCoupledRuntime.has(url.pathname);

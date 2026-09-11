@@ -3900,7 +3900,7 @@ window.DB = {
     return result.booking;
   },
 
-  async createPublicBooking(booking, { turnstileToken } = {}) {
+  async createPublicBooking(booking) {
     if (!PB_PLATFORM_V1) throw new Error('The tenant booking service is not enabled.');
     const bootstrap = await _pbPlatformBootstrap();
     if (bootstrap?.readiness?.publicBookingEnabled !== true) {
@@ -3926,8 +3926,6 @@ window.DB = {
     if (!slots.length || slots.some((hour, index) => index > 0 && hour !== slots[index - 1] + 1)) {
       throw new Error('Booking hours must be consecutive.');
     }
-    const token = String(turnstileToken || '').trim();
-    if (!token) throw new Error('Please complete the security check before confirming.');
     const clientRequestId = String(booking?.clientRequestId || '').trim().toLowerCase();
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(clientRequestId)) {
       throw new Error('A secure booking request ID could not be created. Please refresh and try again.');
@@ -3953,7 +3951,6 @@ window.DB = {
         : 1,
       notes,
       clientRequestId,
-      turnstileToken: token,
     };
     if (PB_REFUND_RESCHEDULE_POLICY_ENABLED) {
       payload.policyAccepted = true;
@@ -4072,14 +4069,12 @@ window.DB = {
     clientRequestId,
     bookingToken = '',
     bookingContact = '',
-    turnstileToken = '',
   } = {}) {
     if (!PB_PLATFORM_V1) throw new Error('Player rain reporting is not available.');
     const reference = String(bookingReference || '').trim().toUpperCase();
     const requestId = String(clientRequestId || '').trim().toLowerCase();
     const token = String(bookingToken || '').trim();
     const contact = String(bookingContact || '').trim();
-    const turnstile = String(turnstileToken || '').trim();
     if (!reference) throw new Error('Enter your booking reference.');
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(requestId)) {
       throw new Error('Please refresh and try again.');
@@ -4087,7 +4082,6 @@ window.DB = {
     if (Boolean(token) === Boolean(contact)) {
       throw new Error('Use your saved booking access or enter the exact booking contact.');
     }
-    if (!token && !turnstile) throw new Error('Please complete the security check.');
     const result = await _invokeEdgeFunction(
       `player-rain-report?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
       {
@@ -4097,7 +4091,7 @@ window.DB = {
         clientRequestId: requestId,
         ...(token
           ? { bookingToken: token }
-          : { bookingContact: contact, turnstileToken: turnstile }),
+          : { bookingContact: contact }),
       },
       { preferDirect: true }
     );
