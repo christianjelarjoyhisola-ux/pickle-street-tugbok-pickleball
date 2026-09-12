@@ -55,7 +55,10 @@ export type GcashProviderReceiptParse = {
 export type BankProviderReceiptParse = {
   provider: "gotyme" | "maribank";
   destinationProvider: "gcash";
-  parserVersion: "gotyme_to_gcash_v1" | "maribank_to_gcash_v1";
+  parserVersion:
+    | "gotyme_to_gcash_v1"
+    | "gotyme_to_gcash_v2"
+    | "maribank_to_gcash_v1";
   receipt: BankToGcashReceiptParse;
 };
 
@@ -151,7 +154,7 @@ export function parseProviderReceipt(
       return {
         provider,
         destinationProvider: "gcash",
-        parserVersion: "gotyme_to_gcash_v1",
+        parserVersion: "gotyme_to_gcash_v2",
         receipt: parseGotymeToGcashReceipt(rawText, options),
       };
     case "bpi":

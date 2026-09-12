@@ -159,7 +159,7 @@ Deno.test("dispatches clean dedicated BDO Pay evidence", () => {
 Deno.test("dispatches clean GCash, GoTyme-to-GCash, and MariBank-to-GCash evidence", () => {
   const cases = [
     ["gcash", GCASH_OCR, "2043350406766", "gcash_v1"],
-    ["gotyme", GOTYME_OCR, "GTY2026083112345678", "gotyme_to_gcash_v1"],
+    ["gotyme", GOTYME_OCR, "GTY2026083112345678", "gotyme_to_gcash_v2"],
     [
       "maribank",
       MARIBANK_OCR,

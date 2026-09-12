@@ -346,11 +346,55 @@ Deno.test("sender account does not satisfy wrong receiver and masked bank accoun
       "\nSender\n" + NAME + "\n" + MOBILE;
     assert.equal(verifySourceRoute(f).autoApprove, false, provider);
   }
-  for (const provider of ["gotyme", "maribank"] as const) {
+  for (const provider of ["maribank"] as const) {
     const f = fixture(provider);
     f.vision.text = f.vision.text.replace(MOBILE, "0917***0001");
     assert.equal(verifySourceRoute(f).autoApprove, false, provider);
   }
+});
+Deno.test("current GoTyme-to-GCash details screen can auto-verify its masked recipient", () => {
+  const f = fixture("gotyme");
+  f.expectedAmount = 960;
+  f.payment.receiverName = "Renielo Vhal Apari";
+  f.payment.receiverReference = "09272172285";
+  f.payment.submittedReference = "ITO260912124958015";
+  f.timing.bookingStartedAt = "2026-09-12T12:45:00Z";
+  f.vision.text = `8:50
+₱960.00
+Repeat
+Add to favorites
+Share
+instaPay
+Instant
+To
+Vhal A.
+•••••••2285
+G-Xchange, Inc (GCash)
+From
+SYNTHETIC SENDER
+••••••••7523
+GoTyme Bank
+Amount
+₱960.00
+Fee
+₱0.00
+Total
+₱960.00
+Trace ID
+000015
+Reference No.
+ITO260912124958015
+Date
+12 Sep 2026 at 8:49 PM
+Get help`;
+  const r = verifySourceRoute(f);
+  assert.equal(r.autoApprove, true, JSON.stringify(r.flags));
+  assert.equal(r.paymentReference, "ITO260912124958015");
+  assert.equal(r.extractedData.detected.route.parserVersion, "gotyme_to_gcash_v2");
+  assert.equal(r.extractedData.timing.receiptDateTime, "2026-09-12T12:49:00Z");
+
+  f.vision.text = f.vision.text.replace("•••••••2285", "•••••••9999");
+  assert.equal(verifySourceRoute(f).autoApprove, false, "wrong GCash suffix");
 });
 Deno.test("native confidence threshold cannot be raised by complete matching evidence", () => {
   for (const provider of Object.keys(receipts) as Provider[]) {

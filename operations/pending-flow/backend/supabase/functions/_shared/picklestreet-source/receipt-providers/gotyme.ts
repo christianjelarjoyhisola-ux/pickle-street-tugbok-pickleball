@@ -8,11 +8,14 @@ import {
 
 const GOTYME_CONFIG = {
   provider: "gotyme" as const,
-  parserVersion: "gotyme_to_gcash_v1" as const,
+  parserVersion: "gotyme_to_gcash_v2" as const,
   brandPattern: /\bgo\s*tyme\b|\bgotyme\b/i,
   competingBrandPattern: /\bmari\s*bank\b|\bmaribank\b/i,
   competingProvider: "maribank" as const,
   unreadableFlag: "GOTYME_RECEIPT_UNREADABLE",
+  // Current GoTyme transfer details mark completed InstaPay transfers as
+  // "Instant" instead of spelling out "Transfer successful".
+  transferSuccessPattern: /^instant$/im,
 };
 
 export function parseGotymeToGcashReceipt(

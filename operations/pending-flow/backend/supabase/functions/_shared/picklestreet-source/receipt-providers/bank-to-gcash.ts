@@ -69,7 +69,7 @@ export type BankReceiptIndicators = {
 export type BankToGcashReceiptParse = {
   provider: BankToGcashProvider;
   destinationProvider: "gcash";
-  parserVersion: "gotyme_to_gcash_v1" | "maribank_to_gcash_v1";
+  parserVersion: "gotyme_to_gcash_v1" | "gotyme_to_gcash_v2" | "maribank_to_gcash_v1";
   reference: BankReferenceField;
   railReference: BankRailReferenceField;
   amount: ReceiptAmountExtraction;
@@ -121,6 +121,7 @@ export type BankReceiptParserConfig = {
   competingBrandPattern: RegExp;
   competingProvider: BankToGcashProvider;
   unreadableFlag: string;
+  transferSuccessPattern?: RegExp;
 };
 
 const PRIMARY_LABELS: Array<{
@@ -396,6 +397,8 @@ function parseTimestamp(lines: string[]): BankReceiptTimestamp {
     /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2}),?\s+(\d{4})(?:\s*(?:,|at)?\s*(\d{1,2}):(\d{2})\s*(AM|PM))?\b/i;
   const iso =
     /\b(\d{4})-(\d{2})-(\d{2})(?:[ T,]+(\d{1,2}):(\d{2})\s*(AM|PM)?)?\b/i;
+  const dayFirst =
+    /\b(\d{1,2})\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{4})(?:\s*(?:,|at)?\s*(\d{1,2}):(\d{2})\s*(AM|PM))?\b/i;
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
     const line = lines[lineIndex];
     const named = line.match(monthName);
@@ -422,6 +425,19 @@ function parseTimestamp(lines: string[]): BankReceiptTimestamp {
         numeric[4] ? Number(numeric[4]) : null,
         numeric[5] ? Number(numeric[5]) : null,
         numeric[6] || "",
+      );
+    }
+    const dayNamed = line.match(dayFirst);
+    if (dayNamed) {
+      return timestampResult(
+        dayNamed[0],
+        lineIndex,
+        Number(dayNamed[3]),
+        MONTHS[dayNamed[2].toLowerCase()] || 0,
+        Number(dayNamed[1]),
+        dayNamed[4] ? Number(dayNamed[4]) : null,
+        dayNamed[5] ? Number(dayNamed[5]) : null,
+        dayNamed[6] || "",
       );
     }
   }
@@ -581,7 +597,7 @@ export function parseBankToGcashReceipt(
         : null,
       transferSuccess:
         /\b(?:transfer|transaction)\s+(?:successful|completed?)\b|\bsuccessfully\s+(?:sent|transferred)\b|\bmoney\s+sent\b/i
-          .test(text),
+          .test(text) || !!config.transferSuccessPattern?.test(text),
       destinationGcash: /\bgcash\b|\bg-?xchange\b|\bgxi\b/i.test(text),
       instaPay: /\binsta\s*pay\b/i.test(text),
     },

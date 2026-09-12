@@ -127,6 +127,17 @@ function recipientPassed(
     return evidence.recipientComparison === "exact" &&
       evidence.recipientAccountComparison === "exact";
   }
+  if (evidence.provider === "gotyme") {
+    // GoTyme's current transfer-details screen masks the GCash number. Bind
+    // its visible suffix and masked-compatible recipient name together with
+    // the independently checked primary reference, trace ID, amount and time.
+    return ["exact", "last4_only"].includes(
+      evidence.recipientComparison.phone,
+    ) &&
+      ["exact", "masked_compatible"].includes(
+        evidence.recipientComparison.name,
+      );
+  }
   // Preserve the full-account rule for bank routes. Last-four-only proof remains pending.
   return evidence.recipientComparison.phone === "exact" &&
     ["exact", "masked_compatible"].includes(
