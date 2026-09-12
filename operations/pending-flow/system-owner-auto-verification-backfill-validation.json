@@ -1,0 +1,11 @@
+{
+  "checkedAt": "2026-09-12T13:52:10.544Z",
+  "migrationHash": "7a6fb29774be65c1bf35f03475c6401ad0ae7b1c935dae6a911a487b7cf72689",
+  "rolledBack": true,
+  "result": [
+    {
+      "relabeled": 10,
+      "missed": 0
+    }
+  ]
+}

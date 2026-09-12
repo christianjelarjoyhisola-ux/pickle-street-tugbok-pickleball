@@ -5,6 +5,7 @@ const fs=require('node:fs');
 
 const migration=fs.readFileSync('operations/pending-flow/024-system-owner-auto-verification.sql','utf8');
 const compatibility=fs.readFileSync('operations/pending-flow/025-system-owner-auto-verification-compatibility.sql','utf8');
+const backfill=fs.readFileSync('operations/pending-flow/026-backfill-system-owner-auto-verification.sql','utf8');
 
 test('database migration derives Auto Verified only from the trusted System Owner profile',()=>{
   assert.match(migration,/platform_profiles where user_id=p_actor_user_id and is_platform_owner/);
@@ -17,6 +18,14 @@ test('published dashboard compatibility returns success while preserving the sto
   assert.match(compatibility,/receiptStatus.*approved.*storedReceiptStatus.*r\.status/);
   assert.match(compatibility,/system_owner and p_decision=''approve''/);
   assert.match(compatibility,/commit;\s*$/);
+});
+
+test('historical backfill selects only completed System Owner approval ledger rows',()=>{
+  assert.match(backfill,/platform_profiles profile[\s\S]*profile\.is_platform_owner/);
+  assert.match(backfill,/review\.decision = 'approve'/);
+  assert.match(backfill,/review\.completed_at is not null/);
+  assert.match(backfill,/receipt\.status = 'approved'/);
+  assert.match(backfill,/set status = 'auto_approved'/);
 });
 
 test('migration is transactional and refuses to patch an unexpected live function',()=>{
