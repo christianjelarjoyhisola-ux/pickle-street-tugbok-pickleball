@@ -4846,7 +4846,12 @@ function receiptObservedRecipient(extracted) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
 }
 function receiptHasHistoricalChecks(booking) {
-  return booking?.receiptStatus === 'approved' && booking?.receiptExtracted?.review?.decision === 'approved';
+  return ['approved', 'auto_approved'].includes(booking?.receiptStatus)
+    && booking?.receiptExtracted?.review?.decision === 'approved';
+}
+function receiptWasSystemOwnerConfirmed(booking) {
+  return booking?.receiptStatus === 'auto_approved'
+    && booking?.receiptExtracted?.review?.decision === 'approved';
 }
 function receiptReceiverValue(extracted) {
   const recipient = receiptObservedRecipient(extracted);
@@ -9394,7 +9399,9 @@ async function vmPopulateReceipt(b){
   if (wrap) wrap.style.display = '';
   const st = $('vmReceiptStatus');
   const map = {
-    auto_approved: ['var(--green)','rgba(var(--green-rgb),.12)','✅ Auto-verified — all checks passed'],
+    auto_approved: ['var(--green)','rgba(var(--green-rgb),.12)',b?.receiptExtracted?.review?.decision === 'approved'
+      ? '✅ Auto Verified — confirmed by System Owner'
+      : '✅ Auto Verified — all checks passed'],
     approved: ['var(--green)','rgba(var(--green-rgb),.12)','Payment confirmed'],
     manual_review: ['#b87e00','rgba(184,126,0,.12)','🕓 Needs review — see flags below'],
     short_payment: ['#b87e00','rgba(184,126,0,.12)','Short payment accepted — balance requested'],
@@ -9533,12 +9540,15 @@ async function performPendingReceiptReview(decision) {
   const result = await DB.reviewPendingReceipt({bookingReference:context.bookingReference,
     verificationId:context.verificationId,expectedAttemptId:context.attemptId,
     idempotencyKey:_manualReceiptDecisionKeys.get(fingerprint),decision,note});
-  const expectedStatus = decision === 'approve' ? 'approved' : 'rejected';
-  if (result.receiptStatus !== expectedStatus) throw new Error('Refresh this booking to check whether the receipt decision was saved.');
+  const savedReceiptStatus = result.storedReceiptStatus || result.receiptStatus;
+  const expectedStatuses = decision === 'approve' ? ['approved', 'auto_approved'] : ['rejected'];
+  if (!expectedStatuses.includes(savedReceiptStatus)) throw new Error('Refresh this booking to check whether the receipt decision was saved.');
   _manualReceiptDecisionKeys.delete(fingerprint);
   closeVerifyModal();
   toast(decision === 'approve'
-    ? (result.requestType === 'reschedule_adjustment' ? 'Payment confirmed. The booking has moved to the new schedule.' : 'Payment received. Booking confirmed!')
+    ? (savedReceiptStatus === 'auto_approved'
+      ? (result.requestType === 'reschedule_adjustment' ? 'Payment Auto Verified by System Owner. The booking has moved to the new schedule.' : 'Payment Auto Verified by System Owner. Booking confirmed!')
+      : (result.requestType === 'reschedule_adjustment' ? 'Payment confirmed. The booking has moved to the new schedule.' : 'Payment received. Booking confirmed!'))
     : (context.balanceRequestId ? 'Receipt rejected. The additional-payment request is closed; previously accepted payments are preserved.' : 'Receipt rejected. The reservation has been released.'));
   if (decision === 'approve' && ['failed','pending'].includes(result.confirmationEmail)) {
     toast('Payment confirmed, but its email is pending. Use Resend Email if needed.', 'inf');

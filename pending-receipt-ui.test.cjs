@@ -35,6 +35,11 @@ test('manual Confirm sends the displayed attempt and records staff confirmation 
  const {c,calls,messages}=manualDecisionHarness();await c.performPendingReceiptReview('approve');
  assert.equal(calls.length,1);assert.equal(calls[0].decision,'approve');assert.equal(calls[0].expectedAttemptId,'attempt-1');assert.match(calls[0].note,/received by staff/);assert.equal(c.closed,true);assert.match(messages[0],/Booking confirmed/);
 });
+test('System Owner confirmation accepts the protected auto-verification result and reports it clearly',async()=>{
+ const h=manualDecisionHarness({response:{ok:true,receiptStatus:'approved',storedReceiptStatus:'auto_approved',bookingStatus:'confirmed',paymentStatus:'paid'}});
+ await h.c.performPendingReceiptReview('approve');
+ assert.equal(h.calls.length,1);assert.equal(h.c.closed,true);assert.match(h.messages[0],/Auto Verified by System Owner/);
+});
 test('Reject requires a reason and preserves the previous payment when rejecting an additional receipt',async()=>{
  for(const answer of [null,'x','a'.repeat(1001)]){const h=manualDecisionHarness({answer});await h.c.performPendingReceiptReview('reject');assert.equal(h.calls.length,0);}
  const h=manualDecisionHarness({response:{ok:true,receiptStatus:'rejected',bookingStatus:'confirmed',paymentStatus:'paid',balanceStatus:'cancelled'}});h.c._verifyModalReviewContext.balanceRequestId='balance-1';await h.c.performPendingReceiptReview('reject');

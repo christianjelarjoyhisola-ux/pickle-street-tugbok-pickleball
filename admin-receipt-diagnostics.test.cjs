@@ -141,6 +141,13 @@ test('staff-confirmed receipts keep earlier failure evidence under a historical 
   assert.doesNotMatch(h.receiptDetailsHtml(b),/Earlier automatic-check reason/);
 });
 
+test('System Owner-confirmed receipts display Auto Verified without claiming OCR checks passed',()=>{
+  const h=display(),b=fixture();b.receiptStatus='auto_approved';b.receiptExtracted.review={decision:'approved',note:'Payment confirmed by owner'};
+  assert.equal(h.receiptHasHistoricalChecks(b),true);assert.equal(h.receiptWasSystemOwnerConfirmed(b),true);
+  const statusSource=part(admin,'async function vmPopulateReceipt(','async function vmReloadReceiptPreview(');
+  assert.match(statusSource,/Auto Verified — confirmed by System Owner/);
+});
+
 function diagnosticsHarness() {
   const h=display(),pending=new Map(),elements=new Map();
   h.window.PB_PLATFORM_V1=true;h._vmReceiptLoadSeq=0;

@@ -1,0 +1,12 @@
+{
+  "checkedAt": "2026-09-12T13:42:44.284Z",
+  "migrationHash": "dd672ef9111da807d4c441eb98bf98161197a8a4e47f8e67539f2915b2343a00",
+  "rolledBack": true,
+  "result": [
+    {
+      "system_owner_derived": true,
+      "owner_auto_verified": true,
+      "authorization_preserved": true
+    }
+  ]
+}
