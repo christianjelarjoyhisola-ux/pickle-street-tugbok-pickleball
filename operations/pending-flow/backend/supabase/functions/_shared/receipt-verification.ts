@@ -381,6 +381,7 @@ export async function detectReceiptText(options: {
   apiKey: string;
   fetcher?: Fetcher;
   signal?: AbortSignal;
+  feature?: "DOCUMENT_TEXT_DETECTION" | "TEXT_DETECTION";
 }): Promise<VisionTextResult> {
   const apiKey = options.apiKey.trim();
   if (!apiKey) throw new Error("GOOGLE_VISION_API_KEY is not configured.");
@@ -411,7 +412,10 @@ export async function detectReceiptText(options: {
             // Receipt screenshots are dense documents. This mode returns the
             // same recognized text plus word-level confidence when Vision can
             // calculate it.
-            features: [{ type: "DOCUMENT_TEXT_DETECTION", maxResults: 1 }],
+            features: [{
+              type: options.feature ?? "DOCUMENT_TEXT_DETECTION",
+              maxResults: 1,
+            }],
             imageContext: { languageHints: ["en"] },
           }],
         }),
