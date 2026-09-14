@@ -16,6 +16,10 @@ const GOTYME_CONFIG = {
   // Current GoTyme transfer details mark completed InstaPay transfers as
   // "Instant" instead of spelling out "Transfer successful".
   transferSuccessPattern: /^instant$/im,
+  instaPayPattern: /^instant$/im,
+  primaryReferencePattern: /\b(ITO\d{12,20}|GTY[A-Z0-9]{12,24})\b/i,
+  railReferencePattern: /\btrace\s*id\b[\s\S]{0,260}?\n(\d{4,12})(?:\n|$)/i,
+  allowOcrOnlyPrimaryReference: true,
 };
 
 export function parseGotymeToGcashReceipt(

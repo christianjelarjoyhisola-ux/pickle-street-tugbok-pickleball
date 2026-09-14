@@ -16,7 +16,7 @@ function fixture(){return {paymentMethod:'gcash',receiptStatus:'manual_review',r
 test('a detected matching amount remains distinct from an unresolved strict principal check',()=>{
   const h=display(),html=h.receiptDetailsHtml(fixture());
   assert.match(html,/PHP 2\.00/);assert.match(html,/Transferred amount could not be verified/);
-  assert.match(html,/Recipient name could not be verified/);assert.doesNotMatch(html,/All visible checks passed/);
+  assert.match(html,/Receiver could not be verified/);assert.doesNotMatch(html,/All visible checks passed/);
   assert.match(html,/96% Google Vision.*86% final score/);
 });
 
@@ -35,6 +35,17 @@ test('internal strict-check wrapper flags have readable labels in reasons and ch
   for(const rendered of [h.receiptReasonText(['existing_gcash_checks_pending']),h.receiptFlagChips(['existing_gcash_checks_pending'])]) {
     assert.doesNotMatch(rendered,/existing_gcash_checks_pending/);assert.match(rendered,/GCash|check|verif/i);
   }
+});
+
+test('pending unreadable checks collapse into three clear review reasons instead of duplicate red warnings',()=>{
+  const h=display(),b=fixture();
+  b.paymentMethod='gotyme';
+  b.receiptFlags=['automatic_checks_pending','instapay_unreadable','instapay_ref_unreadable','ref_unreadable','number_unreadable','payment_receiver_unverified','payment_reference_unverified','secondary_reference_unverified'];
+  const flags=h.receiptFlagsForDisplay(b);
+  assert.deepEqual(Array.from(flags),['payment_receiver_unverified','payment_reference_unverified','secondary_reference_unverified']);
+  const review=h.receiptFlagChips(flags,'review'),history=h.receiptFlagChips(flags,'history');
+  assert.equal((review.match(/receipt-chip/g)||[]).length,3);assert.match(review,/is-review/);assert.doesNotMatch(review,/unreadable/i);
+  assert.match(history,/is-history/);assert.match(admin,/\.receipt-chip\.is-review/);assert.match(admin,/\.receipt-chip\.is-history/);
 });
 
 test('timing rounds display precision without changing the stored window decision',()=>{

@@ -48,6 +48,38 @@ Aug 31, 2026 10:41 AM
 InstaPay
 `;
 
+// Synthetic text in the same two-column reading order produced by Vision for
+// the current GoTyme "Sent / Instant" transfer-details screen.
+const GOTYME_CURRENT_LAYOUT_OCR = `
+Sent
+PHP 160.00
+Repeat
+Add to favorites
+Share
+instaPay
+Instant
+To
+From
+Amount
+Fee
+Total
+Note
+Trace ID
+Reference No.
+Date
+Venue Recipient
+0••••••2285
+G-Xchange, Inc (GCash)
+Sender Name
+••••••••3075
+GoTyme Bank
+Amount PHP 160.00
+Court booking payment
+000009
+ITO260914122329999
+14 Sep 2026 at 8:23 PM
+`;
+
 const MARIBANK_OCR = `
 MariBank
 Money sent
@@ -199,6 +231,64 @@ Deno.test("dispatches clean GCash, GoTyme-to-GCash, and MariBank-to-GCash eviden
     assert(
       !("status" in verified),
       `${provider} verifier returns evidence, never a payment status`,
+    );
+  }
+});
+
+Deno.test("current GoTyme Sent screen verifies its OCR-only reference, Trace ID and masked GCash recipient", () => {
+  const parsed = parseProviderReceipt("gotyme", GOTYME_CURRENT_LAYOUT_OCR);
+  const verified = verifyProviderReceipt(parsed, {
+    ...CONTEXT,
+    typedReference: "",
+    expectedAmount: 160,
+    expectedRecipientName: "Venue Recipient",
+    expectedRecipientNumber: "09272172285",
+    bookingStartedAt: "2026-09-14T12:21:05.000Z",
+    bookingStartedDate: "2026-09-14",
+  });
+  assert(parsed.provider === "gotyme", "GoTyme provider");
+  assertEquals(
+    parsed.receipt.reference.value,
+    "ITO260914122329999",
+    "GoTyme native reference",
+  );
+  assertEquals(
+    parsed.receipt.reference.typedMatch,
+    "match",
+    "strict OCR-only reference is valid in receipt-only checkout",
+  );
+  assertEquals(
+    parsed.receipt.railReference.value,
+    "000009",
+    "GoTyme Trace ID",
+  );
+  assertEquals(
+    parsed.receipt.recipient.phoneLast4,
+    "2285",
+    "masked GCash recipient",
+  );
+  assertEquals(verified.flags, [], "current GoTyme layout flags");
+});
+
+Deno.test("current GoTyme layout still fails closed when its native reference, Trace ID or recipient changes", () => {
+  for (const [changed, expectedFlag] of [
+    [GOTYME_CURRENT_LAYOUT_OCR.replace("ITO260914122329999", "reference unavailable"), "REF_UNREADABLE"],
+    [GOTYME_CURRENT_LAYOUT_OCR.replace("000009", "trace unavailable"), "INSTAPAY_REF_UNREADABLE"],
+    [GOTYME_CURRENT_LAYOUT_OCR.replace("0••••••2285", "0••••••9999"), "WRONG_GCASH_NUMBER"],
+  ] as const) {
+    const parsed = parseProviderReceipt("gotyme", changed);
+    const verified = verifyProviderReceipt(parsed, {
+      ...CONTEXT,
+      typedReference: "",
+      expectedAmount: 160,
+      expectedRecipientName: "Venue Recipient",
+      expectedRecipientNumber: "09272172285",
+      bookingStartedAt: "2026-09-14T12:21:05.000Z",
+      bookingStartedDate: "2026-09-14",
+    });
+    assert(
+      verified.flags.includes(expectedFlag),
+      `${expectedFlag} must remain review-only: ${JSON.stringify({ reference: parsed.receipt.reference, flags: verified.flags })}`,
     );
   }
 });

@@ -24,6 +24,7 @@ export type BankReferenceField = {
     | "transaction_label"
     | "reference_label"
     | "transfer_label"
+    | "provider_pattern"
     | "missing";
   label: string | null;
   lineIndex: number | null;
@@ -122,6 +123,10 @@ export type BankReceiptParserConfig = {
   competingProvider: BankToGcashProvider;
   unreadableFlag: string;
   transferSuccessPattern?: RegExp;
+  primaryReferencePattern?: RegExp;
+  railReferencePattern?: RegExp;
+  instaPayPattern?: RegExp;
+  allowOcrOnlyPrimaryReference?: boolean;
 };
 
 const PRIMARY_LABELS: Array<{
@@ -466,31 +471,48 @@ function parseRecipient(lines: string[]): BankReceiptRecipient {
   }
   const start = lineIndex ?? 0;
   const block = lines.slice(start, Math.min(lines.length, start + 5));
-  const blockText = block.join("\n");
+  // Vision sometimes reads GoTyme's two-column labels first and their values
+  // afterward. The destination block still keeps the recipient name and
+  // masked mobile beside GCash, so use it as a bounded fallback.
+  const destinationIndex = lines.findIndex((line) =>
+    /\bgcash\b|\bg-?xchange\b|\bgxi\b/i.test(line)
+  );
+  const destinationBlock = destinationIndex >= 0
+    ? lines.slice(Math.max(0, destinationIndex - 5), destinationIndex + 1)
+    : [];
+  const evidenceLines = [...new Set([...block, ...destinationBlock])];
+  const blockText = evidenceLines.join("\n");
   const fullPhone = blockText.match(
     /(?:\+?63|0)?9(?:[\s-]*\d){9}\b/,
   )?.[0] || null;
   const phoneNormalized = fullPhone ? normalizeGcashMobile(fullPhone) : null;
   const maskedPhone = blockText.match(
-    /(?:\+?63|0)?9?[\d\s-]{0,4}[•*xX]{2,}[•*xX\d\s-]*?(\d{4})\b/,
+    /(?:\+?63|0)?9?[\d\s-]{0,4}[•●·.*xX]{2,}[•●·.*xX\d\s-]*?(\d{4})\b/,
   );
   const labeledLast4 = blockText.match(
     /(?:mobile|account|number|no\.?)\D{0,20}(\d{4})\b/i,
   );
   const phoneLast4 = phoneNormalized?.slice(-4) || maskedPhone?.[1] ||
     labeledLast4?.[1] || null;
-  const accountRaw =
-    block.find((line) =>
-      /\b(?:mobile|account)\s*(?:number|no\.?|#)?\b/i.test(line)
-    ) || fullPhone || null;
+  const accountRaw = evidenceLines.find((line) =>
+    /\b(?:mobile|account)\s*(?:number|no\.?|#)?\b/i.test(line) ||
+    /[•●·.*xX]{2,}.*\d{4}\b/.test(line)
+  ) || fullPhone || null;
   const namedLine = block.find((line) =>
     /^(?:recipient|receiver|beneficiary|account)\s*name\s*[:\-–—]/i.test(line)
   );
   const namedMatch = namedLine?.match(/[:\-–—]\s*(.+)$/);
-  const possibleNames = [namedMatch?.[1] || "", inline, ...block.slice(1)]
+  const structuralLine = /^(?:to|from|amount|fee|total|note|trace\s*id|reference(?:\s*no\.?)?|date|repeat|share|add\s+to\s+favorites|instant)$/i;
+  const possibleNames = [
+    namedMatch?.[1] || "",
+    inline,
+    ...block.slice(1),
+    ...destinationBlock.slice(0, -1).reverse(),
+  ]
     .map((value) => value.trim())
     .filter((value) =>
       value.length >= 2 &&
+      !structuralLine.test(value) &&
       !/\b(?:gcash|g-?xchange|insta\s*pay|account|mobile|number|successful|amount|php|₱)\b/i
         .test(value) &&
       !/\d{4}/.test(value)
@@ -548,6 +570,63 @@ export function parseBankToGcashReceipt(
   const text = lines.join("\n");
   const primary = parsePrimaryReference(lines, options.typedReference || "");
   const rail = parseRailReference(lines);
+  if (config.primaryReferencePattern && !primary.ambiguous) {
+    const pattern = new RegExp(
+      config.primaryReferencePattern.source,
+      `${config.primaryReferencePattern.flags.replace(/g/g, "")}g`,
+    );
+    const matches = [...text.matchAll(pattern)];
+    const values = [...new Map(matches.map((match) => {
+      const raw = String(match[1] || match[0] || "");
+      return [normalizeBankReference(raw), raw] as const;
+    }).filter(([value]) => validReference(value))).entries()];
+    const [value, raw] = values.length === 1 ? values[0] : ["", ""];
+    if (validReference(value)) {
+      primary.field = {
+        value,
+        raw,
+        source: "provider_pattern",
+        label: "provider_reference",
+        lineIndex: lines.findIndex((line) => line.includes(raw)),
+        confidence: "high",
+        typedMatch: typedReferenceMatch(value, options.typedReference || ""),
+      };
+    } else if (config.allowOcrOnlyPrimaryReference) {
+      // A date or another generic label must never impersonate a provider-native
+      // reference when receipt-only approval depends on it.
+      primary.field = {
+        value: null,
+        raw: null,
+        source: "missing",
+        label: null,
+        lineIndex: null,
+        confidence: "low",
+        typedMatch: typedReferenceMatch(null, options.typedReference || ""),
+      };
+    }
+  }
+  if (
+    config.allowOcrOnlyPrimaryReference && !options.typedReference &&
+    primary.field.value && primary.field.source === "provider_pattern"
+  ) {
+    // Receipt-only checkout has no customer-entered reference. The strict bank
+    // reference remains independent evidence and is protected by replay checks.
+    primary.field.typedMatch = "match";
+  }
+  if (!rail.field.value && !rail.ambiguous && config.railReferencePattern) {
+    const match = text.match(config.railReferencePattern);
+    const raw = String(match?.[1] || "");
+    const value = normalizeBankReference(raw);
+    if (validReference(value)) {
+      rail.field = {
+        scheme: "instapay",
+        value,
+        raw,
+        lineIndex: lines.findIndex((line) => line.includes(raw)),
+        confidence: "high",
+      };
+    }
+  }
   let amount = extractReceiptAmount(text, { provider: config.provider });
   if (amount.amount == null) {
     // Bank receipts commonly put an account-number line immediately before
@@ -599,7 +678,8 @@ export function parseBankToGcashReceipt(
         /\b(?:transfer|transaction)\s+(?:successful|completed?)\b|\bsuccessfully\s+(?:sent|transferred)\b|\bmoney\s+sent\b/i
           .test(text) || !!config.transferSuccessPattern?.test(text),
       destinationGcash: /\bgcash\b|\bg-?xchange\b|\bgxi\b/i.test(text),
-      instaPay: /\binsta\s*pay\b/i.test(text),
+      instaPay: /\binsta\s*pay\b/i.test(text) ||
+        !!config.instaPayPattern?.test(text),
     },
     issues,
   };

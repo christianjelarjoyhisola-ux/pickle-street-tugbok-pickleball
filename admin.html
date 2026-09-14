@@ -949,6 +949,12 @@ tr:hover td { background: var(--bg2); }
   color: #e53935; border: 1px solid rgba(229,57,53,.25);
   border-radius: 10px; padding: 1px 8px; line-height: 1.35;
 }
+.receipt-chip.is-review {
+  color: #b87e00; background: rgba(184,126,0,.12); border-color: rgba(184,126,0,.28);
+}
+.receipt-chip.is-history {
+  color: var(--muted); background: var(--input); border-color: var(--border);
+}
 .receipt-detail-grid {
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
   margin: 10px 0; padding: 10px; border: 1px solid var(--border);
@@ -4766,6 +4772,23 @@ function receiptFlagsForDisplay(b){
   if (Number.isFinite(age) && age <= windowMinutes) {
     flags = removeReceiptFlags(flags, ['TIME_EXPIRED']);
   }
+  flags = removeReceiptFlags(flags, ['manual_review_required', 'automatic_checks_pending']);
+  const collapseUnreadable = (summary, members) => {
+    if (!flags.some(flag => members.includes(String(flag).toLowerCase()))) return;
+    flags = flags.filter(flag => !members.includes(String(flag).toLowerCase()));
+    flags.push(summary);
+  };
+  collapseUnreadable('payment_receiver_unverified', [
+    'number_unreadable', 'receiver_name_unreadable', 'receiver_account_unreadable',
+    'payment_receiver_name_unverified', 'payment_receiver_unverified',
+  ]);
+  collapseUnreadable('payment_reference_unverified', [
+    'ref_unreadable', 'ref_label_unreadable', 'payment_reference_unverified',
+  ]);
+  collapseUnreadable('secondary_reference_unverified', [
+    'instapay_unreadable', 'instapay_ref_unreadable', 'instapay_qrph_unreadable',
+    'secondary_reference_unverified',
+  ]);
   return flags;
 }
 function receiptBadge(b){
@@ -4790,9 +4813,10 @@ function duplicatePaymentRefBadge(b){
   const count = Number(b.duplicatePaymentRefCount || 0);
   return `<div class="receipt-badge" style="color:#e53935;background:rgba(229,57,53,.12)">Duplicate payment ref${count > 1 ? ` (${count})` : ''}</div>`;
 }
-function receiptFlagChips(flags){
+function receiptFlagChips(flags, tone = ''){
   if (!flags || !flags.length) return '';
-  return flags.map(f => `<span class="receipt-chip">${esc(receiptFlagLabel(f))}</span>`).join(' ');
+  const toneClass = tone === 'history' ? ' is-history' : tone === 'review' ? ' is-review' : '';
+  return flags.map(f => `<span class="receipt-chip${toneClass}">${esc(receiptFlagLabel(f))}</span>`).join(' ');
 }
 function receiptDetailValue(value, fallback = '--'){
   if (value === null || value === undefined || value === '') return fallback;
@@ -8587,7 +8611,7 @@ function paymentReviewAction(item) {
 function paymentReviewRow(item) {
   const typeLabel = 'Court Booking';
   const flags = item.flags?.length
-    ? receiptFlagChips(item.flags)
+    ? receiptFlagChips(receiptFlagsForDisplay({ receiptFlags:item.flags, paymentMethod:item.method }), 'review')
     : '<span style="color:var(--text3);font-size:.72rem;font-weight:800">No flags</span>';
   return `<article class="pr-card">
     <div class="pr-card-top">
@@ -9414,8 +9438,10 @@ async function vmPopulateReceipt(b){
   if (s === 'manual_review' && displayFlags.length) lbl = `Needs review: ${receiptReasonText(displayFlags)}`;
   if (window.PBReceiptPending?.receiptPending(b)) lbl = 'Pending — '+(displayFlags.length ? receiptReasonText(displayFlags) : 'automatic checks are not complete');
   if (st) { st.style.color = c; st.style.background = bg; st.textContent = lbl; }
+  const receiptFlagTone = receiptHasHistoricalChecks(b) ? 'history'
+    : (s === 'manual_review' || window.PBReceiptPending?.receiptPending(b)) ? 'review' : '';
   $('vmReceiptFlags').innerHTML = (receiptHasHistoricalChecks(b) && displayFlags.length
-    ? '<div style="flex-basis:100%;color:var(--muted);font-size:.76rem">Earlier automatic checks — recorded before payment confirmation</div>' : '') + receiptFlagChips(displayFlags);
+    ? '<div style="flex-basis:100%;color:var(--muted);font-size:.76rem">Earlier automatic checks — recorded before payment confirmation</div>' : '') + receiptFlagChips(displayFlags, receiptFlagTone);
   const detailBox = $('vmReceiptDetails');
   if (detailBox) {
     detailBox.innerHTML = receiptDetailsHtml(b) + (window.PBReceiptPending?.receiptPending(b) ? `<p>${esc(window.PBReceiptPending.receiptReason(b))}</p><p>${esc(window.PBReceiptPending.receiptHold(b))}</p><p>The customer can upload corrected proof from their private ${b.receiptBalanceRequestId ? 'balance payment' : 'booking'} link. Retry runs the automatic payment checks again. Staff may confirm or reject after reviewing the payment.</p>` : '');
