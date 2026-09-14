@@ -55,6 +55,14 @@ test('pending receipt review places a clear re-read action beside the saved rece
   assert.match(admin,/#verifyModal \.m-foot button, #vmRetryReceiptBtn/);
 });
 
+test('confirmed receipt re-read is offered only to the System Owner',()=>{
+  const source=part(admin,'function receiptRereadTarget(','function receiptReceiverValue(');
+  const booking={status:'confirmed',paymentStatus:'paid',receiptVerificationId:'receipt-id',receiptImageUrl:'protected'};
+  const target=role=>{const c={sess:{role},Auth:{can:(permission,value)=>permission==='owner_only'&&value==='owner'},window:{PBReceiptPending:{receiptRetryTarget:()=>null}}};vm.createContext(c);vm.runInContext(source,c);return c.receiptRereadTarget(booking);};
+  assert.equal(target('court_owner'),null);assert.equal(target('staff'),null);assert.equal(target('owner').mode,'confirmed');
+  assert.match(admin,/DB\.rereadConfirmedReceipt/);assert.match(fs.readFileSync('supabase-config.js','utf8'),/Only the System Owner can re-read a confirmed receipt/);
+});
+
 test('timing rounds display precision without changing the stored window decision',()=>{
   const h=display(),b=fixture(),original=JSON.stringify(b.receiptExtracted.timing),html=h.receiptDetailsHtml(b);
   assert.doesNotMatch(html,/1\.23395 min/);assert.match(html,/1\.2 min after/);assert.match(html,/Within window/);
@@ -93,6 +101,25 @@ test('interrupted staff retry retains its key, then completed pending attempt pe
 test('pending balance retry never reports the original paid booking as an approved additional payment',async()=>{
   const h=retryHarness({balanceRequestId:'synthetic-balance-id',responses:[{bookingStatus:'confirmed',paymentStatus:'paid',balanceStatus:'payment_review'}]});
   await h.c.retryAutomaticReceipt();assert.equal(h.calls[0][2],'synthetic-balance-id');assert.equal(h.messages[0].kind,'inf');assert.match(h.messages[0].message,/remains pending/i);
+});
+
+test('System Owner confirmed re-read preserves the paid booking and refreshes only its diagnostics',async()=>{
+  const calls=[],messages=[],populated=[],notice={hidden:true,textContent:''};
+  const booking={status:'confirmed',paymentStatus:'paid',receiptVerificationId:'synthetic-receipt-id'};
+  const c={_receiptRetryKeys:new Map(),_verifyPaymentSaving:false,_curSection:'payreview',
+    $:id=>id==='verifyModal'?{dataset:{ref:'PS-CONFIRMED'}}:id==='vmDecisionNotice'?notice:null,
+    window:{PBReceiptPending:{receiptRetryTarget:()=>null},crypto:{randomUUID:()=> 'confirmed-reread-key'}},
+    getBookingGroupByRef:async()=>booking,receiptRereadTarget:()=>({mode:'confirmed',verificationId:'synthetic-receipt-id',balanceRequestId:''}),
+    setVerifyPaymentSaving:value=>{c._verifyPaymentSaving=value;},
+    DB:{rereadConfirmedReceipt:async(...args)=>{calls.push(args);return {reread:{autoVerified:true,flags:[],extractedData:{amount:160},confidence:.95}};}},
+    vmPopulateReceipt:async value=>populated.push(value),toast:(message,kind)=>messages.push({message,kind}),
+    closeVerifyModal:()=>{c.closed=(c.closed||0)+1;},renderBookings:async()=>{},renderDash:async()=>{},renderPaymentReview:async()=>{}};
+  vm.createContext(c);vm.runInContext(part(admin,'async function retryAutomaticReceipt()','async function performRejectPayment()'),c);
+  await c.retryAutomaticReceipt();
+  assert.deepEqual(calls,[['PS-CONFIRMED','synthetic-receipt-id','confirmed-reread-key']]);
+  assert.equal(c.closed,undefined);assert.equal(c._receiptRetryKeys.size,0);assert.equal(c._verifyPaymentSaving,false);
+  assert.equal(populated[0].status,'confirmed');assert.equal(populated[0].paymentStatus,'paid');assert.equal(populated[0].receiptRereadResult.autoVerified,true);
+  assert.match(notice.textContent,/confirmed booking and paid status were not changed/i);assert.equal(messages[0].kind,'ok');
 });
 
 const c=display();

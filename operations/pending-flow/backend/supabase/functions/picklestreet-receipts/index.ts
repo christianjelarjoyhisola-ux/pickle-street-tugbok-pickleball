@@ -35,6 +35,14 @@ async function operator(db:DB,authorization:string|null):Promise<string>{
   if(!membership.data&&!owner.data)fail('TENANT_ACCESS_DENIED','This account cannot manage Pickle Street receipts.',403);
   return userId!;
 }
+async function systemOwner(db:DB,authorization:string|null):Promise<string>{
+  const token=/^Bearer (\S+)$/.exec(authorization||'')?.[1];if(!token)fail('AUTHENTICATION_REQUIRED','Sign in as System Owner to re-read this receipt.',401);
+  const {data,error}=await db.auth.getUser(token!);const userId=data.user?.id;if(error||!userId)fail('AUTHENTICATION_REQUIRED','Sign in as System Owner to re-read this receipt.',401);
+  const owner=await db.from('platform_profiles').select('user_id').eq('user_id',userId!).eq('is_platform_owner',true).maybeSingle();
+  if(owner.error)fail('AUTHORIZATION_UNAVAILABLE','System Owner access could not be verified.',503);
+  if(!owner.data)fail('SYSTEM_OWNER_REQUIRED','Only the System Owner can re-read a confirmed receipt.',403);
+  return userId!;
+}
 async function bookingAccess(db:DB,ref:string,tokenValue:unknown,balanceId:string|null=null):Promise<Obj>{
   const token=parseBookingAccessToken(tokenValue);
   const {data:booking,error}=await db.from('bookings').select('id,reference,status,payment_status,metadata').eq('tenant_id',TENANT_ID).eq('reference',ref).single();
@@ -157,7 +165,7 @@ export async function reconcileDuplicateRejection(db:DB,result:Obj,balanceId:str
   return result;
 }
 
-async function verificationResult(db:DB,job:Obj,bytes:Uint8Array,type:string,finishRpc='finish_picklestreet_receipt_attempt'):Promise<Obj>{
+async function analyzeReceipt(db:DB,job:Obj,bytes:Uint8Array,type:string):Promise<Obj>{
   let extracted:unknown=null,flags:string[]=[],paymentReference:string|null=null,confidence:number|null=null,autoApprove=false,errorCode:string|null=null,receiverSnapshot:Obj|null=null;
   try {
     const context=await paymentReceiptContext(db,job.paymentMethod);
@@ -170,10 +178,62 @@ async function verificationResult(db:DB,job:Obj,bytes:Uint8Array,type:string,fin
     const result=context.route ? verifySourceRoute({...input,route:context.route}) : verifyByMethod(input);
     extracted=result.extractedData;flags=result.flags;paymentReference=result.paymentReference;confidence=result.extractedData.confidence.effective;autoApprove=result.autoApprove;
   } catch(error){errorCode=error instanceof RequestError?error.code.toLowerCase():'verifier_unavailable';flags=['verification_unavailable'];}
-  const finished=await db.rpc(finishRpc,{p_attempt_id:job.attemptId,p_lease_token:job.leaseToken,p_extracted_data:extracted,p_flags:flags,p_payment_reference:paymentReference,p_confidence:confidence,p_auto_approve:autoApprove,p_error_code:errorCode,p_receiver_snapshot:receiverSnapshot});
+  return {extracted,flags,paymentReference,confidence,autoApprove,errorCode,receiverSnapshot};
+}
+async function verificationResult(db:DB,job:Obj,bytes:Uint8Array,type:string,finishRpc='finish_picklestreet_receipt_attempt'):Promise<Obj>{
+  const analysis=await analyzeReceipt(db,job,bytes,type);
+  const finished=await db.rpc(finishRpc,{p_attempt_id:job.attemptId,p_lease_token:job.leaseToken,p_extracted_data:analysis.extracted,p_flags:analysis.flags,p_payment_reference:analysis.paymentReference,p_confidence:analysis.confidence,p_auto_approve:analysis.autoApprove,p_error_code:analysis.errorCode,p_receiver_snapshot:analysis.receiverSnapshot});
   if(finished.error||!finished.data)fail('VERIFICATION_PENDING','Your receipt is saved. Verification has not completed; check booking status before retrying.',503);
   const result=obj(finished.data);
   return finishRpc==='finish_picklestreet_receipt_attempt' ? await reconcileDuplicateRejection(db,result) : result;
+}
+export function confirmedReceiptRereadAllowed(booking:Obj,receipt:Obj):boolean{
+  return booking.status==='confirmed' && booking.payment_status==='paid' &&
+    receipt.booking_id===booking.id && receipt.balance_request_id==null &&
+    ['approved','auto_approved'].includes(String(receipt.status||'')) && !!receipt.storage_path;
+}
+async function confirmedRereadResponse(request:Request,db:DB,body:Obj,origin:string):Promise<Response>{
+  const actor=await systemOwner(db,request.headers.get('authorization'));
+  const ref=reference(body.bookingReference),verificationId=uuid(body.verificationId),requestId=uuid(body.idempotencyKey);
+  const existing=await db.from('audit_events').select('new_data').eq('tenant_id',TENANT_ID)
+    .eq('action','receipt.confirmed_reread').eq('entity_table','receipt_verifications').eq('entity_id',verificationId)
+    .eq('request_id',requestId).order('occurred_at',{ascending:false}).limit(1).maybeSingle();
+  if(existing.error)fail('REREAD_UNAVAILABLE','The previous re-read could not be checked.',503);
+  if(existing.data?.new_data)return jsonResponse({ok:true,...obj(existing.data.new_data),idempotent:true},200,origin);
+  const bookingResult=await db.from('bookings').select('id,reference,status,payment_status,total_amount,created_at').eq('tenant_id',TENANT_ID).eq('reference',ref).single();
+  if(bookingResult.error||!bookingResult.data)fail('BOOKING_NOT_FOUND','The booking was not found.',404);
+  const booking=obj(bookingResult.data);
+  const receiptResult=await db.from('receipt_verifications').select('id,booking_id,balance_request_id,status,storage_path,file_sha256,expected_amount,payment_session_id')
+    .eq('tenant_id',TENANT_ID).eq('id',verificationId).eq('booking_id',booking.id).single();
+  if(receiptResult.error||!receiptResult.data)fail('RECEIPT_NOT_FOUND','The confirmed receipt was not found.',404);
+  const receipt=obj(receiptResult.data);
+  if(!confirmedReceiptRereadAllowed(booking,receipt))fail('CONFIRMED_RECEIPT_REQUIRED','Only a paid, confirmed booking receipt can be re-read.',409);
+  const [attemptResult,sessionResult]=await Promise.all([
+    db.from('picklestreet_receipt_attempts').select('payment_method,submitted_reference,storage_path,file_sha256').eq('tenant_id',TENANT_ID).eq('receipt_id',verificationId).order('version',{ascending:false}).limit(1).maybeSingle(),
+    receipt.payment_session_id?db.from('payment_sessions').select('provider_payload').eq('tenant_id',TENANT_ID).eq('id',receipt.payment_session_id).maybeSingle():Promise.resolve({data:null,error:null}),
+  ]);
+  if(attemptResult.error||sessionResult.error)fail('REREAD_UNAVAILABLE','The saved receipt context could not be loaded.',503);
+  const attempt=obj(attemptResult.data),payload=obj(sessionResult.data?.provider_payload);
+  const storagePath=String(receipt.storage_path||attempt.storage_path||'');
+  const paymentMethod=String(attempt.payment_method||payload.paymentMethod||'').toLowerCase();
+  if(!storagePath||!paymentMethod)fail('REREAD_UNAVAILABLE','The saved receipt context is incomplete.',409);
+  const downloaded=await db.storage.from(RECEIPT_BUCKET).download(storagePath);
+  if(downloaded.error||!downloaded.data)fail('REREAD_UNAVAILABLE','The saved receipt image could not be loaded.',503);
+  const bytes=new Uint8Array(await downloaded.data.arrayBuffer()),expectedHash=String(receipt.file_sha256||attempt.file_sha256||'').toLowerCase();
+  if(expectedHash && await sha256Hex(bytes)!==expectedHash)fail('RECEIPT_FILE_CHANGED','The saved receipt image no longer matches its protected record.',409);
+  const analysis=await analyzeReceipt(db,{
+    storagePath,paymentMethod,submittedReference:String(attempt.submitted_reference||payload.submittedReference||''),
+    expectedAmount:Number(receipt.expected_amount??booking.total_amount),currency:'PHP',bookingStartedAt:booking.created_at,tenantTimezone:'Asia/Manila',
+  },bytes,downloaded.data.type);
+  const reread={checkedAt:new Date().toISOString(),autoVerified:analysis.autoApprove===true&&!analysis.errorCode,
+    flags:analysis.flags,extractedData:analysis.extracted||{},paymentReference:analysis.paymentReference,
+    confidence:analysis.confidence,errorCode:analysis.errorCode};
+  const saved={reread,bookingStatus:booking.status,paymentStatus:booking.payment_status,bookingReference:booking.reference};
+  const audit=await db.from('audit_events').insert({tenant_id:TENANT_ID,actor_user_id:actor,actor_role:'owner',action:'receipt.confirmed_reread',
+    entity_table:'receipt_verifications',entity_id:verificationId,request_id:requestId,new_data:saved,
+    metadata:{requestId,bookingReference:booking.reference,confirmedStatePreserved:true}});
+  if(audit.error)fail('REREAD_AUDIT_FAILED','The receipt was checked, but its protected audit record could not be saved. Please try again.',503);
+  return jsonResponse({ok:true,...saved},200,origin);
 }
 async function sendConfirmation(db:DB,result:Obj):Promise<void>{
   if(result.balanceRequestId && !(['auto_approved','approved'].includes(result.status)&&result.balanceStatus==='settled'))return;
@@ -306,6 +366,7 @@ export async function handleRequest(request:Request):Promise<Response>{
     if(body.tenantSlug && body.tenantSlug!==TENANT_SLUG)fail('TENANT_ACCESS_DENIED','The venue identity could not be verified.',403);
     if(body.action==='status')return await statusResponse(request,db,body,origin);
     if(body.action==='balance_status')return await balanceStatusResponse(request,db,body,origin);
+    if(body.action==='reread_confirmed')return await confirmedRereadResponse(request,db,body,origin);
     if(body.action==='review_context'||body.action==='review'||body.action==='receipt_diagnostics'){
       const actor=await operator(db,request.headers.get('authorization'));
       return await staffReviewResponse(db,body,actor,origin);

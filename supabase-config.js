@@ -4264,6 +4264,18 @@ window.DB = {
     return result;
   },
 
+  async rereadConfirmedReceipt(bookingReference, verificationId, idempotencyKey) {
+    if (!PB_PLATFORM_V1 || PB_TENANT_SLUG !== 'pickle-street-tugbok' || window.Auth?.getSession?.()?.role !== 'owner') {
+      throw new Error('Only the System Owner can re-read a confirmed receipt.');
+    }
+    const result = await _invokeEdgeFunction(`picklestreet-receipts?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`, {
+      action:'reread_confirmed',tenantSlug:PB_TENANT_SLUG,bookingReference:String(bookingReference || '').toUpperCase(),
+      verificationId:String(verificationId || ''),idempotencyKey:idempotencyKey || window.crypto.randomUUID(),
+    }, {preferDirect:true});
+    if (!result?.ok || !result?.reread) throw new Error(result?.message || 'The confirmed receipt could not be re-read.');
+    return result;
+  },
+
   async cancelPublicBookingHold({ bookingReference, bookingToken, preliminaryHold = false, cancellationReason = 'unknown' }) {
     if (!PB_PLATFORM_V1) throw new Error('The tenant booking-cancellation service is not enabled.');
     const result = await _invokeEdgeFunction(

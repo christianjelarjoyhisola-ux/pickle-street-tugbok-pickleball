@@ -4880,6 +4880,17 @@ function receiptWasSystemOwnerConfirmed(booking) {
   return booking?.receiptStatus === 'auto_approved'
     && booking?.receiptExtracted?.review?.decision === 'approved';
 }
+function receiptRereadTarget(booking) {
+  const pending = window.PBReceiptPending?.receiptRetryTarget(booking);
+  if (pending) return {...pending, mode:'pending'};
+  const status = String(booking?.platformStatus || booking?.status || '').toLowerCase();
+  const systemOwner = !!sess && Auth.can('owner_only', sess.role);
+  if (systemOwner && status === 'confirmed' && booking?.paymentStatus === 'paid' &&
+    booking?.receiptVerificationId && booking?.receiptImageUrl) {
+    return {mode:'confirmed', verificationId:booking.receiptVerificationId, balanceRequestId:''};
+  }
+  return null;
+}
 function receiptReceiverValue(extracted) {
   const recipient = receiptObservedRecipient(extracted);
   const parts = [recipient?.observedName, recipient?.observedNumber]
@@ -9318,7 +9329,7 @@ async function openVerifyModal(ref, { returnFocus = null, reviewAction = null } 
   }
   if ($('vmPendingCloseBtn')) $('vmPendingCloseBtn').hidden = !automaticOnly;
   if ($('vmRetryReceiptBtn')) {
-    const retryTarget = window.PBReceiptPending?.receiptRetryTarget(b);
+    const retryTarget = receiptRereadTarget(b);
     $('vmRetryReceiptBtn').disabled = _verifyPaymentSaving || !retryTarget;
     if ($('vmReceiptRereadActions')) $('vmReceiptRereadActions').hidden = !retryTarget;
   }
@@ -9417,7 +9428,7 @@ async function vmPopulateReceipt(b){
   if (previousFlags) previousFlags.innerHTML = '';
   if (previousStatus) previousStatus.textContent = 'Loading receipt details…';
   let diagnosticsUnavailable = false;
-  try { b = await receiptWithDiagnostics(b); }
+  try { if (!b.receiptRereadResult) b = await receiptWithDiagnostics(b); }
   catch (_) { diagnosticsUnavailable = true; }
   if (seq !== _vmReceiptLoadSeq) return;
   const wrap = $('vmReceiptWrap');
@@ -9441,6 +9452,9 @@ async function vmPopulateReceipt(b){
   if (s === 'rejected' && b.receiptExtracted?.review?.decision === 'rejected') lbl = 'Rejected by staff: '+(b.receiptExtracted.review.note || 'Payment not verified');
   if (s === 'manual_review' && displayFlags.length) lbl = `Needs review: ${receiptReasonText(displayFlags)}`;
   if (window.PBReceiptPending?.receiptPending(b)) lbl = 'Pending — '+(displayFlags.length ? receiptReasonText(displayFlags) : 'automatic checks are not complete');
+  if (b.receiptRereadResult) lbl = b.receiptRereadResult.autoVerified
+    ? '✅ Re-read passed — confirmed booking unchanged'
+    : `Re-read complete — confirmed booking unchanged${displayFlags.length ? ': '+receiptReasonText(displayFlags) : ''}`;
   if (st) { st.style.color = c; st.style.background = bg; st.textContent = lbl; }
   const receiptFlagTone = receiptHasHistoricalChecks(b) ? 'history'
     : (s === 'manual_review' || window.PBReceiptPending?.receiptPending(b)) ? 'review' : '';
@@ -9613,10 +9627,23 @@ async function retryAutomaticReceipt() {
   setVerifyPaymentSaving(true);
   try {
     const booking = await getBookingGroupByRef(ref);
-    const target = window.PBReceiptPending?.receiptRetryTarget(booking);
+    const pendingTarget = window.PBReceiptPending?.receiptRetryTarget(booking);
+    const target = pendingTarget ? {...pendingTarget, mode:'pending'} : receiptRereadTarget(booking);
     if (!target) { toast('This receipt does not currently need to be re-read.', 'inf'); return; }
-    const key = [ref,target.balanceRequestId || 'booking',target.verificationId].join(':');
+    const key = [ref,target.mode,target.balanceRequestId || 'booking',target.verificationId].join(':');
     if (!_receiptRetryKeys.has(key)) _receiptRetryKeys.set(key, window.crypto.randomUUID());
+    if (target.mode === 'confirmed') {
+      const result = await DB.rereadConfirmedReceipt(ref, target.verificationId, _receiptRetryKeys.get(key));
+      _receiptRetryKeys.delete(key);
+      const reread = result.reread || {};
+      await vmPopulateReceipt({...booking,receiptRereadResult:reread,
+        receiptStatus:reread.autoVerified?'auto_approved':'manual_review',receiptFlags:reread.flags||[],
+        receiptExtracted:reread.extractedData||{},receiptConfidence:reread.confidence});
+      const notice = $('vmDecisionNotice');
+      if (notice) { notice.hidden = false; notice.textContent = 'System Owner re-read completed. The confirmed booking and paid status were not changed.'; }
+      toast(reread.autoVerified ? 'Receipt re-read passed. The confirmed booking remains unchanged.' : 'Receipt re-read completed. Review the new check details; the confirmed booking remains unchanged.', reread.autoVerified ? 'ok' : 'inf');
+      return;
+    }
     const result = await DB.retryPaymentReceipt(ref, _receiptRetryKeys.get(key), target.balanceRequestId);
     _receiptRetryKeys.delete(key);
     const confirmed = target.balanceRequestId ? result.balanceStatus === 'settled' : result.bookingStatus === 'confirmed';
