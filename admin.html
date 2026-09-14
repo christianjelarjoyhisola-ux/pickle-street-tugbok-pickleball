@@ -4729,7 +4729,7 @@ const RECEIPT_FLAG_LABELS = {
   secondary_reference_unverified:'Transfer network reference could not be verified',
   receipt_datetime_unverified:'Transaction date and time could not be verified',
   receipt_parser_unavailable:'Receipt details could not be read — retry verification',
-  AMOUNT_CONFIRMATION_UNREADABLE:'The second payment amount could not be read',
+  AMOUNT_CONFIRMATION_UNREADABLE:'The “Total Amount Sent” value could not be read',
   REF_LABEL_UNREADABLE:'The receipt reference label could not be read',
 };
 function receiptFlagLabel(flag) {
@@ -9459,7 +9459,7 @@ async function vmPopulateReceipt(b){
   const receiptFlagTone = receiptHasHistoricalChecks(b) ? 'history'
     : (s === 'manual_review' || window.PBReceiptPending?.receiptPending(b)) ? 'review' : '';
   $('vmReceiptFlags').innerHTML = (receiptHasHistoricalChecks(b) && displayFlags.length
-    ? '<div style="flex-basis:100%;color:var(--muted);font-size:.76rem">Earlier automatic checks — recorded before payment confirmation</div>' : '') + receiptFlagChips(displayFlags, receiptFlagTone);
+    ? '<div style="flex-basis:100%;color:var(--muted);font-size:.76rem">Historical only — this was the automatic result before staff confirmed the payment. No second payment is required.</div>' : '') + receiptFlagChips(displayFlags, receiptFlagTone);
   const detailBox = $('vmReceiptDetails');
   if (detailBox) {
     detailBox.innerHTML = receiptDetailsHtml(b) + (window.PBReceiptPending?.receiptPending(b) ? `<p>${esc(window.PBReceiptPending.receiptReason(b))}</p><p>${esc(window.PBReceiptPending.receiptHold(b))}</p><p>The customer can upload corrected proof from their private ${b.receiptBalanceRequestId ? 'balance payment' : 'booking'} link. Retry runs the automatic payment checks again. Staff may confirm or reject after reviewing the payment.</p>` : '');
