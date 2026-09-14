@@ -3939,6 +3939,10 @@ tr:hover td { background: var(--bg2); }
         <div id="vmReceiptStatus" style="font-size:.82rem;font-weight:700;border-radius:8px;padding:8px 10px;margin-bottom:8px"></div>
         <div id="vmReceiptFlags" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px"></div>
         <div id="vmReceiptDetails" class="receipt-detail-grid" style="display:none"></div>
+        <div id="vmReceiptRereadActions" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0" hidden>
+          <button class="btn btn-p" id="vmRetryReceiptBtn" type="button" onclick="retryAutomaticReceipt()">↻ Re-read Receipt</button>
+          <span style="font-size:.75rem;color:var(--muted)">Runs the latest checks on the saved image. It does not request another payment.</span>
+        </div>
         <a id="vmReceiptLink" href="#" target="_blank" rel="noopener noreferrer" aria-label="Open uploaded receipt in a new tab" style="display:none">
           <img id="vmReceiptImg" alt="Uploaded payment receipt" referrerpolicy="no-referrer" style="width:100%;max-height:320px;object-fit:contain;border-radius:8px;border:1px solid var(--border);background:#fff"/>
         </a>
@@ -3973,7 +3977,6 @@ tr:hover td { background: var(--bg2); }
       <button class="btn btn-g" id="vmShortPaymentBtn" hidden onclick="markPaymentShort()">Request Balance</button>
       <button class="btn btn-p" id="vmManualConfirmBtn" aria-describedby="vmDecisionNotice" onclick="verifyAndConfirm()">Confirm payment received</button>
       <button class="btn btn-g" id="vmPendingCloseBtn" hidden onclick="closeVerifyModal()">Close</button>
-      <button class="btn btn-p" id="vmRetryReceiptBtn" hidden onclick="retryAutomaticReceipt()">Retry verification</button>
     </div>
   </div>
 </div>
@@ -9200,7 +9203,7 @@ let _verifyModalReviewContext = null;
 const _manualReceiptDecisionKeys = new Map();
 
 function setVerifyPaymentSaving(saving) {
-  const buttons = [...document.querySelectorAll('#verifyModal .m-foot button')];
+  const buttons = [...document.querySelectorAll('#verifyModal .m-foot button, #vmRetryReceiptBtn')];
   if (saving && !_verifyPaymentSaving) {
     _verifyPaymentDisabledBeforeSave = new Map(buttons.map(button => [button, button.disabled]));
   }
@@ -9315,8 +9318,9 @@ async function openVerifyModal(ref, { returnFocus = null, reviewAction = null } 
   }
   if ($('vmPendingCloseBtn')) $('vmPendingCloseBtn').hidden = !automaticOnly;
   if ($('vmRetryReceiptBtn')) {
-    $('vmRetryReceiptBtn').hidden = !automaticOnly;
-    $('vmRetryReceiptBtn').disabled = _verifyPaymentSaving || !window.PBReceiptPending?.receiptRetryTarget(b);
+    const retryTarget = window.PBReceiptPending?.receiptRetryTarget(b);
+    $('vmRetryReceiptBtn').disabled = _verifyPaymentSaving || !retryTarget;
+    if ($('vmReceiptRereadActions')) $('vmReceiptRereadActions').hidden = !retryTarget;
   }
   const shortAllowed = canIssueShortPayment(b);
   const shortPanel = $('vmShortPaymentPanel');
@@ -9610,7 +9614,7 @@ async function retryAutomaticReceipt() {
   try {
     const booking = await getBookingGroupByRef(ref);
     const target = window.PBReceiptPending?.receiptRetryTarget(booking);
-    if (!target) { toast('This receipt has no pending automatic check to retry.', 'inf'); return; }
+    if (!target) { toast('This receipt does not currently need to be re-read.', 'inf'); return; }
     const key = [ref,target.balanceRequestId || 'booking',target.verificationId].join(':');
     if (!_receiptRetryKeys.has(key)) _receiptRetryKeys.set(key, window.crypto.randomUUID());
     const result = await DB.retryPaymentReceipt(ref, _receiptRetryKeys.get(key), target.balanceRequestId);

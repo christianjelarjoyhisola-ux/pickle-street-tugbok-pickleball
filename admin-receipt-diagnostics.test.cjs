@@ -48,6 +48,13 @@ test('pending unreadable checks collapse into three clear review reasons instead
   assert.match(history,/is-history/);assert.match(admin,/\.receipt-chip\.is-review/);assert.match(admin,/\.receipt-chip\.is-history/);
 });
 
+test('pending receipt review places a clear re-read action beside the saved receipt evidence',()=>{
+  const wrap=admin.indexOf('id="vmReceiptWrap"'),button=admin.indexOf('id="vmRetryReceiptBtn"'),footer=admin.indexOf('<div class="m-foot">',wrap);
+  assert.ok(wrap>=0&&button>wrap&&button<footer);assert.match(admin,/↻ Re-read Receipt/);
+  assert.match(admin,/Runs the latest checks on the saved image\. It does not request another payment\./);
+  assert.match(admin,/#verifyModal \.m-foot button, #vmRetryReceiptBtn/);
+});
+
 test('timing rounds display precision without changing the stored window decision',()=>{
   const h=display(),b=fixture(),original=JSON.stringify(b.receiptExtracted.timing),html=h.receiptDetailsHtml(b);
   assert.doesNotMatch(html,/1\.23395 min/);assert.match(html,/1\.2 min after/);assert.match(html,/Within window/);
