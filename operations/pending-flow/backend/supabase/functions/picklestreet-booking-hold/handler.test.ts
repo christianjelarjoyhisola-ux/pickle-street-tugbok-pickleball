@@ -687,6 +687,49 @@ Deno.test("production existing lookup scopes both tables to tenant, key and toke
   assert.equal(calls[0].args.p_access_token_hash, "hash-synthetic");
   assert.equal(calls[0].args.p_hostname, "picklestreet.pages.dev");
 });
+Deno.test("production booking configuration uses the court record without a private schedule-table dependency", async () => {
+  const tables: string[] = [];
+  const rows: Record<string, Obj | null> = {
+    tenants: { id: TENANT_ID, timezone: "Asia/Manila", status: "active", public_config: {} },
+    courts: {
+      id: COURT,
+      name: "Synthetic court",
+      status: "active",
+      opens_at: "05:00:00",
+      closes_at: "17:00:00",
+      currency: "PHP",
+      pricing_config: { regular: { bands: [{ start: "05:00", end: "17:00", hourlyRate: 150 }] } },
+      public_config: {},
+    },
+    tenant_platform_billing: { fee_mode: "fixed_per_booking", fee_amount: 1 },
+    tenant_equipment_rental_pricing: null,
+  };
+  const db = {
+    from(table: string) {
+      tables.push(table);
+      const result = { data: rows[table] ?? null, error: null };
+      return {
+        select() { return this; },
+        eq() { return this; },
+        async single() { return result; },
+        async maybeSingle() { return result; },
+      };
+    },
+    async rpc(name: string) {
+      assert.equal(name, "tenant_booking_activation_state");
+      return { data: { publicBookingEnabled: true }, error: null };
+    },
+  };
+  const configured = await createHoldStore(db).configuration(COURT);
+  assert.equal(configured.ready, true);
+  assert.equal(configured.court.pricing_config.regular.bands[0].hourlyRate, 150);
+  assert.deepEqual(tables, [
+    "tenants",
+    "courts",
+    "tenant_platform_billing",
+    "tenant_equipment_rental_pricing",
+  ]);
+});
 Deno.test('group creation prices all sessions server-side and invokes one atomic create',async()=>{
  const f=fixture();let received:Obj={};f.store.create=async args=>{received=args;return booking({sessions:args.p_sessions,subtotalAmount:2,courtSubtotalAmount:2,totalAmount:3})};
  const second={...selection,courtId:'afb62052-cc6b-435e-a8b1-0265b613a771'};
