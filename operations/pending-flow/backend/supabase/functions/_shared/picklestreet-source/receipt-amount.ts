@@ -18,6 +18,7 @@ export type ReceiptAmountEvidence =
   | "gcash_amount_block_observation"
   | "gcash_concordant_amount_block"
   | "gcash_multiple_total_amount_anchors"
+  | "gcash_ocr_zero_repair"
   | "maya_sent_money_context"
   | "maya_ocr_spacing_repair";
 
@@ -95,6 +96,16 @@ const BARE_MONEY_RE = new RegExp(
   String.raw`(?<![A-Z0-9,])(?<amount>${MONEY_SOURCE})(?![A-Z0-9,.])`,
   "giu",
 );
+
+// Vision can confuse a zero with the letter O in otherwise clear GCash money
+// rows (for example, P32O.OO). This grammar is used only beside an explicit
+// Amount/Total Amount Sent label and never as a document-wide correction.
+const GCASH_OCR_ZERO_MONEY_RE =
+  /^\s*(?:(?:amount|total\s+amount\s+sent)\s*[:=\-–—−]?\s*)?(?<marker>PHP|₱|P)?\s*(?<amount>[0-9Oo]{1,7}(?:,[0-9Oo]{3})*\.[0-9Oo]{2})\s*$/giu;
+const GCASH_PRIMARY_AMOUNT_LABEL_RE =
+  /^\s*(?:amount|total\s+amount\s+sent)\b/i;
+const GCASH_PRIMARY_AMOUNT_LABEL_ONLY_RE =
+  /^\s*(?:amount|total\s+amount\s+sent)\s*[:=\-–—−]?\s*$/i;
 
 const EXCLUDED_CONTEXTS: Array<{ reason: string; pattern: RegExp }> = [
   { reason: "transfer_fee", pattern: /\btransfer\s+fee\b/i },
@@ -402,6 +413,27 @@ function collectCandidates(
           ...explicitGcashDisplay,
         ],
       );
+    }
+
+    if (
+      options.provider === "gcash" &&
+      (GCASH_PRIMARY_AMOUNT_LABEL_RE.test(line) ||
+        GCASH_PRIMARY_AMOUNT_LABEL_ONLY_RE.test(
+          previousNonEmptyLine(lines, lineIndex),
+        ))
+    ) {
+      GCASH_OCR_ZERO_MONEY_RE.lastIndex = 0;
+      for (const match of line.matchAll(GCASH_OCR_ZERO_MONEY_RE)) {
+        const amountRaw = match.groups?.amount || "";
+        if (!/[Oo]/.test(amountRaw) || !/\d/.test(amountRaw)) continue;
+        addMatch(
+          line,
+          lineIndex,
+          match,
+          ["gcash_ocr_zero_repair"],
+          parseMoney(amountRaw.replace(/[Oo]/g, "0")),
+        );
+      }
     }
 
     // Vision commonly keeps a label and its bare value on separate lines:
