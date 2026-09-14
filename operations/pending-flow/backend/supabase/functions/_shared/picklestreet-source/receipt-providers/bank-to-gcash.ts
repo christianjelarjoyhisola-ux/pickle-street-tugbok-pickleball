@@ -489,15 +489,38 @@ function parseRecipient(lines: string[]): BankReceiptRecipient {
   const maskedPhone = blockText.match(
     /(?:\+?63|0)?9?[\d\s-]{0,4}[•●·.*xX]{2,}[•●·.*xX\d\s-]*?(\d{4})\b/,
   );
+  // Bank apps render masked mobile numbers with several different glyphs.
+  // OCR may preserve those glyphs, convert them to ellipses/circles, or drop
+  // them and leave a visible gap. Keep this fallback line-bounded and inside
+  // the recipient/destination evidence block so unrelated receipt numbers can
+  // never satisfy the configured receiver check.
+  const expandedMaskedPhone = evidenceLines
+    .map((raw) => {
+      const value = raw.normalize("NFKC").trim();
+      const suffix = value.match(/((?:\d[\s-]*){4})$/);
+      if (!suffix) return null;
+      const last4 = suffix[1].replace(/\D/g, "");
+      const prefix = value.slice(0, suffix.index);
+      const leadingZeroMask =
+        /^(?:\+?63\s*)?[0Oo](?:\s*9)?(?:[^\p{L}\p{N}\r\n]|[xXoO]){1,16}$/u
+          .test(prefix);
+      const maskOnly =
+        /^[•●·∙⋅◦○⋯…*xX×_.\-\s]{2,20}$/.test(prefix) &&
+        /[•●·∙⋅◦○⋯…*xX×_.-]/.test(prefix);
+      return last4.length === 4 && (leadingZeroMask || maskOnly)
+        ? { raw, last4 }
+        : null;
+    })
+    .find((candidate) => candidate !== null);
   const labeledLast4 = blockText.match(
     /(?:mobile|account|number|no\.?)\D{0,20}(\d{4})\b/i,
   );
   const phoneLast4 = phoneNormalized?.slice(-4) || maskedPhone?.[1] ||
-    labeledLast4?.[1] || null;
+    expandedMaskedPhone?.last4 || labeledLast4?.[1] || null;
   const accountRaw = evidenceLines.find((line) =>
     /\b(?:mobile|account)\s*(?:number|no\.?|#)?\b/i.test(line) ||
     /[•●·.*xX]{2,}.*\d{4}\b/.test(line)
-  ) || fullPhone || null;
+  ) || expandedMaskedPhone?.raw || fullPhone || null;
   const namedLine = block.find((line) =>
     /^(?:recipient|receiver|beneficiary|account)\s*name\s*[:\-–—]/i.test(line)
   );
@@ -512,6 +535,7 @@ function parseRecipient(lines: string[]): BankReceiptRecipient {
     .map((value) => value.trim())
     .filter((value) =>
       value.length >= 2 &&
+      value !== expandedMaskedPhone?.raw.trim() &&
       !structuralLine.test(value) &&
       !/\b(?:gcash|g-?xchange|insta\s*pay|account|mobile|number|successful|amount|php|₱)\b/i
         .test(value) &&

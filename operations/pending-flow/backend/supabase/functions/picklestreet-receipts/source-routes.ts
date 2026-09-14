@@ -334,6 +334,20 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
           phoneMatch: evidence.recipientComparison.phone,
           nameMatch: evidence.recipientComparison.name,
         };
+      } else if (
+        (parsed.provider === "gotyme" || parsed.provider === "maribank") &&
+        (evidence.provider === "gotyme" || evidence.provider === "maribank")
+      ) {
+        // Preserve only the bounded recipient observations used by the bank
+        // parser. This makes a failed comparison diagnosable without storing
+        // the full OCR text or exposing an unmasked account number.
+        route.recipient = {
+          observedName: parsed.receipt.recipient.nameRaw?.slice(0, 160) || null,
+          observedNumber: parsed.receipt.recipient.accountRaw?.slice(0, 80) ||
+            null,
+          phoneMatch: evidence.recipientComparison.phone,
+          nameMatch: evidence.recipientComparison.name,
+        };
       }
       route.secondaryReferences = secondary(parsed);
       const observed = normalizedReference(receipt.reference.value);
