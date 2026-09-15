@@ -5,7 +5,7 @@ function part(file,start,end){const text=source(file),a=text.indexOf(start),b=te
 function helper(){const c={window:{}};vm.runInNewContext(source('payment-settings.js'),c);return c.window.PBPaymentSettings;}
 function form(items,active,shared,pnb={}){const row=(code,data)=>({dataset:{code},querySelector:selector=>({value:data[selector]||''})});const rows=[row('gcash',shared),row('pnb',pnb)];return{querySelector:()=>rows[0],querySelectorAll:selector=>selector==='.platform-method-active'?items.map(method=>({dataset:{code:method.code},checked:active.includes(method.code)})):rows};}
 function adapter(){const calls=[];let privateRevision=7;const c={window:{PB_TENANT_CONFIG:{sharedGcashPaymentsEnabled:true}},PB_PLATFORM_V1:true,PB_PAGE_DATA_SCOPE:'manager',PB_TENANT_SLUG:'pickle-street-tugbok',URL,_pbBusinessRevision:'initial-revision',_pbTenantHostname:()=> 'picklestreet.pages.dev',_pbClearFastCache(){},_pbPlatformBootstrap:async()=>({}),_pbCaptureBusinessRevision:data=>{c._pbBusinessRevision=data.updatedAt;},_sb:{rpc:async(name,args)=>{calls.push({name,args});privateRevision++;return{data:{updatedAt:'revision-'+privateRevision,venue:{emailEnabled:true,replyToEmail:'kept@example.test'},receiptVerification:args.p_patch.receiptVerification,receiptVerificationRevision:privateRevision,paymentMethods:args.p_patch.paymentMethods}};}}};
- vm.createContext(c);vm.runInContext(part('supabase-config.js','function _pbNormalizeTenantActivationSettings(value) {','function _pbLocalIntervalHours('),c);vm.runInContext('DB={'+part('supabase-config.js','  async saveTenantActivationSettings({','  async activateTenantInitially()')+'}',c);return{c,calls};}
+ vm.createContext(c);vm.runInContext("const _pbSaveFlights = new Set();\n"+part('supabase-config.js','async function _pbRunSingleSave(scope, operation) {','function _pbCaptureBusinessRevision(data) {'),c);vm.runInContext(part('supabase-config.js','function _pbRequireSuccessfulProtectedSave(data, fallbackMessage) {','async function _invokePaymentSessionFallback('),c);vm.runInContext(part('supabase-config.js','function _pbNormalizeTenantActivationSettings(value) {','function _pbLocalIntervalHours('),c);vm.runInContext('DB={'+part('supabase-config.js','  async saveTenantActivationSettings({','  async activateTenantInitially()')+'}',c);return{c,calls};}
 const pnbFields={'.platform-method-account-name':'Test PNB receiver','.platform-method-account-reference':'TEST-ACCOUNT'};
 test('PNB-only Save accepts unchecked empty shared methods without inventing configuration',async()=>{const h=helper(),items=h.methods([{code:'pnb',isActive:true}]),methods=h.collect(items,form(items,['pnb'],{},pnbFields));for(const code of h.sharedCodes)assert.equal(methods.find(m=>m.code===code).instructions,'');const {c,calls}=adapter();await c.DB.saveTenantActivationSettings({paymentMethods:methods,receiptVerification:{gcashQrAlias:'',gcashQrToken:''},receiptVerificationRevision:7});assert.equal(calls.length,1);assert.deepEqual(Array.from(calls[0].args.p_patch.paymentMethods,x=>x.methodCode),['pnb']);assert.equal('venue' in calls[0].args.p_patch,false);});
 test('configured disabled accounts retain instructions; partial accounts still fail validation',async()=>{const h=helper(),items=h.methods([{code:'gcash',instructions:'Existing venue instruction',isActive:false}]),full={'.platform-method-account-name':'Test receiver','.platform-method-account-reference':'TEST-ACCOUNT'},methods=h.collect(items,form(items,[],full));assert.equal(methods.find(m=>m.code==='gcash').instructions,'Existing venue instruction');assert.equal(methods.find(m=>m.code==='gcash').isActive,false);const {c,calls}=adapter();await c.DB.saveTenantActivationSettings({paymentMethods:methods});assert.equal(calls[0].args.p_patch.paymentMethods.find(m=>m.methodCode==='gcash').isActive,false);const partial=h.collect(items,form(items,[],{'.platform-method-account-name':'Test receiver'}));await assert.rejects(c.DB.saveTenantActivationSettings({paymentMethods:partial}),/needs both/);});
@@ -22,3 +22,40 @@ test('interrupted Save stays uncertain and requests reload without resubmission'
 test('confirmed Save remains successful after readiness refresh failure and keeps revisions',async()=>{const {c,calls}=adapter();c._pbPlatformBootstrap=async()=>{throw Object.assign(new Error('aborted refresh'),{name:'AbortError'});};const saved=await c.DB.saveTenantActivationSettings({paymentMethods:[],receiptVerification:{gcashQrAlias:'Test alias',gcashQrToken:'TEST-TOKEN'},receiptVerificationRevision:7});assert.equal(calls.length,1);assert.equal(saved.readinessRefreshFailed,true);assert.equal(saved.receiptVerificationRevision,8);assert.equal(c._pbBusinessRevision,'revision-8');const testUi=ui(async()=>saved);await testUi.c.savePlatformActivationSettings();assert.equal(testUi.controls.platformPaymentSaveStatus.textContent,'Payment settings saved. Reload settings to refresh booking readiness.');});
 
 test('server validation errors and post-save rendering failures stay distinct',async()=>{const failed=ui(async()=>{throw new Error('Settings changed. Reload the latest settings before saving.');});await failed.c.savePlatformActivationSettings();assert.match(failed.controls.platformPaymentSaveStatus.textContent,/Settings changed/);const saved=ui(async()=>({}));saved.c.renderPlatformActivationSettings=async()=>{throw new Error('render interrupted');};await saved.c.savePlatformActivationSettings();assert.equal(saved.controls.platformPaymentSaveStatus.textContent,'Payment settings saved. Reload settings to refresh the display.');});
+
+test('structured Pickle Street save failures stop before cache and success handling',async()=>{
+  const {c,calls}=adapter();let cacheClears=0,refreshes=0;
+  c._pbClearFastCache=()=>{cacheClears++;};c._pbPlatformBootstrap=async()=>{refreshes++;return{};};
+  c._sb.rpc=async(name,args)=>{calls.push({name,args});return{data:{ok:false,errorCode:'BUSINESS_SETTINGS_STALE',retryAfterMs:1500}};};
+  await assert.rejects(c.DB.saveTenantActivationSettings({paymentMethods:[]}),error=>error.code==='PB_STALE_REVISION'&&error.staleRevision===true&&error.retryAfterMs===1500);
+  assert.equal(calls.length,1);assert.equal(cacheClears,0);assert.equal(refreshes,0);
+});
+
+test('overlapping Pickle Street payment saves send one RPC and reject the second locally',async()=>{
+  const {c,calls}=adapter();let finish;
+  c._sb.rpc=(name,args)=>new Promise(resolve=>{calls.push({name,args});finish=()=>resolve({data:{updatedAt:'revision-8',paymentMethods:[]}});});
+  const first=c.DB.saveTenantActivationSettings({paymentMethods:[]});
+  await Promise.resolve();
+  await assert.rejects(c.DB.saveTenantActivationSettings({paymentMethods:[]}),error=>error.code==='PB_SAVE_IN_FLIGHT');
+  assert.equal(calls.length,1);finish();await first;
+});
+
+test('non-Pickle-Street payment saves preserve concurrent request behavior',async()=>{
+  const {c,calls}=adapter();c.PB_TENANT_SLUG='another-tenant';c.window.PB_TENANT_CONFIG.sharedGcashPaymentsEnabled=false;
+  let finishes=[];c._sb.rpc=(name,args)=>new Promise(resolve=>{calls.push({name,args});finishes.push(()=>resolve({data:{updatedAt:'revision',paymentMethods:[]}}));});
+  const first=c.DB.saveTenantActivationSettings({paymentMethods:[]});
+  const second=c.DB.saveTenantActivationSettings({paymentMethods:[]});
+  await Promise.resolve();assert.equal(calls.length,2);finishes.forEach(finish=>finish());await Promise.all([first,second]);
+  assert.equal(calls.every(call=>call.name==='update_tenant_business_settings_if_current'),true);
+});
+
+test('capped report avoids Pickle Street date fanout and preserves other tenant fallback',async()=>{
+  const admin=source('admin.html');const code=part('admin.html','function reportDateValues(from, to) {','function renderReportUnavailable(');
+  const capped=Array.from({length:500},(_,index)=>({ref:'R'+index}));
+  const pickleCalls=[];const pickle={window:{PB_PLATFORM_V1:true,PB_TENANT_SLUG:'pickle-street-tugbok'},DB:{getBookings:async filters=>{pickleCalls.push(filters||{});return capped;}}};
+  vm.createContext(pickle);vm.runInContext(code,pickle);const blocked=await pickle.loadCompleteReportBookings({from:'2026-09-01',to:'2026-09-02'});
+  assert.equal(blocked.complete,false);assert.equal(pickleCalls.length,1);assert.match(blocked.reason,/pagination/);
+  const otherCalls=[];const other={window:{PB_PLATFORM_V1:true,PB_TENANT_SLUG:'another-tenant'},DB:{getBookings:async filters=>{otherCalls.push(filters||{});return filters?.date?[{ref:filters.date}]:capped;}}};
+  vm.createContext(other);vm.runInContext(code,other);const complete=await other.loadCompleteReportBookings({from:'2026-09-01',to:'2026-09-02'});
+  assert.equal(complete.complete,true);assert.equal(complete.bookings.length,2);assert.equal(otherCalls.length,3);
+});

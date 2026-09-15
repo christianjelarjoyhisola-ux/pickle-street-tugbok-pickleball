@@ -11289,28 +11289,35 @@ async function loadCompleteReportBookings(range) {
   if (unscoped.length < 500) {
     return { bookings:unscoped, complete:true, reason:'' };
   }
-  const rows = [];
-  for (let index = 0; index < dates.length; index += 8) {
-    const pages = await Promise.all(dates.slice(index,index + 8).map(date => DB.getBookings({ date })));
-    if (pages.some(page => page.length >= 500)) {
-      return {
-        bookings:[],
-        complete:false,
-        reason:'At least one booking date reached the protected 500-booking response limit. Narrow the report range before using totals.',
-      };
+  if (window.PB_TENANT_SLUG !== 'pickle-street-tugbok') {
+    const rows = [];
+    for (let index = 0; index < dates.length; index += 8) {
+      const pages = await Promise.all(dates.slice(index,index + 8).map(date => DB.getBookings({ date })));
+      if (pages.some(page => page.length >= 500)) {
+        return {
+          bookings:[],
+          complete:false,
+          reason:'At least one booking date reached the protected 500-booking response limit. Narrow the report range before using totals.',
+        };
+      }
+      pages.forEach(page => rows.push(...page));
     }
-    pages.forEach(page => rows.push(...page));
+    const seen = new Set();
+    return {
+      bookings:rows.filter(booking => {
+        const reference = String(booking.ref || '').trim().toUpperCase();
+        if (!reference || seen.has(reference)) return false;
+        seen.add(reference);
+        return true;
+      }),
+      complete:true,
+      reason:'',
+    };
   }
-  const seen = new Set();
   return {
-    bookings:rows.filter(booking => {
-      const reference = String(booking.ref || '').trim().toUpperCase();
-      if (!reference || seen.has(reference)) return false;
-      seen.add(reference);
-      return true;
-    }),
-    complete:true,
-    reason:'',
+    bookings:[],
+    complete:false,
+    reason:'This report reached the protected 500-booking response limit. Complete totals require protected booking pagination.',
   };
 }
 function renderReportUnavailable(message) {
@@ -11844,6 +11851,13 @@ let _sharedCourtScheduleEditVersion = 0;
 let _sharedCourtScheduleSaving = false;
 let _courtModalRevisions = {};
 
+function isPickleStreetStaleRevisionError(error) {
+  return window.PB_TENANT_SLUG === 'pickle-street-tugbok' && (
+    error?.staleRevision === true || error?.code === 'PB_STALE_REVISION' ||
+    String(error?.code || '') === '40001' || /revision|stale|changed since/i.test(String(error?.message || ''))
+  );
+}
+
 function courtRevisionMap(courts) {
   return Object.fromEntries((courts || []).map(court => [court.id, court.updatedAt]));
 }
@@ -12141,6 +12155,7 @@ function previewPhotoUrl(){
 }
 
 async function saveCourt(){
+  if (_courtSaveInFlight) return;
   if (!requireVenueManagement('courts')) return;
   const id=$('cmId').value;
   const name=$('cmName').value.trim();
@@ -12262,6 +12277,10 @@ async function saveCourt(){
     }
   } catch (error) {
     console.error('Court save failed:', error);
+    if (typeof isPickleStreetStaleRevisionError === 'function' && isPickleStreetStaleRevisionError(error)) {
+      closeModal('courtModal');
+      await renderCourts().catch(refreshError => console.error('Latest court settings reload failed:', refreshError));
+    }
     toast(error?.message || 'Court could not be saved.', 'err');
   } finally {
     _courtSaveInFlight=false;
@@ -12293,6 +12312,7 @@ async function toggleBlock(id){
     await renderCourts();
     toast(movingToMaintenance?'Court blocked.':'Court is available for booking.','inf');
   } catch (error) {
+    if (typeof isPickleStreetStaleRevisionError === 'function' && isPickleStreetStaleRevisionError(error)) await renderCourts().catch(()=>{});
     toast(error?.message || 'Court status could not be changed.', 'err');
   }
 }
@@ -12312,6 +12332,7 @@ async function delCourt(id){
     toast('Court deleted.','inf');
   } catch (error) {
     console.error('Court delete failed:', error);
+    if (typeof isPickleStreetStaleRevisionError === 'function' && isPickleStreetStaleRevisionError(error)) await renderCourts().catch(()=>{});
     toast(error?.message || 'Court could not be deleted. It may still have booking history.', 'err');
   }
 }
@@ -12600,6 +12621,9 @@ async function savePlatformSharedCourtSchedule(successMessage) {
     toast(newerEdits ? 'Saved. Your newer edits are still unsaved.' : successMessage);
   } catch (error) {
     console.error('Shared court schedule save failed:', error);
+    if (typeof isPickleStreetStaleRevisionError === 'function' && isPickleStreetStaleRevisionError(error)) {
+      await renderCourts().catch(refreshError => console.error('Latest shared schedule reload failed:', refreshError));
+    }
     if ($('tiersStatus')) {
       $('tiersStatus').textContent = error?.message || 'The shared schedule was not saved.';
       $('tiersStatus').classList.add('warn');
@@ -13057,6 +13081,7 @@ async function savePlatformActivationSettings() {
     return;
   }
   const button = $('savePlatformActivationBtn');
+  if (button?.disabled) return;
   button.disabled = true;
   button.textContent = 'Saving...';
   setSaveStatus('Saving...');
@@ -13081,6 +13106,9 @@ async function savePlatformActivationSettings() {
     await renderIntegrationStatus();
   } catch (error) {
     console.error('savePlatformActivationSettings:', error);
+    if (typeof isPickleStreetStaleRevisionError === 'function' && isPickleStreetStaleRevisionError(error)) {
+      await renderPaymentSettings().catch(refreshError => console.error('Latest payment settings reload failed:', refreshError));
+    }
     const interrupted = /abort|timed?\s*out|timeout|failed to fetch|fetch failed|network|connection/i.test(String(error?.name || '') + ' ' + String(error?.message || ''));
     const message = saveConfirmed
       ? 'Payment settings saved. Reload settings to refresh the display.'

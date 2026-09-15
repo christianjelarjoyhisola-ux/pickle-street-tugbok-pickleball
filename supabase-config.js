@@ -52,6 +52,21 @@ const PB_REQUEST_TIMEOUT_MS = 45000;
 const PB_PAGE_DATA_SCOPE = document.documentElement.dataset.pbDataScope || 'auth';
 let _pbBusinessRevision = null;
 let _pbPolicyRevision = null;
+const _pbSaveFlights = new Set();
+
+async function _pbRunSingleSave(scope, operation) {
+  if (_pbSaveFlights.has(scope)) {
+    const error = new Error('A save is already in progress. Wait for it to finish before saving again.');
+    error.code = 'PB_SAVE_IN_FLIGHT';
+    throw error;
+  }
+  _pbSaveFlights.add(scope);
+  try {
+    return await operation();
+  } finally {
+    _pbSaveFlights.delete(scope);
+  }
+}
 function _pbCaptureBusinessRevision(data) {
   const revision = data?.tenantRevision || data?.updatedAt || data?.settings?.updatedAt;
   if (revision) _pbBusinessRevision = revision;
@@ -1547,11 +1562,36 @@ function _extractFnError(err, fallback = 'Edge Function request failed') {
 
 function _pbCourtSaveError(error) {
   const message = _extractFnError(error, 'Court settings could not be saved.');
-  if (/PICKLESTREET_COURT_REVISION_(CONFLICT|REQUIRED)/.test(message)) return new Error('Court settings changed since you opened this page. Refresh the page to load the latest settings before saving again. Your current edits have not been applied.');
+  if (String(error?.code || '') === '40001' || /PICKLESTREET_COURT_REVISION_(CONFLICT|REQUIRED)/.test(message)) {
+    const conflict = new Error('Court settings changed since you opened this page. Refresh the page to load the latest settings before saving again.');
+    conflict.code = 'PB_STALE_REVISION';
+    conflict.staleRevision = true;
+    return conflict;
+  }
   if (/PICKLESTREET_PROMO_METADATA_REQUIRED/.test(message)) return new Error('Refresh this page to use the latest promo pricing editor. Your saved prices are unchanged.');
   if (/PICKLESTREET_PROMO_RATE_INVALID/.test(message)) return new Error('Check your standard and promo prices. An enabled promo must be lower than the standard price, with no more than two decimals.');
   if (/SHARED_COURT_SCHEDULE_INVALID/.test(message)) return new Error('Pricing tiers must cover every opening hour exactly once, without gaps or overlaps.');
   return new Error(message);
+}
+
+function _pbRequireSuccessfulProtectedSave(data, fallbackMessage) {
+  if (!data || data.ok !== false) return data;
+  const serverCode = String(data.errorCode || data.code || '').trim().toUpperCase();
+  const error = new Error(serverCode === 'PICKLESTREET_WRITE_IN_PROGRESS'
+    ? 'Another save is still finishing. Wait a moment, then reload the latest settings.'
+    : serverCode === 'BUSINESS_SETTINGS_STALE'
+      ? 'Payment settings changed since they were loaded. Reload the latest settings before saving again.'
+      : serverCode === 'PICKLESTREET_COURT_REVISION_CONFLICT'
+        ? 'Court settings changed since you opened this page. Refresh the page to load the latest settings before saving again.'
+        : String(data.message || data.error || fallbackMessage));
+  if (serverCode === 'PICKLESTREET_WRITE_IN_PROGRESS') error.code = 'PB_SAVE_IN_FLIGHT';
+  if (['BUSINESS_SETTINGS_STALE', 'PICKLESTREET_COURT_REVISION_CONFLICT'].includes(serverCode)) {
+    error.code = 'PB_STALE_REVISION';
+    error.staleRevision = true;
+  }
+  error.serverCode = serverCode;
+  error.retryAfterMs = Number(data.retryAfterMs || 0) || null;
+  throw error;
 }
 
 async function _invokePaymentSessionFallback(payload) {
@@ -2082,6 +2122,9 @@ window.DB = {
 
   async saveCourt(court, { expectedRevisions } = {}) {
     if (PB_PLATFORM_V1) {
+      const runSave = PB_TENANT_SLUG === 'pickle-street-tugbok' && typeof _pbRunSingleSave === 'function'
+        ? _pbRunSingleSave : async (_scope, operation) => operation();
+      return runSave('court-settings', async () => {
       if (!await _pbAuthenticatedSession()) throw new Error('Your session is no longer available. Please sign in again.');
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(court.id || ''));
       const existing = isUuid
@@ -2161,8 +2204,12 @@ window.DB = {
         p_expected_revisions: expectedRevisions || {},
       });
       if (error) throw _pbCourtSaveError(error);
+      if (PB_TENANT_SLUG === 'pickle-street-tugbok' && typeof _pbRequireSuccessfulProtectedSave === 'function') {
+        _pbRequireSuccessfulProtectedSave(data, 'Court settings were not saved.');
+      }
       _pbClearFastCache(['courts', 'settings', 'platformBootstrap', 'platformAvailability']);
       return data;
+      });
     }
     const { error } = await _sb.from('courts').upsert(courtToRow(court));
     if (error) { console.error('saveCourt:', error); throw error; }
@@ -2171,6 +2218,9 @@ window.DB = {
 
   async saveSharedCourtSchedule({ opensAt, closesAt, rateSchedule, expectedRevisions }) {
     if (!PB_PLATFORM_V1) throw new Error('Shared court schedules require the protected platform backend.');
+    const runSave = PB_TENANT_SLUG === 'pickle-street-tugbok' && typeof _pbRunSingleSave === 'function'
+      ? _pbRunSingleSave : async (_scope, operation) => operation();
+    return runSave('court-settings', async () => {
     if (!await _pbAuthenticatedSession()) throw new Error('Your session is no longer available. Please sign in again.');
     const open = String(opensAt || '').slice(0, 5);
     const close = String(closesAt || '').slice(0, 5);
@@ -2188,12 +2238,19 @@ window.DB = {
       p_expected_revisions: expectedRevisions || {},
     });
     if (error) throw _pbCourtSaveError(error);
+    if (PB_TENANT_SLUG === 'pickle-street-tugbok' && typeof _pbRequireSuccessfulProtectedSave === 'function') {
+      _pbRequireSuccessfulProtectedSave(data, 'The shared court schedule was not saved.');
+    }
     _pbClearFastCache(['courts', 'settings', 'platformBootstrap', 'platformAvailability']);
     return data;
+    });
   },
 
   async deleteCourt(id, { expectedRevisions } = {}) {
     if (PB_PLATFORM_V1) {
+      const runSave = PB_TENANT_SLUG === 'pickle-street-tugbok' && typeof _pbRunSingleSave === 'function'
+        ? _pbRunSingleSave : async (_scope, operation) => operation();
+      return runSave('court-settings', async () => {
       if (!await _pbAuthenticatedSession()) throw new Error('Your session is no longer available. Please sign in again.');
       const { error } = await _sb.rpc('manage_picklestreet_court', {
         p_tenant_slug: PB_TENANT_SLUG,
@@ -2204,8 +2261,12 @@ window.DB = {
         p_expected_revisions: expectedRevisions || {},
       });
       if (error) throw _pbCourtSaveError(error);
+      if (PB_TENANT_SLUG === 'pickle-street-tugbok' && typeof _pbRequireSuccessfulProtectedSave === 'function') {
+        _pbRequireSuccessfulProtectedSave(data, 'The court was not deleted.');
+      }
       _pbClearFastCache(['courts', 'settings', 'platformBootstrap']);
       return;
+      });
     }
     const { error } = await _sb.from('courts').delete().eq('id', id);
     if (error) console.error('deleteCourt:', error);
@@ -3814,23 +3875,38 @@ window.DB = {
       return;
     }
     const sharedPayments = PB_TENANT_SLUG === 'pickle-street-tugbok' && window.PB_TENANT_CONFIG?.sharedGcashPaymentsEnabled;
-    const { data, error } = await _sb.rpc(sharedPayments ? 'save_picklestreet_payment_settings' : 'update_tenant_business_settings_if_current', {
-      p_expected_revision: _pbBusinessRevision,
-      p_tenant_slug: PB_TENANT_SLUG,
-      p_hostname: _pbTenantHostname(),
-      p_patch: {
-        ...(updateEmailSettings ? {venue: {
-          replyToEmail: email || null,
-          emailEnabled: emailEnabled === true,
-        }} : {}),
-        paymentMethods: normalized,
-        ...(sharedPayments ? {receiptVerification: {
-          gcashQrAlias:String(receiptVerification?.gcashQrAlias || '').trim(),
-          gcashQrToken:String(receiptVerification?.gcashQrToken || '').trim(),
-        },receiptVerificationRevision} : {}),
-      },
-    });
-    if (error) throw new Error(_extractFnError(error, 'Activation settings were not saved'));
+    const saveRequest = () => _sb.rpc(sharedPayments ? 'save_picklestreet_payment_settings' : 'update_tenant_business_settings_if_current', {
+        p_expected_revision: _pbBusinessRevision,
+        p_tenant_slug: PB_TENANT_SLUG,
+        p_hostname: _pbTenantHostname(),
+        p_patch: {
+          ...(updateEmailSettings ? {venue: {
+            replyToEmail: email || null,
+            emailEnabled: emailEnabled === true,
+          }} : {}),
+          paymentMethods: normalized,
+          ...(sharedPayments ? {receiptVerification: {
+            gcashQrAlias:String(receiptVerification?.gcashQrAlias || '').trim(),
+            gcashQrToken:String(receiptVerification?.gcashQrToken || '').trim(),
+          },receiptVerificationRevision} : {}),
+        },
+      });
+    const runSave = sharedPayments && typeof _pbRunSingleSave === 'function'
+      ? _pbRunSingleSave
+      : async (_scope, operation) => operation();
+    const { data, error } = await runSave('picklestreet-payment-settings', saveRequest);
+    if (error) {
+      if (sharedPayments && (String(error?.code || '') === '40001' || /BUSINESS_SETTINGS_STALE|revision|stale/i.test(_extractFnError(error, '')))) {
+        const conflict = new Error('Payment settings changed since they were loaded. Reload the latest settings before saving again.');
+        conflict.code = 'PB_STALE_REVISION';
+        conflict.staleRevision = true;
+        throw conflict;
+      }
+      throw new Error(_extractFnError(error, 'Activation settings were not saved'));
+    }
+    if (sharedPayments && typeof _pbRequireSuccessfulProtectedSave === 'function') {
+      _pbRequireSuccessfulProtectedSave(data, 'Payment settings were not saved.');
+    }
     _pbClearFastCache(['settings', 'platformBootstrap']);
     const savedActivation = _pbNormalizeTenantActivationSettings(data);
     // A successful write stays successful if the separate readiness refresh fails.
