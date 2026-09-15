@@ -53,6 +53,7 @@ export type BankReceiptTimestamp = {
 export type BankReceiptRecipient = {
   nameRaw: string | null;
   accountRaw: string | null;
+  accountNormalized: string | null;
   phoneNormalized: string | null;
   phoneLast4: string | null;
   phoneVisibility: "full" | "masked" | "missing";
@@ -70,7 +71,10 @@ export type BankReceiptIndicators = {
 export type BankToGcashReceiptParse = {
   provider: BankToGcashProvider;
   destinationProvider: "gcash";
-  parserVersion: "gotyme_to_gcash_v1" | "gotyme_to_gcash_v2" | "maribank_to_gcash_v1";
+  parserVersion:
+    | "gotyme_to_gcash_v1"
+    | "gotyme_to_gcash_v2"
+    | "maribank_to_gcash_v1";
   reference: BankReferenceField;
   railReference: BankRailReferenceField;
   amount: ReceiptAmountExtraction;
@@ -82,6 +86,7 @@ export type BankToGcashReceiptParse = {
 
 export type BankRecipientComparison = {
   phone: "exact" | "last4_only" | "mismatch" | "missing" | "not_configured";
+  account: "exact" | "mismatch" | "missing" | "not_configured";
   name: GcashNameComparison;
 };
 
@@ -398,15 +403,32 @@ function timestampResult(
 }
 
 function parseTimestamp(lines: string[]): BankReceiptTimestamp {
-  const monthName =
-    /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2}),?\s+(\d{4})(?:\s*(?:,|at)?\s*(\d{1,2}):(\d{2})\s*(AM|PM))?\b/i;
-  const iso =
-    /\b(\d{4})-(\d{2})-(\d{2})(?:[ T,]+(\d{1,2}):(\d{2})\s*(AM|PM)?)?\b/i;
-  const dayFirst =
-    /\b(\d{1,2})\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{4})(?:\s*(?:,|at)?\s*(\d{1,2}):(\d{2})\s*(AM|PM))?\b/i;
+  const month =
+    "Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?";
+  const monthNameWithTime = new RegExp(
+    `\\b(${month})\\s+(\\d{1,2}),?\\s+(\\d{4})\\s*(?:,|at)?\\s*(\\d{1,2}):(\\d{2})\\s*(AM|PM)?\\b`,
+    "i",
+  );
+  const isoWithTime =
+    /\b(\d{4})-(\d{2})-(\d{2})[ T,]+(\d{1,2}):(\d{2})\s*(AM|PM)?\b/i;
+  const dayFirstWithTime = new RegExp(
+    `\\b(\\d{1,2})\\s+(${month})\\s+(\\d{4})\\s*(?:,|at)?\\s*(\\d{1,2}):(\\d{2})\\s*(AM|PM)?\\b`,
+    "i",
+  );
+  const monthNameDateOnly = new RegExp(
+    `\\b(${month})\\s+(\\d{1,2}),?\\s+(\\d{4})\\b`,
+    "i",
+  );
+  const isoDateOnly = /\b(\d{4})-(\d{2})-(\d{2})\b/i;
+  const dayFirstDateOnly = new RegExp(
+    `\\b(\\d{1,2})\\s+(${month})\\s+(\\d{4})\\b`,
+    "i",
+  );
+  // Prefer a complete date/time and join nearby OCR lines. MariBank commonly
+  // renders the label, date and time as separate text blocks.
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    const line = lines[lineIndex];
-    const named = line.match(monthName);
+    const line = lines.slice(lineIndex, lineIndex + 3).join(" ");
+    const named = line.match(monthNameWithTime);
     if (named) {
       return timestampResult(
         named[0],
@@ -414,12 +436,12 @@ function parseTimestamp(lines: string[]): BankReceiptTimestamp {
         Number(named[3]),
         MONTHS[named[1].toLowerCase()] || 0,
         Number(named[2]),
-        named[4] ? Number(named[4]) : null,
-        named[5] ? Number(named[5]) : null,
+        Number(named[4]),
+        Number(named[5]),
         named[6] || "",
       );
     }
-    const numeric = line.match(iso);
+    const numeric = line.match(isoWithTime);
     if (numeric) {
       return timestampResult(
         numeric[0],
@@ -427,12 +449,12 @@ function parseTimestamp(lines: string[]): BankReceiptTimestamp {
         Number(numeric[1]),
         Number(numeric[2]),
         Number(numeric[3]),
-        numeric[4] ? Number(numeric[4]) : null,
-        numeric[5] ? Number(numeric[5]) : null,
+        Number(numeric[4]),
+        Number(numeric[5]),
         numeric[6] || "",
       );
     }
-    const dayNamed = line.match(dayFirst);
+    const dayNamed = line.match(dayFirstWithTime);
     if (dayNamed) {
       return timestampResult(
         dayNamed[0],
@@ -440,9 +462,51 @@ function parseTimestamp(lines: string[]): BankReceiptTimestamp {
         Number(dayNamed[3]),
         MONTHS[dayNamed[2].toLowerCase()] || 0,
         Number(dayNamed[1]),
-        dayNamed[4] ? Number(dayNamed[4]) : null,
-        dayNamed[5] ? Number(dayNamed[5]) : null,
+        Number(dayNamed[4]),
+        Number(dayNamed[5]),
         dayNamed[6] || "",
+      );
+    }
+  }
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex];
+    const named = line.match(monthNameDateOnly);
+    if (named) {
+      return timestampResult(
+        named[0],
+        lineIndex,
+        Number(named[3]),
+        MONTHS[named[1].toLowerCase()] || 0,
+        Number(named[2]),
+        null,
+        null,
+        "",
+      );
+    }
+    const numeric = line.match(isoDateOnly);
+    if (numeric) {
+      return timestampResult(
+        numeric[0],
+        lineIndex,
+        Number(numeric[1]),
+        Number(numeric[2]),
+        Number(numeric[3]),
+        null,
+        null,
+        "",
+      );
+    }
+    const dayNamed = line.match(dayFirstDateOnly);
+    if (dayNamed) {
+      return timestampResult(
+        dayNamed[0],
+        lineIndex,
+        Number(dayNamed[3]),
+        MONTHS[dayNamed[2].toLowerCase()] || 0,
+        Number(dayNamed[1]),
+        null,
+        null,
+        "",
       );
     }
   }
@@ -455,6 +519,18 @@ function parseTimestamp(lines: string[]): BankReceiptTimestamp {
     completeness: "missing",
     lineIndex: null,
   };
+}
+
+function normalizeRecipientAccount(value: string): string {
+  return String(value || "").normalize("NFKC").toUpperCase().replace(
+    /[^A-Z0-9]/g,
+    "",
+  );
+}
+
+function validRecipientAccount(value: string): boolean {
+  return value.length >= 8 && value.length <= 40 && /[A-Z]/.test(value) &&
+    /\d/.test(value);
 }
 
 function parseRecipient(lines: string[]): BankReceiptRecipient {
@@ -504,8 +580,7 @@ function parseRecipient(lines: string[]): BankReceiptRecipient {
       const leadingZeroMask =
         /^(?:\+?63\s*)?[0Oo](?:\s*9)?(?:[^\p{L}\p{N}\r\n]|[xXoO]){1,16}$/u
           .test(prefix);
-      const maskOnly =
-        /^[•●·∙⋅◦○⋯…*xX×_.\-\s]{2,20}$/.test(prefix) &&
+      const maskOnly = /^[•●·∙⋅◦○⋯…*xX×_.\-\s]{2,20}$/.test(prefix) &&
         /[•●·∙⋅◦○⋯…*xX×_.-]/.test(prefix);
       return last4.length === 4 && (leadingZeroMask || maskOnly)
         ? { raw, last4 }
@@ -517,15 +592,44 @@ function parseRecipient(lines: string[]): BankReceiptRecipient {
   );
   const phoneLast4 = phoneNormalized?.slice(-4) || maskedPhone?.[1] ||
     expandedMaskedPhone?.last4 || labeledLast4?.[1] || null;
-  const accountRaw = evidenceLines.find((line) =>
-    /\b(?:mobile|account)\s*(?:number|no\.?|#)?\b/i.test(line) ||
-    /[•●·.*xX]{2,}.*\d{4}\b/.test(line)
-  ) || expandedMaskedPhone?.raw || fullPhone || null;
+  const accountRaw =
+    evidenceLines.find((line) =>
+      /\b(?:mobile|account)\s*(?:number|no\.?|#)?\b/i.test(line) ||
+      /[•●·.*xX]{2,}.*\d{4}\b/.test(line)
+    ) || expandedMaskedPhone?.raw || fullPhone || null;
+  let accountTokenRaw: string | null = null;
+  for (let index = 0; index < lines.length; index++) {
+    const match = lines[index].match(
+      /^(?:acct|account)\s*(?:number|no\.?|#)\s*[:\-–—]?\s*(.*)$/i,
+    );
+    if (!match) continue;
+    const inlineAccount = String(match[1] || "").trim();
+    const candidates = inlineAccount
+      ? [inlineAccount]
+      : [lines[index + 1] || ""];
+    for (const candidate of candidates) {
+      const normalized = normalizeRecipientAccount(candidate);
+      if (
+        validRecipientAccount(normalized) &&
+        !/\b(?:amount|total|fee|status|reference|date|time|php)\b/i.test(
+          candidate,
+        )
+      ) {
+        accountTokenRaw = candidate.trim();
+        break;
+      }
+    }
+    if (accountTokenRaw) break;
+  }
+  const accountNormalized = accountTokenRaw
+    ? normalizeRecipientAccount(accountTokenRaw)
+    : null;
   const namedLine = block.find((line) =>
     /^(?:recipient|receiver|beneficiary|account)\s*name\s*[:\-–—]/i.test(line)
   );
   const namedMatch = namedLine?.match(/[:\-–—]\s*(.+)$/);
-  const structuralLine = /^(?:to|from|amount|fee|total|note|trace\s*id|reference(?:\s*no\.?)?|date|repeat|share|add\s+to\s+favorites|instant)$/i;
+  const structuralLine =
+    /^(?:to|from|amount|fee|total|note|trace\s*id|reference(?:\s*no\.?)?|date|repeat|share|add\s+to\s+favorites|instant)$/i;
   const possibleNames = [
     namedMatch?.[1] || "",
     inline,
@@ -543,7 +647,8 @@ function parseRecipient(lines: string[]): BankReceiptRecipient {
     );
   return {
     nameRaw: possibleNames[0] || null,
-    accountRaw,
+    accountRaw: accountTokenRaw || accountRaw,
+    accountNormalized,
     phoneNormalized,
     phoneLast4,
     phoneVisibility: phoneNormalized
@@ -559,6 +664,7 @@ function compareRecipient(
   recipient: BankReceiptRecipient,
   expectedNumber: string,
   expectedName: string,
+  expectedAccount: string,
 ): BankRecipientComparison {
   const expectedPhone = normalizeGcashMobile(expectedNumber);
   let phone: BankRecipientComparison["phone"] = "not_configured";
@@ -575,8 +681,16 @@ function compareRecipient(
       phone = "missing";
     }
   }
+  const configuredAccount = normalizeRecipientAccount(expectedAccount);
+  let account: BankRecipientComparison["account"] = "not_configured";
+  if (validRecipientAccount(configuredAccount)) {
+    account = recipient.accountNormalized
+      ? recipient.accountNormalized === configuredAccount ? "exact" : "mismatch"
+      : "missing";
+  }
   return {
     phone,
+    account,
     name: compareGcashMaskedName(recipient.nameRaw, expectedName),
   };
 }
@@ -600,10 +714,12 @@ export function parseBankToGcashReceipt(
       `${config.primaryReferencePattern.flags.replace(/g/g, "")}g`,
     );
     const matches = [...text.matchAll(pattern)];
-    const values = [...new Map(matches.map((match) => {
-      const raw = String(match[1] || match[0] || "");
-      return [normalizeBankReference(raw), raw] as const;
-    }).filter(([value]) => validReference(value))).entries()];
+    const values = [...new Map(
+      matches.map((match) => {
+        const raw = String(match[1] || match[0] || "");
+        return [normalizeBankReference(raw), raw] as const;
+      }).filter(([value]) => validReference(value)),
+    ).entries()];
     const [value, raw] = values.length === 1 ? values[0] : ["", ""];
     if (validReference(value)) {
       primary.field = {
@@ -719,6 +835,7 @@ export function verifyBankToGcashReceipt(
     parsed.recipient,
     context.expectedRecipientNumber || "",
     context.expectedRecipientName || "",
+    context.expectedRecipientAccount || "",
   );
   if (!parsed.indicators.providerBrand) addUnique(flags, unreadableFlag);
   if (parsed.indicators.competingProviderBrand) {
@@ -730,8 +847,19 @@ export function verifyBankToGcashReceipt(
   if (!parsed.indicators.destinationGcash) {
     addUnique(flags, "GXI_DESTINATION_UNREADABLE");
   }
-  if (!parsed.indicators.instaPay) addUnique(flags, "INSTAPAY_UNREADABLE");
-  if (!parsed.railReference.value) {
+  // MariBank's current Transfer Result screen has no separate InstaPay trace.
+  // Its exact destination account, provider, status, amount, time and primary
+  // reference remain independently required by this verifier.
+  if (parsed.provider !== "maribank" && !parsed.indicators.instaPay) {
+    addUnique(flags, "INSTAPAY_UNREADABLE");
+  }
+  if (parsed.provider !== "maribank" && !parsed.railReference.value) {
+    addUnique(flags, "INSTAPAY_REF_UNREADABLE");
+  }
+  if (
+    parsed.provider === "maribank" &&
+    parsed.issues.includes("AMBIGUOUS_INSTAPAY_REFERENCE")
+  ) {
     addUnique(flags, "INSTAPAY_REF_UNREADABLE");
   }
 
@@ -785,17 +913,24 @@ export function verifyBankToGcashReceipt(
     }
   }
 
-  if (recipientComparison.phone === "mismatch") {
+  const exactAccount = recipientComparison.account === "exact";
+  if (recipientComparison.account === "mismatch") {
+    addUnique(flags, "WRONG_GCASH_NUMBER");
+  } else if (!exactAccount && recipientComparison.phone === "mismatch") {
     addUnique(flags, "WRONG_GCASH_NUMBER");
   } else if (
-    recipientComparison.phone === "missing" ||
-    recipientComparison.phone === "not_configured"
+    !exactAccount &&
+    (
+      recipientComparison.phone === "missing" ||
+      recipientComparison.phone === "not_configured"
+    )
   ) {
     addUnique(flags, "NUMBER_UNREADABLE");
   }
-  if (recipientComparison.name === "mismatch") {
+  if (!exactAccount && recipientComparison.name === "mismatch") {
     addUnique(flags, "RECEIVER_NAME_MISMATCH");
   } else if (
+    !exactAccount &&
     context.expectedRecipientName &&
     ["missing", "inconclusive", "not_configured"].includes(
       recipientComparison.name,

@@ -138,6 +138,14 @@ function recipientPassed(
         evidence.recipientComparison.name,
       );
   }
+  if (evidence.provider === "maribank") {
+    if (evidence.recipientComparison.account === "exact") return true;
+    return evidence.recipientComparison.phone === "exact" &&
+      ["exact", "masked_compatible"].includes(
+        evidence.recipientComparison.name,
+      ) && parsed.provider === "maribank" &&
+      parsed.receipt.recipient.phoneVisibility === "full";
+  }
   // Preserve the full-account rule for bank routes. Last-four-only proof remains pending.
   return evidence.recipientComparison.phone === "exact" &&
     ["exact", "masked_compatible"].includes(
@@ -248,8 +256,10 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
     ) add("qr_receipt_identity_unconfigured");
   }
   if (
-    /\b(?:failed|unsuccessful|pending|processing|scheduled|reversed|refunded|cancelled|canceled)\b/i
-      .test(text)
+    /\b(?:failed|unsuccessful|reversed|refunded|cancelled|canceled)\b/i.test(
+      text,
+    ) ||
+    /^(?:status\s*:?\s*)?(?:pending|processing|scheduled)$/im.test(text)
   ) add("transaction_not_successful");
   if (
     source &&
@@ -345,7 +355,9 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
           observedName: parsed.receipt.recipient.nameRaw?.slice(0, 160) || null,
           observedNumber: parsed.receipt.recipient.accountRaw?.slice(0, 80) ||
             null,
-          phoneMatch: evidence.recipientComparison.phone,
+          phoneMatch: evidence.recipientComparison.account === "exact"
+            ? "exact_account"
+            : evidence.recipientComparison.phone,
           nameMatch: evidence.recipientComparison.name,
         };
       }
@@ -364,7 +376,10 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
       if (!route.successMatched) add("transaction_success_unverified");
       if (!route.recipientMatched) add("payment_receiver_unverified");
       if (!route.referenceMatched) add("payment_reference_unverified");
-      if (source !== "gcash" && route.secondaryReferences.length !== 1) {
+      if (
+        source !== "gcash" && source !== "maribank" &&
+        route.secondaryReferences.length !== 1
+      ) {
         add("secondary_reference_unverified");
       }
       if (
