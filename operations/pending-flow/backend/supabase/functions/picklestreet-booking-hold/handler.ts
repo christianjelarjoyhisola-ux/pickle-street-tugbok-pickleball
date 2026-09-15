@@ -133,7 +133,7 @@ export function parseSelection(body: Obj): Selection {
     bookingType: body.bookingType,
   };
 }
-export function parseCompletion(body: Obj): Obj {
+export function parseCompletion(body: Obj, options: { overnightRequired?: boolean } = {}): Obj {
   const customer = obj(body.customer);
   allowed(customer, ["name", "email", "phone"]);
   const name = text(customer.name, "Customer name", 2, 100),
@@ -153,6 +153,12 @@ export function parseCompletion(body: Obj): Obj {
     fail(
       "POLICY_ACCEPTANCE_REQUIRED",
       "Review and accept the current Refund & Reschedule Policy.",
+    );
+  }
+  if (options.overnightRequired && body.overnightPolicyAccepted !== true) {
+    fail(
+      "OVERNIGHT_POLICY_ACCEPTANCE_REQUIRED",
+      "Review and accept the overnight access and quiet-hours rules.",
     );
   }
   const version = typeof body.policyVersion === "string"
@@ -177,6 +183,25 @@ export function parseCompletion(body: Obj): Obj {
       ? null
       : text(body.eventSetupNotes, "Event notes", 1, 1000),
   };
+}
+
+export function bookingRequiresOvernightPolicy(booking: Obj): boolean {
+  const timeZone = typeof booking.tenantTimezone === "string" ? booking.tenantTimezone : "";
+  const sessions = Array.isArray(booking.sessions) && booking.sessions.length ? booking.sessions : [booking];
+  const starts = sessions.flatMap((session) => {
+    const value = obj(session);
+    return Array.isArray(value.slots) && value.slots.length
+      ? value.slots.map((slot) => obj(slot).startsAt)
+      : [value.startsAt];
+  });
+  if (!timeZone || starts.some((value) => typeof value !== "string" || !Number.isFinite(Date.parse(value)))) {
+    throw new RequestError(503, "BOOKING_SCHEDULE_UNAVAILABLE", "The booking schedule could not be verified.");
+  }
+  const formatter = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", hourCycle: "h23" });
+  return starts.some((value) => {
+    const hour = Number(formatter.formatToParts(new Date(value)).find((part) => part.type === "hour")?.value);
+    return Number.isInteger(hour) && hour >= 0 && hour < 5;
+  });
 }
 export function clientAddress(request: Request): string {
   const raw = (request.headers.get("cf-connecting-ip") ||
@@ -463,6 +488,7 @@ export function createHoldHandler(deps: Dependencies) {
             "eventSetupNotes",
             "policyAccepted",
             "policyVersion",
+            "overnightPolicyAccepted",
           ]
           : []),
       ]);
@@ -505,8 +531,8 @@ export function createHoldHandler(deps: Dependencies) {
       }
       // Authenticate before reading policy or validating a completion. SQL repeats
       // capability/expiry/current-policy checks under its transaction lock.
-      await deps.store.status(access);
-      const completion = parseCompletion(body),
+      const storedBooking = await deps.store.status(access);
+      const completion = parseCompletion(body, { overnightRequired: bookingRequiresOvernightPolicy(storedBooking) }),
         setting = await deps.store.policy();
       if (!setting) {
         fail(

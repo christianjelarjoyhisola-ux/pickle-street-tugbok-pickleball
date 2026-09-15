@@ -3881,7 +3881,7 @@ window.DB = {
     return result.booking;
   },
 
-  async completePublicBookingHold({bookingReference,bookingToken,customer,guestCount=1,eventType=null,eventSetupNotes=null,policyAccepted,policyVersion}) {
+  async completePublicBookingHold({bookingReference,bookingToken,customer,guestCount=1,eventType=null,eventSetupNotes=null,policyAccepted,policyVersion,overnightPolicyAccepted=false}) {
     if (!PB_PLATFORM_V1 || PB_TENANT_SLUG !== 'pickle-street-tugbok') throw new Error('This venue does not support preliminary slot holds.');
     const bootstrap = await _pbPlatformBootstrap();
     const policy = _pbApprovedRefundPolicyForWrite(bootstrap?.settings?.[PB_REFUND_RESCHEDULE_POLICY_KEY]);
@@ -3894,6 +3894,7 @@ window.DB = {
       action:'complete',tenantSlug:PB_TENANT_SLUG,bookingReference:String(bookingReference || ''),bookingToken:String(bookingToken || ''),
       customer:{name:String(customer?.name || '').trim(),email:String(customer?.email || '').trim(),phone:String(customer?.phone || '').trim()},
       guestCount:Number(guestCount),eventType,eventSetupNotes,policyAccepted:true,policyVersion:policy.version,
+      overnightPolicyAccepted:overnightPolicyAccepted === true,
     }, {preferDirect:true});
     if (!result?.ok || !result.booking?.reference || result.booking.detailsCompleted !== true) throw new Error('Your booking details could not be saved. Try again before the timer ends.');
     _pbClearFastCache(['bookings','platformAvailability']);

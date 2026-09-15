@@ -687,6 +687,33 @@ Deno.test("production existing lookup scopes both tables to tenant, key and toke
   assert.equal(calls[0].args.p_access_token_hash, "hash-synthetic");
   assert.equal(calls[0].args.p_hostname, "picklestreet.pages.dev");
 });
+Deno.test("overnight completion requires explicit access and quiet-hours acceptance", async () => {
+  const f = fixture(), b = await f.created();
+  Object.assign(f.state.stored!.booking, {
+    startsAt: "2026-09-08T17:00:00+00:00",
+    endsAt: "2026-09-08T18:00:00+00:00",
+    slots: [{ startsAt: "2026-09-08T17:00:00+00:00", endsAt: "2026-09-08T18:00:00+00:00", status: "held" }],
+  });
+  const rejected = await f.invoke(completion(b));
+  assert.equal(rejected.response.status, 400);
+  assert.equal(rejected.data.error.code, "OVERNIGHT_POLICY_ACCEPTANCE_REQUIRED");
+  assert.equal(f.calls.complete.length, 0);
+  const accepted = await f.invoke(completion(b, { overnightPolicyAccepted: true }));
+  assert.equal(accepted.response.status, 200);
+  assert.equal(f.calls.complete.length, 1);
+});
+Deno.test("overnight holds use their stricter configured lead time", async () => {
+  const f = fixture();
+  f.config.court.opens_at = "00:00:00";
+  f.config.court.closes_at = "00:00:00";
+  f.config.court.public_config = { minimumLeadMinutes: 30, overnightMinimumLeadMinutes: 840 };
+  f.config.court.pricing_config.regular.bands = [{ start: "00:00", end: "24:00", hourlyRate: 1 }];
+  const result = await f.invoke({ ...createBody, startTime: "01:00" });
+  assert.equal(result.response.status, 422);
+  assert.equal(result.data.error.code, "BOOKING_TOO_SOON");
+  assert.match(result.data.error.message, /overnight bookings.*840 minutes/i);
+  assert.equal(f.calls.create.length, 0);
+});
 Deno.test("production booking configuration uses the court record without a private schedule-table dependency", async () => {
   const tables: string[] = [];
   const rows: Record<string, Obj | null> = {

@@ -1210,6 +1210,20 @@ body.dark .bpay-window-deadline { color:var(--cta); }
   background:var(--red);
   box-shadow:0 4px 12px rgba(229,57,53,.2);
 }
+.overnight-policy-check {
+  margin:12px 0 0;
+  padding:14px;
+  border:1px solid rgba(var(--ac),.35);
+  border-radius:12px;
+  background:rgba(var(--ac),.07);
+  color:var(--text);
+  font-size:.76rem;
+  line-height:1.5;
+}
+.overnight-policy-check strong { display:block; margin-bottom:5px; }
+.overnight-policy-check ul { margin:6px 0 10px 18px; padding:0; color:var(--muted); }
+.overnight-policy-check label { display:flex; gap:9px; align-items:flex-start; font-weight:750; cursor:pointer; }
+.overnight-policy-check input { margin-top:3px; accent-color:var(--accent); }
 .booking-policy-copy { min-width:0; display:flex; flex-direction:column; align-items:flex-start; }
 .booking-policy-check strong { color:var(--text); font-weight:800; }
 .policy-inline-link,
@@ -3987,6 +4001,19 @@ body.dark #splashScreen {
             <div id="payMethodNote" class="payment-method-note" style="margin-top:10px;display:none"></div>
             <input type="hidden" id="bPay" />
           </div>
+          <div class="overnight-policy-check" id="overnightPolicyCheck" hidden>
+            <strong>🌙 Overnight booking: 12:00–5:00 AM</strong>
+            <div>This time must be booked at least 2 hours in advance. For a safe, considerate visit:</div>
+            <ul>
+              <li>Use only the designated entrance and parking area.</li>
+              <li>Use the lit access route and contact the venue if lighting or access seems unsafe.</li>
+              <li>Follow venue staff/security instructions and keep noise low for nearby residents.</li>
+            </ul>
+            <label for="overnightPolicyAgree">
+              <input type="checkbox" id="overnightPolicyAgree" />
+              <span>I have reviewed and agree to these overnight access and quiet-hours rules.</span>
+            </label>
+          </div>
         </div>
 
         <!-- ── STEP 3: YOUR DETAILS ── -->
@@ -4619,12 +4646,15 @@ function bookingPolicyForCourt(candidate = court) {
   const raw = candidate?.publicConfig || {};
   const minimumLeadMinutes = raw.minimumLeadMinutes;
   const maximumAdvanceDays = raw.maximumAdvanceDays;
+  const overnightMinimumLeadMinutes = raw.overnightMinimumLeadMinutes;
   const leadConfigured = Number.isInteger(minimumLeadMinutes) && minimumLeadMinutes >= 0 && minimumLeadMinutes <= 10080;
   const horizonConfigured = Number.isInteger(maximumAdvanceDays) && maximumAdvanceDays >= 0 && maximumAdvanceDays <= 730;
+  const overnightLeadConfigured = Number.isInteger(overnightMinimumLeadMinutes) && overnightMinimumLeadMinutes >= 0 && overnightMinimumLeadMinutes <= 10080;
   return {
     configured: window.PB_PLATFORM_V1 ? leadConfigured && horizonConfigured : true,
     minimumLeadMinutes: leadConfigured ? minimumLeadMinutes : null,
     maximumAdvanceDays: horizonConfigured ? maximumAdvanceDays : null,
+    overnightMinimumLeadMinutes: overnightLeadConfigured ? overnightMinimumLeadMinutes : 120,
   };
 }
 
@@ -4641,7 +4671,10 @@ function courtBookingHourAllowed(candidate, date, hour) {
   if (!courtBookingDateAllowed(candidate, date) || !policy.configured) return false;
   if (!window.PB_PLATFORM_V1 || policy.minimumLeadMinutes === null) return true;
   const startsAt = new Date(`${date}T${String(hour).padStart(2, '0')}:00:00`);
-  return Number.isFinite(startsAt.getTime()) && startsAt.getTime() >= Date.now() + policy.minimumLeadMinutes * 60000;
+  const requiredLeadMinutes = hour >= 0 && hour < 5
+    ? Math.max(policy.minimumLeadMinutes, policy.overnightMinimumLeadMinutes)
+    : policy.minimumLeadMinutes;
+  return Number.isFinite(startsAt.getTime()) && startsAt.getTime() >= Date.now() + requiredLeadMinutes * 60000;
 }
 
 function syncCurrentEventRules(candidate = court) {
@@ -6367,6 +6400,25 @@ function activeBookingItems() {
   if (bookingItems.length > 0) return bookingItems;
   const item = makeBookingItemFromCurrentForm();
   return item ? [item] : [];
+}
+
+function bookingIncludesOvernight(items = activeBookingItems()) {
+  return (items || []).some(item => (item.slots || []).some(slot => {
+    const hour = Number(slot);
+    return Number.isInteger(hour) && hour >= 0 && hour < 5;
+  }));
+}
+
+function overnightPolicyAccepted() {
+  return !bookingIncludesOvernight() || $('overnightPolicyAgree')?.checked === true;
+}
+
+function syncOvernightPolicyUi() {
+  const card = $('overnightPolicyCheck');
+  if (!card) return;
+  const required = bookingIncludesOvernight();
+  card.hidden = !required;
+  if (!required && $('overnightPolicyAgree')) $('overnightPolicyAgree').checked = false;
 }
 
 function bookingItemsCourtFee(items = activeBookingItems()) {
@@ -8882,6 +8934,8 @@ function markBookingInvalid(target, step = null) {
     el.scrollIntoView?.({ behavior:'smooth', block:'center' });
     if (el.classList.contains('booking-policy-check')) {
       el.querySelector('.policy-inline-link')?.focus?.({ preventScroll:true });
+    } else if (el.classList.contains('overnight-policy-check')) {
+      el.querySelector('input')?.focus?.({ preventScroll:true });
     } else if (['INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName) && el.type !== 'checkbox' && el.type !== 'file') {
       el.focus?.({ preventScroll:true });
     }
@@ -8903,6 +8957,12 @@ function initBookingValidationHighlights() {
   if (policy) {
     policy.addEventListener('change', () => {
       if (policy.checked) clearBookingInvalid(policy.closest('.booking-policy-check'));
+    });
+  }
+  const overnightPolicy = $('overnightPolicyAgree');
+  if (overnightPolicy) {
+    overnightPolicy.addEventListener('change', () => {
+      if (overnightPolicy.checked) clearBookingInvalid($('overnightPolicyCheck'));
     });
   }
 }
@@ -8927,6 +8987,7 @@ function wizGoTo(n) {
   if (n === 4) {
     updatePrice();
     preparePaymentStep();
+    syncOvernightPolicyUi();
   }
   if (n === 5) {
     updatePrice();
@@ -10243,6 +10304,7 @@ async function submitPlatformBooking() {
   const checks = [
     [!isDigitalPayMethod(payMethod), 'Please select an available online full-payment method.', 'payMethodBlock', 4],
     [refundPolicyFeatureEnabled() && !currentRefundPolicyAccepted(), 'Please read and agree to the Refund & Reschedule Policy before confirming.', $('bookingPolicyAgree')?.closest('.booking-policy-check'), 5],
+    [!overnightPolicyAccepted(), 'Please review and agree to the overnight access and quiet-hours rules.', 'overnightPolicyCheck', 4],
     [payMethod === 'maya' && !paymentReference, 'Please enter the Maya transaction reference before confirming.', 'bGcashRef', 5],
     [payMethod === 'maya' && !isMayaRefValid(paymentReference), 'Enter the complete transaction reference shown under Maya Transaction details.', 'bGcashRef', 5],
     [!_receiptFile, 'Please upload your receipt screenshot before confirming.', 'bReceiptDrop', 5],
@@ -10412,6 +10474,7 @@ async function submitBooking(e) {
     [!payMethod, 'Please select a payment method.', 'payMethodBlock', 4],
     [!!payMethod && !paymentMethods[payMethod], 'Selected payment method is no longer available.', 'payMethodBlock', 4],
     [refundPolicyFeatureEnabled() && !currentRefundPolicyAccepted(), 'Please read and agree to the Refund & Reschedule Policy before confirming.', $('bookingPolicyAgree')?.closest('.booking-policy-check'), 5],
+    [!overnightPolicyAccepted(), 'Please review and agree to the overnight access and quiet-hours rules.', 'overnightPolicyCheck', 4],
     [digitalPay && !gcashRef, payMethod === 'bpi' ? 'Please enter your BPI Confirmation No. after paying.' : 'Please enter your payment reference number after paying.', 'bGcashRef', 5],
     [payMethod === 'gcash' && !isGcashRefValid(gcashRef), 'GCash reference number must be exactly 13 digits.', 'bGcashRef', 5],
     [payMethod === 'bdopay' && !isBdoPayRefValid(gcashRef), 'BDO Pay reference must look like BN-YYYYMMDD-########. Do not enter the invoice number.', 'bGcashRef', 5],
@@ -12038,6 +12101,7 @@ async function completePlatformBookingHold(consent = null) {
   const pending=(async()=>{
     const result=await DB.completePublicBookingHold({
       bookingReference:access.reference,bookingToken:access.bookingToken,...details,
+      overnightPolicyAccepted:overnightPolicyAccepted(),
       // Consent comes from an explicit Agree action for these exact policy terms.
       policyAccepted:policyEnabled && !!consent,policyVersion:policyEnabled?consent.version:'',
     });
@@ -12115,6 +12179,7 @@ async function platformWizardNext() {
   if(wizStep===4) {
     const method=$('bPay')?.value||'';
     if(!ALL_PAYMENT_METHODS.some(m=>paymentMethods[m])||!method||!paymentMethods[method]) {bookingValidationError('Select an available payment method.','payMethodBlock',4);return;}
+    if(!overnightPolicyAccepted()) {bookingValidationError('Please review and agree to the overnight access and quiet-hours rules.','overnightPolicyCheck',4);return;}
     if(!platformHoldIsUsable()){toast('The court hold has ended. Check your booking before paying.','inf');return;}
     if(!platformHoldHasDetails()) {
       try{platformDetailsFromForm();}catch(error){bookingValidationError(error.message,error.field,3);return;}

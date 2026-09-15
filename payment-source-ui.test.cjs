@@ -17,6 +17,18 @@ test('Maya selection exposes a required reference and expanded transaction-detai
  assert.match(page,/receiptGuide\.classList\.toggle\('show', mayaOnly\)/);
  assert.equal(fs.existsSync(path.join(__dirname,'assets','maya-transaction-details-receipt.png')),true);
 });
+test('overnight bookings require two-hour notice and an explicit access acknowledgement',()=>{
+ const page=text('index.html');
+ assert.match(page,/id="overnightPolicyCheck" hidden/);
+ assert.match(page,/id="overnightPolicyAgree"/);
+ assert.match(page,/Overnight booking: 12:00–5:00 AM/);
+ assert.match(page,/booked at least 2 hours in advance/);
+ assert.match(page,/designated entrance and parking area/);
+ assert.match(page,/lighting or access seems unsafe/);
+ assert.match(page,/staff\/security instructions and keep noise low/);
+ assert.match(page,/overnightMinimumLeadMinutes: overnightLeadConfigured \? overnightMinimumLeadMinutes : 120/);
+ assert.match(page,/overnightPolicyAccepted:overnightPolicyAccepted\(\)/);
+});
 test('balance selector preserves active digital codes and excludes public cash',()=>{const w=helpers();w.PB_PLATFORM_V1=true;const c={window:w};vm.runInNewContext(extract('function balancePaymentMethods(balance) {','function balanceMethodDetailHtml('),c);const codes=['gcash','bdo_pay','maya','bpi','gotyme','maribank','pnb','cash'];assert.deepEqual(Array.from(c.balancePaymentMethods({paymentMethods:codes.map(code=>({code}))}),x=>x.code),codes.slice(0,-1));w.PB_PLATFORM_V1=false;assert.equal(c.balancePaymentMethods({paymentMethods:codes.map(code=>({code}))}).length,8);});
 test('public settings preserve server enablement and identity; cash stays staff-only',()=>{const w=helpers();w.PB_PLATFORM_V1=true;const methods=['gcash','bdopay','maya','bpi','gotyme','maribank','pnb','cash'];w.PB_PAYMENT_METHOD_CODES={};w.PB_PAYMENT_METHODS_BY_CODE={};for(const method of methods){const code=method==='bdopay'?'bdo_pay':method;w.PB_PAYMENT_METHOD_CODES[method]=code;w.PB_PAYMENT_METHODS_BY_CODE[code]={code,uiCode:method,displayName:w.PaymentSourceUI.name(method),accountName:'Test-only receiver',accountReference:'test-only-account',qrImageUrl:'https://test.invalid/qr.png',instructions:'Test instructions'};}
  const el={value:'gcash',style:{},classList:{remove(){}}};const c={window:w,ALL_PAYMENT_METHODS:methods,PAYMENT_METHOD_FALLBACK_NAMES:Object.fromEntries(methods.map(m=>[m,w.PaymentSourceUI.name(m)])),safePaymentQrUrl:x=>x,paymentMethods:Object.fromEntries(methods.map(m=>[m,false])),gcashSettings:{},paymentReceiverSettings:{},paymentAcceptanceMode:'',document:{querySelectorAll:()=>[]},$:id=>id==='bPay'?el:null,assignPaymentQr(){},pickPay(){},updatePaymentAmountUI(){}};
