@@ -77,6 +77,9 @@ test('manager accepts complete 24-hour pricing and distinguishes both midnight b
   assert.equal(c.tierFmtH(0),'12:00 AM (Midnight)');
   assert.equal(c.tierFmtH(24),'12:00 AM (Next Day)');
   assert.match(admin,/first tier already includes 12:00–5:00 AM/);
+  const readinessMigration=fs.readFileSync('operations/pending-flow/029-multi-tier-full-day-readiness.sql','utf8');
+  assert.match(readinessMigration,/multi-tier full day forms a deliberate midnight cycle/i);
+  assert.match(readinessMigration,/return v_expected_start = 1440/);
 });
 test('stale manager save surfaces a refresh instruction and never falls back to shared writes',async()=>{
   const h=adapter();h.c._sb.rpc=async(name,args)=>{h.calls.push({name,args});return{error:{message:'PICKLESTREET_COURT_REVISION_CONFLICT'}};};
