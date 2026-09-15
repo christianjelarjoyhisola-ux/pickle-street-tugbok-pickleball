@@ -1,7 +1,7 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const Pricing=require('./court-pricing.js');
-const config=fs.readFileSync('supabase-config.js','utf8'),html=fs.readFileSync('index.html','utf8');
+const config=fs.readFileSync('supabase-config.js','utf8'),html=fs.readFileSync('index.html','utf8'),admin=fs.readFileSync('admin.html','utf8');
 const promo={from:5,to:24,standardRate:200,promoRate:150,promoEnabled:true};
 const legacy={start:'05:00',end:'24:00',hourlyRate:1};
 const plain=value=>JSON.parse(JSON.stringify(value));
@@ -68,6 +68,15 @@ test('the 24-hour rollout preserves prices while extending the early band to mid
   assert.equal(Pricing.validationError(fullDay[1]),'');
   assert.equal(Pricing.toBand(fullDay[0]).start,'00:00');
   assert.equal(Pricing.toBand(fullDay[1]).end,'24:00');
+});
+test('manager accepts complete 24-hour pricing and distinguishes both midnight boundaries',()=>{
+  const c={};
+  vm.runInNewContext([extract(admin,'tierFmtH'),extract(admin,'pricingTierCoversHour'),extract(admin,'validatePricingTierCoverage')].join('\n'),c);
+  const tiers=[Pricing.normalize({from:0,to:18,standardRate:200,promoEnabled:false}),Pricing.normalize({from:18,to:24,standardRate:280,promoEnabled:false})];
+  assert.deepEqual(plain(c.validatePricingTierCoverage(tiers,0,24)),{ok:true,message:''});
+  assert.equal(c.tierFmtH(0),'12:00 AM (Midnight)');
+  assert.equal(c.tierFmtH(24),'12:00 AM (Next Day)');
+  assert.match(admin,/first tier already includes 12:00–5:00 AM/);
 });
 test('stale manager save surfaces a refresh instruction and never falls back to shared writes',async()=>{
   const h=adapter();h.c._sb.rpc=async(name,args)=>{h.calls.push({name,args});return{error:{message:'PICKLESTREET_COURT_REVISION_CONFLICT'}};};

@@ -3191,7 +3191,7 @@ tr:hover td { background: var(--bg2); }
           </div>
         </div>
         <div id="tiersBody"></div>
-        <p class="court-config-note">Example: standard ₱200, promo ₱150. Promotions apply to court rental; any booking fee is added separately. Cover every operating hour without gaps or overlaps.</p>
+        <p class="court-config-note"><strong>Current 24-hour setup:</strong> 12:00 AM (Midnight)–6:00 PM at ₱200, then 6:00 PM–12:00 AM (Next Day) at ₱280. The first tier already includes 12:00–5:00 AM. Cover every operating hour without gaps or overlaps.</p>
         <div class="pricing-tier-actions">
           <button class="btn btn-g btn-sm" id="addPricingTierBtn" type="button" onclick="addTierRow()">+ Add Tier</button>
           <button class="btn btn-p btn-sm" id="savePricingTiersBtn" type="button" onclick="savePricingTiers()">💾 Save Tiers</button>
@@ -12657,7 +12657,8 @@ async function loadPricingTiers(courts = [], sharedSchedule = _sharedCourtSchedu
 }
 
 function tierFmtH(h) {
-  if (h === 0 || h === 24) return '12:00 AM';
+  if (h === 0) return '12:00 AM (Midnight)';
+  if (h === 24) return '12:00 AM (Next Day)';
   return `${h % 12 || 12}:00 ${h < 12 ? 'AM' : 'PM'}`;
 }
 
