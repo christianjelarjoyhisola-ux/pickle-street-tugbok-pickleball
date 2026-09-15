@@ -58,6 +58,17 @@ test('shared schedule off saves both rates, revisions and restores payable stand
   const h=adapter();const result=await h.c.DB.saveSharedCourtSchedule({opensAt:'05:00',closesAt:'00:00',rateSchedule:[{...promo,promoEnabled:false}],expectedRevisions:h.revisions});
   const {name,args}=h.calls[0];assert.equal(name,'apply_shared_picklestreet_court_schedule');assert.equal(args.p_bands[0].hourlyRate,200);assert.equal(args.p_bands[0].promoHourlyRate,150);assert.deepEqual(plain(result.revisions),h.revisions);
 });
+test('the 24-hour rollout preserves prices while extending the early band to midnight',()=>{
+  const migration=fs.readFileSync('operations/pending-flow/027-twenty-four-hour-courts.sql','utf8');
+  assert.match(migration,/v_close_minutes <= v_open_minutes/);
+  assert.match(migration,/opens_at = time '00:00'/);
+  assert.match(migration,/\{regular,bands,0,start\}/);
+  const fullDay=[Pricing.normalize({...promo,from:0,to:18,promoEnabled:false}),Pricing.normalize({...promo,from:18,to:24,standardRate:280,promoRate:null,promoEnabled:false})];
+  assert.equal(Pricing.validationError(fullDay[0]),'');
+  assert.equal(Pricing.validationError(fullDay[1]),'');
+  assert.equal(Pricing.toBand(fullDay[0]).start,'00:00');
+  assert.equal(Pricing.toBand(fullDay[1]).end,'24:00');
+});
 test('stale manager save surfaces a refresh instruction and never falls back to shared writes',async()=>{
   const h=adapter();h.c._sb.rpc=async(name,args)=>{h.calls.push({name,args});return{error:{message:'PICKLESTREET_COURT_REVISION_CONFLICT'}};};
   await assert.rejects(h.c.DB.saveCourt(h.court,{expectedRevisions:h.revisions}),/Refresh the page/);assert.equal(h.calls.length,1);assert.equal(h.calls[0].name,'manage_picklestreet_court');

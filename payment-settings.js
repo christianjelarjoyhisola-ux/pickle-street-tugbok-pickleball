@@ -68,7 +68,7 @@
       </section>
       <section class="ps-payment-card ps-payment-advanced" aria-labelledby="advancedGcashHeading">
         <h4 class="pm-brand-heading" id="advancedGcashHeading">${mark('gcash')} Advanced GCash QR receipt verification</h4>
-        <p>Use the alias and destination token printed on receipts sent to your GCash QR. BDO Pay checks the full token; BPI checks the visible account suffix. If these details are missing, those receipts stay Pending for staff review.</p>
+        <p>Use the alias and destination token printed on receipts sent to your GCash QR. BDO Pay checks the full token, while BPI QR receipts check the visible account suffix. Direct BPI transfers are checked against the shared GCash name and full mobile number above. If the required details are missing, the receipt stays Pending for staff review.</p>
         <div class="ps-payment-fields"><div class="fg"><label class="fl" for="platformGcashQrAlias">GCash QR receipt alias</label><input class="fi" id="platformGcashQrAlias" maxlength="120" value="${esc(receipt.gcashQrAlias)}" placeholder="Your recipient name as printed on the receipt" autocomplete="off" /></div>
         <div class="fg"><label class="fl" for="platformGcashQrToken">GCash QR destination token</label><input class="fi" id="platformGcashQrToken" maxlength="120" value="${esc(receipt.gcashQrToken)}" placeholder="Exact destination token from your receipt" autocomplete="off" /></div></div>
       </section>

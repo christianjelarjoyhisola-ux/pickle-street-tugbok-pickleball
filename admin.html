@@ -3455,7 +3455,7 @@ tr:hover td { background: var(--bg2); }
       <!-- ADVANCE RESERVED / BLOCKED DATES -->
       <div class="panel" id="blockedDatesManagerPanel" style="max-width:760px">
         <h4>📅 Reserved &amp; Blocked Dates</h4>
-        <p style="color:var(--muted);font-size:.84rem;margin:8px 0 16px">Reserve a whole day or choose exact hours. For a date range, the same hours apply to every selected date.</p>
+        <p style="color:var(--muted);font-size:.84rem;margin:8px 0 16px">Reserve a whole day or choose exact hours. To prevent time-slot data from overloading the database, you can reserve a maximum of 6 calendar dates at a time.</p>
         <div class="blk-safety-note">Confirmed and active customer bookings are protected. The system will refuse a new reservation if its hours overlap an existing booking.</div>
         <div class="blk-form-grid">
           <div style="grid-column:1/-1">
@@ -3466,11 +3466,11 @@ tr:hover td { background: var(--bg2); }
           </div>
           <div>
             <label class="fl">Start Date</label>
-            <input type="date" class="fi" id="newBlk" onchange="syncBlockedEndDate()"/>
+            <input type="date" class="fi" id="newBlk" onchange="syncBlockedEndDate()" aria-describedby="blockedDateLimitNote"/>
           </div>
           <div>
             <label class="fl">End Date <span style="font-weight:500;color:var(--muted)">(optional)</span></label>
-            <input type="date" class="fi" id="newBlkEnd"/>
+            <input type="date" class="fi" id="newBlkEnd" aria-describedby="blockedDateLimitNote"/>
           </div>
           <div>
             <label class="fl">Time Coverage</label>
@@ -3501,6 +3501,7 @@ tr:hover td { background: var(--bg2); }
             <input type="text" class="fi" id="newBlkReason" maxlength="200" placeholder="Example: Owner reservation"/>
           </div>
         </div>
+        <p id="blockedDateLimitNote" style="color:var(--muted);font-size:.8rem;margin:0 0 12px">Maximum: 6 dates per reservation.</p>
         <button class="btn btn-d" id="newBlkBtn" onclick="addBlocked()">Reserve Selected Date(s)</button>
         <div style="height:18px"></div>
         <div id="blkList"><p style="color:var(--muted);font-style:italic">No blocked dates.</p></div>
@@ -14397,7 +14398,15 @@ function syncBlockedEndDate(){
   const end = $('newBlkEnd');
   if (!end) return;
   end.min = start || blockedTodayDate();
+  if (start) {
+    const maximum = new Date(start + 'T00:00:00');
+    maximum.setDate(maximum.getDate() + 5);
+    end.max = `${maximum.getFullYear()}-${String(maximum.getMonth() + 1).padStart(2, '0')}-${String(maximum.getDate()).padStart(2, '0')}`;
+  } else {
+    end.removeAttribute('max');
+  }
   if (end.value && start && end.value < start) end.value = start;
+  if (end.value && end.max && end.value > end.max) end.value = end.max;
 }
 
 function blockedHourLabel(hour){
@@ -14530,8 +14539,8 @@ async function addBlocked(){
   if (!startDate) { toast('Choose a start date.', 'err'); return; }
   if (endDate < startDate) { toast('End date cannot be before the start date.', 'err'); return; }
   const rangeDays = Math.round((new Date(endDate + 'T00:00:00') - new Date(startDate + 'T00:00:00')) / 86400000) + 1;
-  if (!Number.isFinite(rangeDays) || rangeDays < 1 || rangeDays > 90) {
-    toast('Choose a date range of 90 days or less.', 'err');
+  if (!Number.isFinite(rangeDays) || rangeDays < 1 || rangeDays > 6) {
+    toast('Reserve up to 6 dates at a time.', 'err');
     return;
   }
   if (specificHours) {
@@ -15167,7 +15176,7 @@ async function checkAgreementGate(session) {
 <script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260909-receipt-diagnostics"></script><script src="payment-source-ui.js?v=20260909-native-maya"></script>
 <script src="receipt-pending.js?v=20260908-routes2"></script>
 <script src="payment-method-brand.js?v=20260908-routes2"></script>
-<script src="payment-settings.js?v=20260909-native-maya"></script>
+<script src="payment-settings.js?v=20260912-bpi-direct"></script>
 <script src="open-play-data.js?v=20260803-openplay-reports"></script>
 <script src="open-play-admin.js?v=20260907-audit"></script>
 <script src="open-play-reporting.js?v=20260907-audit"></script>

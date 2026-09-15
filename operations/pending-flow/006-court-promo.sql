@@ -41,11 +41,12 @@ begin
 
   v_open_minutes := pg_catalog.split_part(v_opens_text, ':', 1)::integer * 60;
   v_close_minutes := pg_catalog.split_part(v_closes_text, ':', 1)::integer * 60;
-  if v_close_minutes = v_open_minutes then
+  if v_close_minutes = v_open_minutes
+     and not (v_open_minutes = 0 and v_close_minutes = 0) then
     raise exception 'SHARED_COURT_SCHEDULE_INVALID'
       using errcode = '22023';
   end if;
-  if v_close_minutes < v_open_minutes then
+  if v_close_minutes <= v_open_minutes then
     v_close_minutes := v_close_minutes + 1440;
   end if;
 
@@ -375,11 +376,12 @@ begin
 
   v_open_minutes := pg_catalog.split_part(v_opens_text, ':', 1)::integer * 60;
   v_close_minutes := pg_catalog.split_part(v_closes_text, ':', 1)::integer * 60;
-  if v_close_minutes = v_open_minutes then
+  if v_close_minutes = v_open_minutes
+     and not (v_open_minutes = 0 and v_close_minutes = 0) then
     raise exception 'SHARED_COURT_SCHEDULE_INVALID'
       using errcode = '22023';
   end if;
-  if v_close_minutes < v_open_minutes then
+  if v_close_minutes <= v_open_minutes then
     v_close_minutes := v_close_minutes + 1440;
   end if;
 

@@ -1151,6 +1151,17 @@ body.dark .bpay-window-deadline { color:var(--cta); }
 }
 .bpay-receipt-preview { display:none; margin-top:7px; align-items:center; gap:9px; }
 .bpay-receipt-preview img { width:42px; height:42px; object-fit:cover; border-radius:7px; border:1px solid var(--border); }
+.maya-receipt-guide {
+  display:none; margin:10px 0; padding:12px; border:1px solid rgba(0,171,107,.32);
+  border-radius:10px; background:rgba(0,171,107,.07);
+}
+.maya-receipt-guide.show { display:grid; grid-template-columns:minmax(0,150px) minmax(0,1fr); gap:12px; align-items:center; }
+.maya-receipt-guide img { width:100%; max-height:240px; object-fit:contain; border-radius:8px; background:#fff; }
+.maya-receipt-guide strong { display:block; margin-bottom:5px; color:var(--text); font-size:.78rem; }
+.maya-receipt-guide p { margin:0; color:var(--muted); font-size:.7rem; line-height:1.5; }
+@media (max-width:520px) {
+  .maya-receipt-guide.show { grid-template-columns:110px minmax(0,1fr); }
+}
 .booking-policy-check {
   position:relative;
   margin:0 0 12px;
@@ -4186,25 +4197,32 @@ body.dark #splashScreen {
                   <span class="bpay-window-copy">Pay and upload your receipt by <strong class="bpay-window-deadline" id="bPayWindowEnd">--</strong> PH.</span>
                 </div>
               </div>
-              <div hidden aria-hidden="true" id="receiptOnlyReferenceLegacy"><div class="bpay-ref-head">
+              <div id="mayaReferenceRequirement" style="display:none"><div class="bpay-ref-head">
                 <label class="bpay-ref-label">
-                  🔖 Reference # <span id="refMethodLabel" style="color:var(--muted);text-transform:none;font-size:.68rem;font-weight:500;letter-spacing:0"></span>
+                  🔖 Reference # <span aria-hidden="true" style="color:#e53935">*</span> <span id="refMethodLabel" style="color:var(--muted);text-transform:none;font-size:.68rem;font-weight:500;letter-spacing:0"></span>
                 </label>
                 <span id="gcRefCount" style="font-size:.62rem;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap">0 digits</span>
               </div>
               <div class="bpay-ref-row">
                 <input type="text" class="fi" id="bGcashRef" placeholder="e.g. 1234567890123"
                   style="flex:1;" maxlength="13" autocomplete="off"
-                  oninput="updateRefCount()" inputmode="numeric" />
+                  oninput="updateRefCount()" inputmode="numeric" aria-describedby="bRefHelp" />
                 <button type="button" class="gc-copy-btn" onclick="pasteRef()" style="background:var(--input);color:var(--text);border:1px solid var(--border);flex-shrink:0;">📋 Paste</button>
               </div>
               <div class="bpay-help" id="bRefHelp">
                 GCash reference must be exactly 13 digits.
               </div>
 
-              </div><p class="bpay-help">Upload your complete receipt. We read the payment reference automatically.</p>
+              </div><p class="bpay-help" id="receiptReferenceCopy">Upload your complete receipt. We read the payment reference automatically.</p>
               <!-- Receipt screenshot upload (auto-verification) -->
               <div class="bpay-receipt">
+                <div class="maya-receipt-guide" id="mayaReceiptGuide" role="note">
+                  <img src="assets/maya-transaction-details-receipt.png" alt="Maya transfer screen pointing to the Transaction details control" />
+                  <div>
+                    <strong>Before uploading your Maya receipt</strong>
+                    <p>Tap <b>Transaction details</b> so the full payment reference and details are visible. Include the expanded details in your screenshot or downloaded receipt.</p>
+                  </div>
+                </div>
                 <label class="bpay-ref-label" style="display:block;margin-bottom:6px">
                   📸 Upload Receipt <span style="color:#e53935;font-size:.8rem">*</span>
                 </label>
@@ -9736,7 +9754,7 @@ function pickPay(m) {
     $('cashPaymentInstructions').textContent = receiver.instructions ? ` — ${receiver.instructions}` : '';
   }
   if ($('refMethodLabel')) $('refMethodLabel').textContent = digitalPay ? `— ${paymentMethodName(m)}` : '';
-  if (digitalPay) $('bGcashRef')?.setAttribute('required','');
+  if (m === 'maya') $('bGcashRef')?.setAttribute('required','');
   else $('bGcashRef')?.removeAttribute('required');
   syncBookingRefUi(m);
   updatePaymentAmountUI();
@@ -9825,6 +9843,15 @@ function isBpiConfirmationValid(ref) {
 function paymentRefHelpText(method) { return window.PaymentSourceUI.referenceRules(method).help; }
 
 function syncBookingRefUi(method = $('bPay')?.value || 'gcash') {
+  const mayaOnly = method === 'maya';
+  const requirement = $('mayaReferenceRequirement');
+  if (requirement) requirement.style.display = mayaOnly ? '' : 'none';
+  const receiptGuide = $('mayaReceiptGuide');
+  if (receiptGuide) receiptGuide.classList.toggle('show', mayaOnly);
+  const referenceCopy = $('receiptReferenceCopy');
+  if (referenceCopy) referenceCopy.textContent = mayaOnly
+    ? 'The Maya transaction reference is required and cannot be left blank.'
+    : 'Upload your complete receipt. We read the payment reference automatically.';
   const input = $('bGcashRef');
   if (input) {
     input.maxLength = paymentRefMaxLength(method);
@@ -9836,7 +9863,7 @@ function syncBookingRefUi(method = $('bPay')?.value || 'gcash') {
   }
   const refLabel = document.querySelector('.bpay-ref-label');
   if (refLabel) {
-    refLabel.innerHTML = `${method === 'bpi' ? 'BPI Confirmation No.' : 'Reference #'} <span id="refMethodLabel" style="color:var(--muted);text-transform:none;font-size:.68rem;font-weight:500;letter-spacing:0">${method ? '&mdash; ' + esc(paymentMethodName(method)) : ''}</span>`;
+    refLabel.innerHTML = `${method === 'bpi' ? 'BPI Confirmation No.' : 'Reference #'}${mayaOnly ? ' <span aria-hidden="true" style="color:#e53935">*</span>' : ''} <span id="refMethodLabel" style="color:var(--muted);text-transform:none;font-size:.68rem;font-weight:500;letter-spacing:0">${method ? '&mdash; ' + esc(paymentMethodName(method)) : ''}</span>`;
   }
   if ($('bRefHelp')) $('bRefHelp').textContent = paymentRefHelpText(method);
   updateRefCount();
@@ -10212,10 +10239,12 @@ async function submitPlatformBooking() {
     return;
   }
   const payMethod = $('bPay')?.value || '';
-  const paymentReference = '';
+  const paymentReference = payMethod === 'maya' ? ($('bGcashRef')?.value?.trim() || '') : '';
   const checks = [
     [!isDigitalPayMethod(payMethod), 'Please select an available online full-payment method.', 'payMethodBlock', 4],
     [refundPolicyFeatureEnabled() && !currentRefundPolicyAccepted(), 'Please read and agree to the Refund & Reschedule Policy before confirming.', $('bookingPolicyAgree')?.closest('.booking-policy-check'), 5],
+    [payMethod === 'maya' && !paymentReference, 'Please enter the Maya transaction reference before confirming.', 'bGcashRef', 5],
+    [payMethod === 'maya' && !isMayaRefValid(paymentReference), 'Enter the complete transaction reference shown under Maya Transaction details.', 'bGcashRef', 5],
     [!_receiptFile, 'Please upload your receipt screenshot before confirming.', 'bReceiptDrop', 5],
   ];
   for (const [failed, message, target, step] of checks) {

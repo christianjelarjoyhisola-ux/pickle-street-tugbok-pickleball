@@ -11,6 +11,7 @@ module.exports = Object.freeze([
   'assets/payment-methods/maya.png', 'assets/payment-methods/bpi.png',
   'assets/payment-methods/gotyme.png', 'assets/payment-methods/maribank.png',
   'assets/payment-methods/pnb.png', 'assets/payment-methods/cash.svg',
+  'assets/maya-transaction-details-receipt.png',
   'open-play-data.js', 'open-play-public.js', 'open-play-admin.js', 'open-play-reporting.js',
   'open-play.css', 'open-play-admin.css', 'open-play-reporting.css',
   'pickle-street.css', 'pickle-street.js', 'booking-management.css', 'booking-management.js',
