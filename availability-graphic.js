@@ -145,6 +145,40 @@
     }).format(parsed);
   }
 
+  function zonedMinutes(value, timeZone = MANILA_TIME_ZONE) {
+    const parsed = value instanceof Date ? value : new Date(value || Date.now());
+    if (Number.isNaN(parsed.getTime())) return null;
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: text(timeZone) || MANILA_TIME_ZONE,
+      hourCycle: 'h23',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).formatToParts(parsed);
+    const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+    const hour = Number(values.hour);
+    const minute = Number(values.minute);
+    return Number.isFinite(hour) && Number.isFinite(minute) ? hour * 60 + minute : null;
+  }
+
+  function isElapsedSlot(slot, snapshot) {
+    const scheduleDate = dateOnly(snapshot?.date);
+    const generated = new Date(snapshot?.generatedAt || '');
+    if (!scheduleDate || Number.isNaN(generated.getTime())) return false;
+    const timeZone = text(snapshot?.timezone) || MANILA_TIME_ZONE;
+    const generatedDate = timeZone === MANILA_TIME_ZONE
+      ? manilaDateKey(generated)
+      : new Intl.DateTimeFormat('en-CA', {
+          timeZone,
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).format(generated);
+    if (scheduleDate < generatedDate) return true;
+    if (scheduleDate > generatedDate) return false;
+    const currentMinutes = zonedMinutes(generated, timeZone);
+    return currentMinutes != null && number(slot?.end) * 60 <= currentMinutes;
+  }
+
   function minimumSelectableDate() {
     return manilaDateKey();
   }
@@ -957,7 +991,9 @@
 
   function posterSummary(snapshot) {
     const courts = snapshot.courts || [];
-    const rangesByCourt = courts.map(court => mergeAvailableRanges(court.slots));
+    const rangesByCourt = courts.map(court => mergeAvailableRanges(
+      court.slots.filter(slot => !isElapsedSlot(slot, snapshot)),
+    ));
     const openHours = rangesByCourt.reduce((total, ranges) => (
       total + ranges.reduce((sum, range) => sum + (range.end - range.start), 0)
     ), 0);
@@ -1039,7 +1075,7 @@
     return { courts: visibleCourts, hiddenCourtNames };
   }
 
-  function posterSlotVisibility(courts) {
+  function posterSlotVisibility(courts, snapshot) {
     const allSlots = [...new Map(courts.flatMap(court => court.slots).map(slot => [`${slot.start}|${slot.end}`, slot])).values()]
       .sort((left, right) => left.start - right.start || left.end - right.end);
     let hiddenPastCount = 0;
@@ -1048,8 +1084,9 @@
       const matchingSlots = courts
         .map(court => court.slots.find(candidate => candidate.start === slotWindow.start && candidate.end === slotWindow.end))
         .filter(Boolean);
-      const fullyPast = matchingSlots.length === courts.length
-        && matchingSlots.every(slot => text(slot.reason).toLowerCase() === 'past');
+      const fullyPast = isElapsedSlot(slotWindow, snapshot)
+        || (matchingSlots.length === courts.length
+          && matchingSlots.every(slot => text(slot.reason).toLowerCase() === 'past'));
       const fullyUnavailable = matchingSlots.length === courts.length
         && matchingSlots.every(slot => (
           slot.status !== 'available'
@@ -1063,7 +1100,7 @@
     return { timeSlots, hiddenPastCount, hiddenUnavailableCount };
   }
 
-  function drawCourtCards(context, summary, layout) {
+  function drawCourtCards(context, snapshot, summary, layout) {
     const { width, story } = layout;
     const courtVisibility = posterCourtVisibility(summary.courts);
     const courts = courtVisibility.courts;
@@ -1101,7 +1138,7 @@
       return;
     }
 
-    const { timeSlots, hiddenPastCount, hiddenUnavailableCount } = posterSlotVisibility(courts);
+    const { timeSlots, hiddenPastCount, hiddenUnavailableCount } = posterSlotVisibility(courts, snapshot);
     const headerHeight = story ? 58 : 46;
     const timeWidth = story ? 210 : 205;
     const columnGap = story ? 10 : 8;
@@ -1328,7 +1365,7 @@
     drawPageMarker(context, layout, number(options.pageNumber, 1), number(options.totalPages, 1));
     const fullSummary = posterSummary(options.summarySnapshot || snapshot);
     drawHero(context, snapshot, fullSummary, layout);
-    drawCourtCards(context, posterSummary(snapshot), layout);
+    drawCourtCards(context, snapshot, posterSummary(snapshot), layout);
     drawFooter(context, snapshot, qr, layout, bookingUrl);
     return canvas;
   }

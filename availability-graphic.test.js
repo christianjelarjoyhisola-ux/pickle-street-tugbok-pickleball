@@ -300,6 +300,36 @@ test('today poster hides fully elapsed rows and keeps current and future slots',
   assert.ok(canvas.calls.some(call => call.value === 'Earlier time slots hidden · showing what remains today'));
 });
 
+test('today poster hides an elapsed row even when one court still labels it booked', async () => {
+  const snapshot = {
+    generatedAt: '2026-09-16T11:34:00.000Z',
+    timezone: 'Asia/Manila',
+    date: '2026-09-16',
+    courts: [
+      {
+        id: '1', name: 'Court 1', slots: [
+          { start: 17, end: 18, status: 'unavailable', reason: 'booked' },
+          { start: 21, end: 22, status: 'available', reason: '' },
+        ],
+      },
+      {
+        id: '2', name: 'Court 2', slots: [
+          { start: 17, end: 18, status: 'unavailable', reason: 'past' },
+          { start: 21, end: 22, status: 'available', reason: '' },
+        ],
+      },
+    ],
+  };
+  const visibility = graphic.posterSlotVisibility(snapshot.courts, snapshot);
+  assert.equal(visibility.hiddenPastCount, 1);
+  assert.deepEqual(visibility.timeSlots.map(slot => slot.start), [21]);
+
+  const canvas = fakeCanvas();
+  await graphic.drawPoster(canvas, snapshot, 'feed', { logo: false, qr: false });
+  assert.equal(canvas.calls.some(call => call.value === '5:00–6:00 PM'), false);
+  assert.ok(canvas.calls.some(call => call.value === '9:00–10:00 PM'));
+});
+
 test('poster hides fully reserved rows and closed courts but keeps partially available rows', async () => {
   const courts = [
     {
