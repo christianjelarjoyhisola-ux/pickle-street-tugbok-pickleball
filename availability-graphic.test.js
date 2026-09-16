@@ -406,6 +406,7 @@ test('production admin includes the live availability adapter and launch wiring'
   assert.match(admin, /Availability Post/);
   assert.match(admin, /availability-graphic\.js/);
   assert.match(client, /async getAvailabilityGraphic\(date, courtIds = \[\]\)/);
+  assert.match(client, /if \(PB_PLATFORM_V1\)[\s\S]*?_pbPlatformAvailability\(requestedDate\)/);
   assert.match(client, /_sb\.rpc\('get_admin_availability_graphic'/);
   assert.match(client, /async getAvailabilityGraphicSnapshot\(date, courtIds = \[\]\)/);
 });

@@ -2195,6 +2195,108 @@ window.DB = {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(requestedDate) || requestedCourtIds.length > 50) {
       throw new Error('Choose a valid availability date and court selection.');
     }
+    if (PB_PLATFORM_V1) {
+      const [availability, bootstrap] = await Promise.all([
+        _pbPlatformAvailability(requestedDate),
+        _pbPlatformBootstrap(),
+      ]);
+      const publicCourts = Array.isArray(availability?.courts) ? availability.courts : [];
+      const selectedCourts = publicCourts.filter(court =>
+        requestedCourtIds.length === 0 || requestedCourtIds.includes(String(court.id))
+      );
+      const configByCourt = new Map((bootstrap?.courts || []).map(court => [String(court.id), court]));
+      if (!selectedCourts.length || (requestedCourtIds.length && selectedCourts.length !== requestedCourtIds.length)) {
+        throw new Error('The selected courts are not available for this date.');
+      }
+      const firstConfig = configByCourt.get(String(selectedCourts[0].id)) || {};
+      const openHour = _pbClockHour(firstConfig.opensAt);
+      const closeHour = String(firstConfig.closesAt || '').startsWith('00:00')
+        ? 24
+        : _pbClockHour(firstConfig.closesAt, true);
+      if (!Number.isInteger(openHour) || !Number.isInteger(closeHour) || closeHour <= openHour
+          || selectedCourts.some(court => {
+            const config = configByCourt.get(String(court.id)) || {};
+            const courtOpen = _pbClockHour(config.opensAt);
+            const courtClose = String(config.closesAt || '').startsWith('00:00')
+              ? 24
+              : _pbClockHour(config.closesAt, true);
+            return courtOpen !== openHour || courtClose !== closeHour;
+          })) {
+        throw new Error('Court hours must match before creating one availability graphic.');
+      }
+
+      const unavailableByCourt = new Map(selectedCourts.map(court => [String(court.id), new Map()]));
+      for (const court of selectedCourts) {
+        const unavailable = unavailableByCourt.get(String(court.id));
+        for (const interval of (court.unavailable || [])) {
+          for (const hour of _pbLocalIntervalHours(interval.startsAt, interval.endsAt, requestedDate)) {
+            unavailable.set(hour, { reason: 'booked', label: 'Booked' });
+          }
+        }
+      }
+      for (const block of (availability.blockedDates || [])) {
+        const targetCourts = block.courtId == null
+          ? selectedCourts
+          : selectedCourts.filter(court => String(court.id) === String(block.courtId));
+        for (const court of targetCourts) {
+          let blockedHours = _pbLocalIntervalHours(block.startsAt, block.endsAt, requestedDate);
+          if (!block.startsAt && !block.endsAt) {
+            blockedHours = Array.from({ length: closeHour - openHour }, (_, index) => openHour + index);
+          }
+          const unavailable = unavailableByCourt.get(String(court.id));
+          for (const hour of blockedHours) {
+            unavailable.set(hour, { reason: 'blocked_date', label: block.label || 'Unavailable' });
+          }
+        }
+      }
+
+      const phClock = new Date(Date.now() + 8 * 60 * 60 * 1000);
+      const phToday = phClock.toISOString().slice(0, 10);
+      const phHour = phClock.getUTCHours();
+      const hourLabel = hour => {
+        const normalized = ((Number(hour) % 24) + 24) % 24;
+        return `${normalized % 12 || 12}:00 ${normalized < 12 ? 'AM' : 'PM'}`;
+      };
+      const courts = selectedCourts.map(court => {
+        const unavailable = unavailableByCourt.get(String(court.id));
+        const slots = Array.from({ length: closeHour - openHour }, (_, index) => {
+          const hour = openHour + index;
+          let block = unavailable.get(hour) || null;
+          if (!block && requestedDate === phToday && hour <= phHour) {
+            block = hour === phHour
+              ? { reason: 'current', label: 'In progress' }
+              : { reason: 'past', label: 'Past' };
+          }
+          return {
+            hour,
+            startHour: hour,
+            endHour: hour + 1,
+            startLabel: hourLabel(hour),
+            endLabel: hourLabel(hour + 1),
+            label: block?.label || 'Available',
+            state: block ? 'unavailable' : 'free',
+            reason: block?.reason || null,
+          };
+        });
+        return {
+          id: String(court.id),
+          name: String(court.name || '').trim(),
+          availableCount: slots.filter(slot => slot.state === 'free').length,
+          totalSlots: slots.length,
+          slots,
+        };
+      });
+      const asOf = `${phClock.toISOString().replace(/Z$/, '')}+08:00`;
+      return _pbNormalizeAvailabilityGraphicSnapshot({
+        version: 1,
+        date: requestedDate,
+        timezone: 'Asia/Manila',
+        asOf,
+        openHour,
+        closeHour,
+        courts,
+      }, requestedDate, requestedCourtIds);
+    }
     const { data, error } = await _sb.rpc('get_admin_availability_graphic', {
       p_date: requestedDate,
       p_court_ids: requestedCourtIds.length ? requestedCourtIds : null,
