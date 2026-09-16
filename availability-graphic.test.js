@@ -371,8 +371,8 @@ test('footer keeps a large crisp QR and readable booking copy inside safe bounds
   assert.match(source, /Updated \$\{formatGeneratedAt\(snapshot\.generatedAt\)/);
 });
 
-test('opening date and Web Share fallback are explicit', () => {
-  assert.equal(graphic.constants.OPENING_DATE, '2026-09-19');
+test('poster has no stale opening-date gate and Web Share fallback is explicit', () => {
+  assert.equal(Object.hasOwn(graphic.constants, 'OPENING_DATE'), false);
   assert.equal(graphic.constants.DEFAULT_BOOKING_URL, 'https://picklestreetcourt.com/');
   assert.match(graphic.shareErrorMessage({ name: 'NotAllowedError' }), /Download PNG/);
   assert.match(graphic.shareErrorMessage({ name: 'NotAllowedError' }), /upload.*Facebook/i);

@@ -6,7 +6,6 @@
   'use strict';
 
   const MANILA_TIME_ZONE = 'Asia/Manila';
-  const OPENING_DATE = '2026-09-19';
   const FRESHNESS_LIMIT_MS = 3 * 60 * 1000;
   const DEFAULT_BOOKING_URL = 'https://picklestreetcourt.com/';
   const COURT_COLLATOR = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
@@ -147,8 +146,7 @@
   }
 
   function minimumSelectableDate() {
-    const today = manilaDateKey();
-    return today > OPENING_DATE ? today : OPENING_DATE;
+    return manilaDateKey();
   }
 
   function selectableDate(value) {
@@ -1440,7 +1438,7 @@
       try {
         await refresh({ replace: true, message: `Loading ${formatDate(state.date)}…` });
         if (requested && requested < minimumSelectableDate()) {
-          notify(`Bookings open ${formatDate(OPENING_DATE)}. The graphic was moved to ${formatDate(state.date)}.`, 'notice');
+          notify(`Availability graphics use today or a future date. Showing ${formatDate(state.date)} instead.`, 'notice');
         }
       } catch (_) { /* status already shown */ }
       return;
@@ -1497,7 +1495,7 @@
     try {
       await refresh({ replace: true, message: 'Loading live court availability…' });
       if (requestedDate && requestedDate < minimumSelectableDate()) {
-        notify(`Bookings open ${formatDate(OPENING_DATE)}. Showing ${formatDate(state.date)} instead.`, 'notice');
+        notify(`Availability graphics use today or a future date. Showing ${formatDate(state.date)} instead.`, 'notice');
       }
     } catch (_) {
       renderCourtControls();
@@ -1551,6 +1549,6 @@
     paginateSnapshot,
     rangeGridLayout,
     outputFileName,
-    constants: Object.freeze({ MANILA_TIME_ZONE, OPENING_DATE, FRESHNESS_LIMIT_MS, DEFAULT_BOOKING_URL }),
+    constants: Object.freeze({ MANILA_TIME_ZONE, FRESHNESS_LIMIT_MS, DEFAULT_BOOKING_URL }),
   });
 });
