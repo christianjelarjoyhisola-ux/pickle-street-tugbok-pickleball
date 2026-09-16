@@ -144,6 +144,13 @@ body.prag-modal-open { overflow: hidden !important; }
   box-shadow: 0 10px 34px rgba(182, 240, 0, .17), inset 0 1px 0 rgba(255, 255, 255, .55);
 }
 
+.prag-brand-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .prag-brand-mark span {
   z-index: 1;
   font: 900 1.35rem/1 'Bebas Neue', 'Arial Narrow', sans-serif;

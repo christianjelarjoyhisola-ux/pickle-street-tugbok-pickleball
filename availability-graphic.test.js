@@ -119,7 +119,7 @@ test('caption contains only court availability, booking CTA, and freshness discl
   });
   assert.match(caption, /Court One: 6–8 PM/);
   assert.match(caption, /Slots may change/);
-  assert.match(caption, /paddleragecdo\.ph/);
+  assert.match(caption, /pickle-street-tugbok\.boothsandbeyondoffic\.chatgpt\.site/);
   assert.doesNotMatch(caption, /Hidden Customer/);
 });
 
@@ -177,7 +177,7 @@ test('court controls, captions, and carousel pages use stable natural court orde
   });
 });
 
-test('a court remains one carousel item with every disjoint range in its card', () => {
+test('long schedules split into readable timeslot pages without dropping any slot', () => {
   const slots = Array.from({ length: 9 }, (_, index) => ({
     hour: index * 2,
     end: index * 2 + 1,
@@ -187,15 +187,14 @@ test('a court remains one carousel item with every disjoint range in its card', 
     date: '2026-09-20',
     courts: [{ id: 'show-court', name: 'Show Court', slots }],
   });
-  const expected = graphic.mergeAvailableRanges(snapshot.courts[0].slots).map(range => range.label);
   const pages = graphic.paginateSnapshot(snapshot, 'feed');
-  const renderedCourts = pages.flatMap(page => page.courts);
-  const actual = renderedCourts.flatMap(court => graphic.mergeAvailableRanges(court.slots).map(range => range.label));
-  assert.deepEqual(actual, expected);
-  assert.equal(pages.length, 1);
-  assert.equal(renderedCourts.length, 1);
-  assert.equal(renderedCourts[0].id, 'show-court');
-  assert.equal('graphicPart' in renderedCourts[0], false);
+  assert.equal(pages.length, 2);
+  assert.deepEqual(pages.map(page => page.courts[0].slots.length), [8, 1]);
+  assert.deepEqual(
+    pages.flatMap(page => page.courts[0].slots.map(slot => slot.start)),
+    snapshot.courts[0].slots.map(slot => slot.start),
+  );
+  assert.ok(pages.every(page => page.courts[0].id === 'show-court'));
 });
 
 test('adaptive range grid keeps common and dense schedules readable inside one card', () => {
@@ -216,7 +215,7 @@ test('adaptive range grid keeps common and dense schedules readable inside one c
   });
 });
 
-test('dense courts receive a taller page without ever duplicating a court', () => {
+test('every timeslot carousel page keeps the selected court columns together', () => {
   const denseSlots = Array.from({ length: 9 }, (_, index) => ({
     hour: index * 2,
     end: index * 2 + 1,
@@ -233,11 +232,46 @@ test('dense courts receive a taller page without ever duplicating a court', () =
   });
   for (const format of ['feed', 'story']) {
     const pages = graphic.paginateSnapshot(snapshot, format);
-    assert.deepEqual(pages.map(page => page.courts.length), [3, 1]);
+    assert.deepEqual(pages.map(page => page.courts.length), format === 'feed' ? [4, 4] : [4]);
     const ids = pages.flatMap(page => page.courts.map(court => court.id));
-    assert.deepEqual(ids, ['1', '2', '3', '4']);
-    assert.equal(new Set(ids).size, ids.length);
+    assert.deepEqual(ids, format === 'feed'
+      ? ['1', '2', '3', '4', '1', '2', '3', '4']
+      : ['1', '2', '3', '4']);
   }
+});
+
+test('poster shows every hourly slot as available or booked instead of merging open ranges', async () => {
+  const slots = Array.from({ length: 16 }, (_, index) => ({
+    hour: 6 + index,
+    end: 7 + index,
+    state: index % 2 ? 'booked' : 'free',
+  }));
+  const snapshot = graphic.normalizeSnapshot({
+    date: '2026-09-20',
+    courts: [
+      { id: '1', name: 'Court 1', slots },
+      { id: '2', name: 'Court 2', slots },
+    ],
+  });
+  const pages = graphic.paginateSnapshot(snapshot, 'feed');
+  assert.equal(pages.length, 2);
+  assert.ok(pages.every(page => page.courts.every(court => court.slots.length === 8)));
+  const calls = [];
+  for (let index = 0; index < pages.length; index += 1) {
+    const canvas = fakeCanvas();
+    await graphic.drawPoster(canvas, pages[index], 'feed', {
+      logo: false,
+      qr: false,
+      pageNumber: index + 1,
+      totalPages: pages.length,
+      summarySnapshot: snapshot,
+    });
+    calls.push(...canvas.calls);
+  }
+  assert.equal(calls.filter(call => call.value === 'AVAILABLE').length, 16);
+  assert.equal(calls.filter(call => call.value === 'BOOKED').length, 16);
+  assert.ok(calls.some(call => call.value === '6–7 AM'));
+  assert.ok(calls.some(call => call.value === '9–10 PM'));
 });
 
 test('feed and story draw one Court 3 card containing all three broken-time ranges', async () => {
@@ -291,7 +325,7 @@ test('carousel filenames are numbered and every rendered page carries its marker
     assert.ok(canvas.calls.some(call => call.value === `PAGE ${index + 1} / ${pages.length}`));
     assert.equal(
       graphic.outputFileName(snapshot.date, 'feed', index, pages.length),
-      `paddle-rage-availability-2026-09-20-feed-0${index + 1}-of-03.png`,
+      `pickle-street-availability-2026-09-20-feed-0${index + 1}-of-03.png`,
     );
   }
 });
@@ -303,6 +337,9 @@ test('poster layouts keep branded content inside feed and story safe areas', () 
   assert.ok(story.brandY >= story.safeTop);
   assert.ok(story.footerContentBottom <= story.safeBottom);
   assert.ok(story.cardsEnd < story.footerY);
+  assert.ok(story.brandY <= 120, 'story branding uses the upper canvas instead of leaving a large blank band');
+  assert.ok(story.cardsEnd - story.cardsStart >= 800, 'story schedule expands into the available vertical space');
+  assert.ok(graphic.formats.story.height - story.footerContentBottom <= 100, 'story footer uses the lower canvas without clipping');
 });
 
 test('footer keeps a large crisp QR and readable booking copy inside safe bounds', () => {
@@ -349,7 +386,7 @@ test('every output path is guarded by a forced serialized live refresh', () => {
   assert.match(source, /const \{ items \} = await prepareOutputSet\('download'\)/);
   assert.match(source, /await ensureFreshForExport\('caption copy'\)/);
   assert.match(source, /const \{ items, snapshot \} = await prepareOutputSet\('share'\)/);
-  assert.match(source, /navigator\.share\(\{ title: 'Paddle Rage court availability', text: caption, files \}\)/);
+  assert.match(source, /navigator\.share\(\{ title: 'Pickle Street court availability', text: caption, files \}\)/);
   assert.doesNotMatch(source, /if \(state\.busy\) return currentSnapshot\(\)/);
 });
 

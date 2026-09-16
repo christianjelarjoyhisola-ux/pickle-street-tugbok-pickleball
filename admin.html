@@ -8,8 +8,9 @@
 <script src="chart.min.js"></script>
 <script src="booking-balance.js?v=20260907-pickle-street"></script>
 <script src="blocked-date-access.js?v=20260907-pickle-street"></script>
+<link rel="stylesheet" href="availability-graphic.css?v=20260916-timeslot-grid-v1" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&amp;family=Inter:wght@300;400;500;600;700;800&amp;family=League+Spartan:wght@600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&amp;family=DM+Sans:wght@300;400;500;600;700;800&amp;family=DM+Mono:wght@400;500&amp;family=Inter:wght@300;400;500;600;700;800&amp;family=League+Spartan:wght@600;700;800&amp;display=swap" rel="stylesheet"/>
 <link href="open-play-admin.css?v=20260801-openplay-fee-settings" rel="stylesheet"/>
 <link href="open-play-reporting.css?v=20260803-openplay-reports" rel="stylesheet"/>
 <style>
@@ -2869,6 +2870,7 @@ tr:hover td { background: var(--bg2); }
             <button id="viewBtnCal" class="view-btn" onclick="switchBookingView('cal')">Calendar</button>
           </div>
           <button class="btn btn-g btn-sm booking-export-btn" data-perm="export" onclick="exportCSV()">Export</button>
+          <button class="btn btn-sm availability-post-launch" type="button" data-perm="export" onclick="openAvailabilityGraphic()"><span aria-hidden="true">&#10022;</span><span>Availability Post</span></button>
           <button class="btn btn-p btn-sm" onclick="openNewBookingModal()">+ New</button>
         </div>
       </div>
@@ -8859,6 +8861,21 @@ function calClearDaySelection(){
   renderCalendar();
 }
 
+function openAvailabilityGraphic(dateStr='') {
+  if (!Auth.can('export', sess?.role)) {
+    toast('Only venue owners can create availability posts.', 'err');
+    return;
+  }
+  const requestedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(dateStr || ''))
+    ? String(dateStr)
+    : phDateKeyFromTimestamp(new Date().toISOString());
+  if (!window.PaddleRageAvailabilityGraphic?.open) {
+    toast('Availability Studio could not be loaded. Please refresh and try again.', 'err');
+    return;
+  }
+  window.PaddleRageAvailabilityGraphic.open({ date: requestedDate });
+}
+
 function calHourFromTime(value) {
   const raw = String(value || '').trim();
   const m = raw.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i);
@@ -9076,6 +9093,7 @@ function renderCalendarDayPanel(dateStr, bookings = [], bkMap = {}, courts = [])
     ${maintenance}
     <div class="cal-day-actions">
       <button class="btn btn-p btn-sm" onclick="calViewDayBookings('${jsArg(dateStr)}')">View bookings</button>
+      ${Auth.can('export', sess?.role) ? `<button class="btn btn-sm availability-post-launch" type="button" onclick="openAvailabilityGraphic('${jsArg(dateStr)}')"><span aria-hidden="true">&#10022;</span><span>Create availability post</span></button>` : ''}
       <button class="btn btn-g btn-sm" onclick="calClearDaySelection()">Close</button>
     </div>
   `;
@@ -15209,6 +15227,8 @@ async function checkAgreementGate(session) {
 <script src="open-play-data.js?v=20260803-openplay-reports"></script>
 <script src="open-play-admin.js?v=20260907-audit"></script>
 <script src="open-play-reporting.js?v=20260907-audit"></script>
+<script src="qrcode.min.js?v=1.5.4"></script>
+<script src="availability-graphic.js?v=20260916-timeslot-grid-v1"></script>
 <script src="pickle-street.js?v=2"></script>
 </body>
 </html>

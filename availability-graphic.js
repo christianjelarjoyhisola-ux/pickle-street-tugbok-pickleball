@@ -27,14 +27,14 @@
       capacity: 4,
     }),
     story: Object.freeze({
-      brandY: 265,
-      heroTop: 430,
-      cardsStart: 790,
-      cardsEnd: 1316,
-      footerY: 1352,
-      safeTop: 250,
-      safeBottom: 1670,
-      footerContentBottom: 1665,
+      brandY: 105,
+      heroTop: 275,
+      cardsStart: 630,
+      cardsEnd: 1460,
+      footerY: 1496,
+      safeTop: 80,
+      safeBottom: 1855,
+      footerContentBottom: 1845,
       capacity: 4,
     }),
   });
@@ -65,13 +65,13 @@
     story: Object.freeze({
       qrSize: QR_RENDER_CONFIG.size,
       qrCardX: 753,
-      qrCardY: 1368,
+      qrCardY: 1525,
       qrCardPadding: 12,
-      qrLabelY: 1658,
-      readyY: 1403,
-      ctaY: 1473,
-      urlY: 1533,
-      updatedY: 1618,
+      qrLabelY: 1820,
+      readyY: 1550,
+      ctaY: 1625,
+      urlY: 1690,
+      updatedY: 1795,
       readyFontSize: 20,
       ctaFontSize: 60,
       urlFontSize: 48,
@@ -222,13 +222,15 @@
     end = clamp(end, start + 0.25, 24);
 
     const statusValue = source.status ?? source.state ?? source.availability_status ?? source.availabilityStatus ?? source.available;
+    const statusReason = text(statusValue).toLowerCase().replace(/[\s_-]+/g, '');
     return {
       hour: start,
       start,
       end,
       label: label || `${formatHour(start)}–${formatHour(end)}`,
       status: availabilityStatus(statusValue, fallbackAvailable),
-      reason: text(source.reason ?? source.block_reason ?? source.blockReason),
+      reason: text(source.reason ?? source.block_reason ?? source.blockReason) ||
+        (['booked', 'maintenance', 'blocked', 'closed', 'past', 'current'].includes(statusReason) ? statusReason : ''),
     };
   }
 
@@ -341,27 +343,34 @@
     const format = FORMATS[formatName] ? formatName : 'feed';
     const capacity = POSTER_LAYOUTS[format].capacity;
     const normalized = normalizeSnapshot(snapshot, snapshot?.date);
-    // A court is the atomic carousel item. Its openings can wrap inside the
-    // card, but the court itself must never be repeated as a continuation card.
     const courts = normalized.courts || [];
     if (!courts.length) return [{ ...normalized, courts: [] }];
+    const slotsPerPage = format === 'story' ? 10 : 8;
     const pages = [];
-    let pageCourts = [];
-    let pageUnits = 0;
-    courts.forEach(court => {
-      const rangeCount = mergeAvailableRanges(court.slots).length;
-      // Dense cards get more of the fixed poster height. Nine windows share a
-      // page with at most two ordinary courts; 10–12 share with at most one.
-      const units = rangeCount >= 13 ? capacity : rangeCount >= 10 ? 3 : rangeCount >= 9 ? 2 : 1;
-      if (pageCourts.length && (pageUnits + units > capacity || pageCourts.length >= capacity)) {
-        pages.push({ ...normalized, courts: pageCourts });
-        pageCourts = [];
-        pageUnits = 0;
-      }
-      pageCourts.push(court);
-      pageUnits += units;
-    });
-    if (pageCourts.length) pages.push({ ...normalized, courts: pageCourts });
+    for (let courtStart = 0; courtStart < courts.length; courtStart += capacity) {
+      const courtGroup = courts.slice(courtStart, courtStart + capacity);
+      const slotKeys = [...new Set(courtGroup.flatMap(court => court.slots.map(slot => `${slot.start}|${slot.end}`)))]
+        .map(key => {
+          const [start, end] = key.split('|').map(Number);
+          return { key, start, end };
+        })
+        .sort((left, right) => left.start - right.start || left.end - right.end);
+      const chunks = slotKeys.length
+        ? Array.from({ length: Math.ceil(slotKeys.length / slotsPerPage) }, (_, index) => slotKeys.slice(index * slotsPerPage, (index + 1) * slotsPerPage))
+        : [[]];
+      chunks.forEach(chunk => {
+        const keys = new Set(chunk.map(slot => slot.key));
+        pages.push({
+          ...normalized,
+          courts: courtGroup.map(court => ({
+            ...court,
+            slots: court.slots.filter(slot => keys.has(`${slot.start}|${slot.end}`)),
+          })),
+          slotPageStart: chunk[0]?.start ?? null,
+          slotPageEnd: chunk[chunk.length - 1]?.end ?? null,
+        });
+      });
+    }
     return pages;
   }
 
@@ -411,7 +420,7 @@
     const suffix = totalPages > 1
       ? `-${String(pageIndex + 1).padStart(2, '0')}-of-${String(totalPages).padStart(2, '0')}`
       : '';
-    return `paddle-rage-availability-${safeDate}-${format}${suffix}.png`;
+    return `pickle-street-availability-${safeDate}-${format}${suffix}.png`;
   }
 
   function snapshotAge(snapshot, now = Date.now()) {
@@ -462,7 +471,7 @@
       `Book your court: ${bookingUrl}`,
       `Availability as of ${formatGeneratedAt(normalized.generatedAt)} PHT. Slots may change.`,
       '',
-      '#PaddleRage #PickleballCDO #BookYourCourt',
+      '#PickleStreet #PickleballCDO #BookYourCourt',
     );
     return lines.join('\n');
   }
@@ -493,11 +502,11 @@
       <div class="prag-overlay" data-prag-overlay hidden>
         <section class="prag-modal" role="dialog" aria-modal="true" aria-labelledby="pragTitle" aria-describedby="pragDescription" tabindex="-1">
           <header class="prag-header">
-            <div class="prag-brand-mark" aria-hidden="true"><span>PR</span><i></i></div>
+            <div class="prag-brand-mark"><img src="assets/pickle-street-mark.svg" alt="Pickle Street official mark" width="52" height="52"></div>
             <div class="prag-heading">
               <span class="prag-eyebrow">Social studio <b>Live availability</b></span>
               <h2 id="pragTitle">Create availability post</h2>
-              <p id="pragDescription">Turn live court openings into a polished, ready-to-post Facebook graphic.</p>
+              <p id="pragDescription">Turn the live court schedule into a polished, ready-to-post Facebook timeslot graphic.</p>
             </div>
             <button class="prag-icon-button" type="button" data-prag-action="close" aria-label="Close availability graphic studio">${icon('close')}</button>
           </header>
@@ -530,7 +539,7 @@
                 <button class="prag-refresh" type="button" data-prag-action="refresh">${icon('refresh')}<span>Refresh availability</span></button>
               </div>
 
-              <div class="prag-safety-note">${icon('check')}<p><strong>Privacy safe</strong><span>Only court names and open times are included—never customer details.</span></p></div>
+              <div class="prag-safety-note">${icon('check')}<p><strong>Privacy safe</strong><span>Shows court names, times, and availability status—never customer details.</span></p></div>
             </aside>
 
             <main class="prag-preview-panel">
@@ -701,11 +710,13 @@
     }
     container.innerHTML = state.courts.map(court => {
       const checked = state.selectedCourtIds.has(String(court.id));
-      const available = mergeAvailableRanges(court.slots).reduce((total, range) => total + (range.end - range.start), 0);
+      const available = court.slots.filter(slot => slot.status === 'available').length;
+      const booked = court.slots.filter(slot => slotCellLabel(slot).tone === 'booked').length;
+      const summary = `${available} available${booked ? ` · ${booked} booked` : ''}`;
       return `<label class="prag-court-option" title="${escapeHtml(court.name)}">
         <input type="checkbox" value="${escapeHtml(court.id)}" data-prag-court ${checked ? 'checked' : ''} />
         <span class="prag-checkbox">${icon('check')}</span>
-        <span class="prag-court-copy"><strong>${escapeHtml(court.name)}</strong><small>${available ? `${available} open hour${available === 1 ? '' : 's'}` : 'Fully booked'}</small></span>
+        <span class="prag-court-copy"><strong>${escapeHtml(court.name)}</strong><small>${summary}</small></span>
       </label>`;
     }).join('');
   }
@@ -995,23 +1006,23 @@
     context.fillText(statText, 100, pillY + (story ? 36 : 32));
   }
 
+  function slotCellLabel(slot) {
+    if (!slot) return { label: 'UNAVAILABLE', tone: 'unavailable' };
+    if (slot.status === 'available') return { label: 'AVAILABLE', tone: 'available' };
+    const reason = text(slot.reason).toLowerCase();
+    if (reason === 'booked') return { label: 'BOOKED', tone: 'booked' };
+    if (reason === 'past') return { label: 'PAST', tone: 'past' };
+    if (reason === 'current') return { label: 'NOW', tone: 'past' };
+    if (reason === 'maintenance') return { label: 'BLOCKED', tone: 'blocked' };
+    if (reason === 'blocked_date') return { label: 'CLOSED', tone: 'blocked' };
+    return { label: 'UNAVAILABLE', tone: 'unavailable' };
+  }
+
   function drawCourtCards(context, summary, layout) {
     const { width, story } = layout;
     const courts = summary.courts;
     const startY = layout.cardsStart;
     const endY = layout.cardsEnd;
-    const gap = story ? 18 : 16;
-    const densestRangeCount = courts.reduce((maximum, court) => (
-      Math.max(maximum, mergeAvailableRanges(court.slots).length)
-    ), 0);
-    const maximumCardHeight = densestRangeCount >= 10
-      ? (story ? 230 : 204)
-      : (story ? 204 : 176);
-    const cardHeight = clamp(
-      (endY - startY - gap * Math.max(0, courts.length - 1)) / Math.max(1, courts.length),
-      84,
-      maximumCardHeight,
-    );
     const cardWidth = width - 144;
 
     if (!courts.length) {
@@ -1028,67 +1039,74 @@
       return;
     }
 
+    const timeSlots = [...new Map(courts.flatMap(court => court.slots).map(slot => [`${slot.start}|${slot.end}`, slot])).values()]
+      .sort((left, right) => left.start - right.start || left.end - right.end);
+    const headerHeight = story ? 66 : 58;
+    const timeWidth = story ? 172 : 158;
+    const columnGap = story ? 10 : 8;
+    const rowGap = story ? 8 : 7;
+    const boardHeight = endY - startY;
+    const rowHeight = timeSlots.length
+      ? (boardHeight - headerHeight - rowGap * Math.max(0, timeSlots.length - 1)) / timeSlots.length
+      : boardHeight - headerHeight;
+    const courtWidth = (cardWidth - timeWidth - columnGap * courts.length) / courts.length;
+
+    fillRoundRect(context, 72, startY, cardWidth, boardHeight, 26, 'rgba(8,14,10,.96)');
+    strokeRoundRect(context, 72, startY, cardWidth, boardHeight, 26, 'rgba(182,240,0,.3)', 2);
+    context.fillStyle = '#b6f000';
+    context.font = `900 ${story ? 17 : 15}px "DM Sans", Arial, sans-serif`;
+    trackedText(context, 'TIME SLOT', 98, startY + headerHeight * .64, 2);
     courts.forEach((court, index) => {
-      const y = startY + index * (cardHeight + gap);
-      const ranges = mergeAvailableRanges(court.slots);
-      const available = Boolean(ranges.length);
-      const cardGradient = context.createLinearGradient(72, y, width - 72, y + cardHeight);
-      cardGradient.addColorStop(0, available ? 'rgba(20,28,21,.98)' : 'rgba(25,24,22,.98)');
-      cardGradient.addColorStop(1, available ? 'rgba(9,14,10,.98)' : 'rgba(13,12,11,.98)');
-      fillRoundRect(context, 72, y, cardWidth, cardHeight, 26, cardGradient);
-      strokeRoundRect(context, 72, y, cardWidth, cardHeight, 26, available ? 'rgba(182,240,0,.26)' : 'rgba(255,255,255,.09)', 2);
-      fillRoundRect(context, 72, y, 9, cardHeight, 5, available ? '#b6f000' : '#535a52');
-
-      const left = 108;
-      const midpoint = story ? 425 : 396;
-      context.fillStyle = available ? '#b6f000' : '#7d867b';
-      context.font = `900 ${story ? 14 : 12}px "DM Sans", Arial, sans-serif`;
-      const statusLabel = available ? 'AVAILABLE' : 'NO OPEN SLOTS';
-      trackedText(context, statusLabel, left, y + cardHeight * .3, 2.2);
+      const x = 72 + timeWidth + columnGap + index * (courtWidth + columnGap);
       context.fillStyle = '#f8faf4';
-      const courtName = text(court.name).toUpperCase();
-      fitFont(context, courtName, midpoint - left - 20, story ? 38 : 34, 32, '"Bebas Neue", "Arial Narrow", sans-serif', 900);
-      context.fillText(courtName, left, y + cardHeight * .7);
-
-      if (available) {
-        const rangeBounds = {
-          x: midpoint,
-          y: y + (story ? 16 : 14),
-          width: width - midpoint - 108,
-          height: cardHeight - (story ? 32 : 28),
-        };
-        const grid = rangeGridLayout(ranges.length, rangeBounds, story);
-        context.fillStyle = '#f3f7ef';
-        ranges.forEach((range, rangeIndex) => {
-          const cell = grid.cells[rangeIndex];
-          if (!cell) return;
-          if (grid.columns > 1) {
-            fillRoundRect(context, cell.x, cell.y, cell.width, cell.height, 10, 'rgba(255,255,255,.045)');
-            strokeRoundRect(context, cell.x, cell.y, cell.width, cell.height, 10, 'rgba(182,240,0,.1)', 1);
-          }
-          const horizontalPadding = grid.columns > 1 ? (story ? 11 : 9) : 0;
-          const fontSize = fitFont(
-            context,
-            range.label,
-            Math.max(1, cell.width - horizontalPadding * 2),
-            grid.fontSize,
-            story ? 18 : 16,
-            '"DM Sans", Arial, sans-serif',
-            800,
-          );
-          context.fillStyle = '#f3f7ef';
-          context.fillText(
-            range.label,
-            cell.x + horizontalPadding,
-            cell.y + cell.height / 2 + fontSize * .35,
-          );
-        });
-      } else {
-        context.fillStyle = '#8e978b';
-        context.font = `700 ${story ? 32 : 32}px "DM Sans", Arial, sans-serif`;
-        context.fillText('Try another court or date', midpoint, y + cardHeight / 2 + 8);
-      }
+      const label = text(court.name).toUpperCase();
+      const fontSize = fitFont(context, label, courtWidth - 12, story ? 26 : 23, 15, '"Bebas Neue", "Arial Narrow", sans-serif', 900);
+      context.font = `900 ${fontSize}px "Bebas Neue", "Arial Narrow", sans-serif`;
+      context.textAlign = 'center';
+      context.fillText(label, x + courtWidth / 2, startY + headerHeight * .66);
     });
+    context.textAlign = 'left';
+
+    timeSlots.forEach((slotWindow, rowIndex) => {
+      const y = startY + headerHeight + rowIndex * (rowHeight + rowGap);
+      context.fillStyle = rowIndex % 2 ? 'rgba(255,255,255,.025)' : 'rgba(182,240,0,.035)';
+      context.fillRect(88, y, timeWidth - 26, rowHeight);
+      context.fillStyle = '#e8eee5';
+      const timeLabel = formatRange(slotWindow.start, slotWindow.end);
+      const timeFont = fitFont(context, timeLabel, timeWidth - 40, story ? 24 : 21, 14, '"DM Sans", Arial, sans-serif', 800);
+      context.font = `800 ${timeFont}px "DM Sans", Arial, sans-serif`;
+      context.fillText(timeLabel, 98, y + rowHeight / 2 + timeFont * .35);
+
+      courts.forEach((court, columnIndex) => {
+        const x = 72 + timeWidth + columnGap + columnIndex * (courtWidth + columnGap);
+        const slot = court.slots.find(candidate => candidate.start === slotWindow.start && candidate.end === slotWindow.end);
+        const cellState = slotCellLabel(slot);
+        const tones = {
+          available: ['rgba(182,240,0,.16)', 'rgba(215,255,63,.66)', '#efffc1'],
+          booked: ['rgba(214,74,74,.16)', 'rgba(214,74,74,.52)', '#ffb5b5'],
+          blocked: ['rgba(205,153,55,.14)', 'rgba(205,153,55,.45)', '#e8c77f'],
+          past: ['rgba(255,255,255,.035)', 'rgba(255,255,255,.11)', '#838b92'],
+          unavailable: ['rgba(255,255,255,.045)', 'rgba(255,255,255,.14)', '#9ba3aa'],
+        };
+        const [fill, stroke, color] = tones[cellState.tone] || tones.unavailable;
+        fillRoundRect(context, x, y, courtWidth, rowHeight, 11, fill);
+        strokeRoundRect(context, x, y, courtWidth, rowHeight, 11, stroke, 1.5);
+        context.fillStyle = color;
+        const statusFont = fitFont(context, cellState.label, courtWidth - 14, story ? 17 : 15, 10, '"DM Sans", Arial, sans-serif', 900);
+        context.font = `900 ${statusFont}px "DM Sans", Arial, sans-serif`;
+        context.textAlign = 'center';
+        context.fillText(cellState.label, x + courtWidth / 2, y + rowHeight / 2 + statusFont * .34);
+      });
+      context.textAlign = 'left';
+    });
+
+    if (!timeSlots.length) {
+      context.fillStyle = '#8e978b';
+      context.font = `700 ${story ? 30 : 27}px "DM Sans", Arial, sans-serif`;
+      context.textAlign = 'center';
+      context.fillText('No operating time slots for this selection', width / 2, startY + headerHeight + 90);
+      context.textAlign = 'left';
+    }
 
   }
 
@@ -1131,8 +1149,17 @@
     trackedText(context, 'READY TO PLAY?', x, footer.readyY, 3.1);
     context.font = `900 ${footer.ctaFontSize}px "Bebas Neue", "Arial Narrow", sans-serif`;
     context.fillText('BOOK YOUR COURT', x, footer.ctaY);
-    context.font = `800 ${footer.urlFontSize}px "DM Sans", Arial, sans-serif`;
-    context.fillText(text(bookingUrl).replace(/^https?:\/\//, '').replace(/\/$/, ''), x, footer.urlY);
+    const bookingDisplay = text(bookingUrl).replace(/^https?:\/\//, '').replace(/\/$/, '');
+    fitFont(
+      context,
+      bookingDisplay,
+      footer.qrCardX - x - 42,
+      footer.urlFontSize,
+      20,
+      '"DM Sans", Arial, sans-serif',
+      800,
+    );
+    context.fillText(bookingDisplay, x, footer.urlY);
 
     const updateText = `Updated ${formatGeneratedAt(snapshot.generatedAt)} PHT · Slots may change`;
     context.fillStyle = 'rgba(5,7,6,.82)';
