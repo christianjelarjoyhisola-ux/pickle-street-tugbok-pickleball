@@ -29,5 +29,8 @@
 /open-play-reporting.css
   Cache-Control: no-cache
 
+/availability-graphic.js
+  Cache-Control: no-cache
+
 /booking-management.html
   Cache-Control: no-store
