@@ -372,6 +372,7 @@ test('footer keeps a large crisp QR and readable booking copy inside safe bounds
 
 test('opening date and Web Share fallback are explicit', () => {
   assert.equal(graphic.constants.OPENING_DATE, '2026-09-19');
+  assert.equal(graphic.constants.DEFAULT_BOOKING_URL, 'https://picklestreetcourt.com/');
   assert.match(graphic.shareErrorMessage({ name: 'NotAllowedError' }), /Download PNG/);
   assert.match(graphic.shareErrorMessage({ name: 'NotAllowedError' }), /upload.*Facebook/i);
   assert.equal(graphic.shareErrorMessage({ name: 'AbortError' }), '');

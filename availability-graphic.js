@@ -8,7 +8,7 @@
   const MANILA_TIME_ZONE = 'Asia/Manila';
   const OPENING_DATE = '2026-09-19';
   const FRESHNESS_LIMIT_MS = 3 * 60 * 1000;
-  const DEFAULT_BOOKING_URL = 'https://pickle-street-tugbok.boothsandbeyondoffic.chatgpt.site/';
+  const DEFAULT_BOOKING_URL = 'https://picklestreetcourt.com/';
   const COURT_COLLATOR = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
   const FORMATS = Object.freeze({
     feed: Object.freeze({ width: 1080, height: 1350, label: 'Facebook post', short: 'POST' }),
