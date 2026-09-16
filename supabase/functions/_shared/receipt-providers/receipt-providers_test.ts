@@ -354,6 +354,40 @@ Deno.test("GCash verifier keeps a single amount display in review", () => {
   );
 });
 
+Deno.test("GCash verifier accepts matching amounts reconstructed on visual rows", () => {
+  const typedReference = "0045111743324";
+  const parsed = parseProviderReceipt(
+    "gcash",
+    `
+RE••••O VH•L A.
++63 927 217 2285
+Sent via GCash
+Amount 420.00
+Total Amount Sent ₱420.00
+Ref No. 0045 111 743324 Sep 16, 2026 1:44 PM
+`,
+    { typedReference },
+  );
+  const verified = verifyProviderReceipt(parsed, {
+    ...CONTEXT,
+    typedReference,
+    expectedAmount: 420,
+  });
+
+  assert(parsed.provider === "gcash", "reconstructed GCash provider");
+  assertEquals(parsed.receipt.amount.amount, 420, "reconstructed amount");
+  assertEquals(parsed.receipt.amount.reliable, true, "amount reliability");
+  assertEquals(
+    parsed.receipt.amount.matchingPrimaryAmountDisplays,
+    true,
+    "two matching visual amount rows",
+  );
+  assert(
+    !verified.flags.includes("AMOUNT_CONFIRMATION_UNREADABLE"),
+    "matching reconstructed displays must not require manual confirmation",
+  );
+});
+
 Deno.test("GCash verifier catches a labeled amount contradicting the total block", () => {
   const typedReference = "4044666766999";
   const parsed = parseProviderReceipt(

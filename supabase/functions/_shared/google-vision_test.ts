@@ -2,6 +2,7 @@ import {
   detectReceiptImageContentType,
   googleVisionConfidence,
   googleVisionConfidenceDetails,
+  googleVisionLayoutText,
   googleVisionOcr,
   receiptImageDimensions,
   receiptImageSafeToDecode,
@@ -178,4 +179,78 @@ Deno.test("marks text-length confidence as heuristic, never native", () => {
   );
   assertEquals(result.confidence, 0.9, "heuristic confidence");
   assertEquals(result.source, "heuristic", "heuristic provenance");
+});
+
+function visionWord(text: string, left: number, top: number, right: number) {
+  return {
+    boundingBox: {
+      vertices: [
+        { x: left, y: top },
+        { x: right, y: top },
+        { x: right, y: top + 24 },
+        { x: left, y: top + 24 },
+      ],
+    },
+    symbols: [...text].map((character) => ({ text: character })),
+  };
+}
+
+Deno.test("reconstructs two-column GCash fields into visual rows", async () => {
+  const annotation = {
+    text:
+      "Amount\nTotal Amount Sent\nRef No. 0045 111 743324\n420.00\n₱420.00",
+    pages: [{
+      width: 900,
+      height: 1600,
+      confidence: 0.96,
+      blocks: [{
+        paragraphs: [{
+          words: [
+            visionWord("Amount", 70, 300, 190),
+            visionWord("420.00", 650, 302, 790),
+            visionWord("Total", 70, 390, 150),
+            visionWord("Amount", 160, 390, 280),
+            visionWord("Sent", 290, 390, 370),
+            visionWord("₱420.00", 610, 392, 790),
+            visionWord("Ref", 70, 490, 120),
+            visionWord("No.", 130, 490, 180),
+            visionWord("0045", 190, 492, 260),
+            visionWord("111", 270, 492, 325),
+            visionWord("743324", 335, 492, 440),
+          ],
+        }],
+      }],
+    }],
+  };
+  const fetcher = (async () =>
+    new Response(JSON.stringify({ responses: [{ fullTextAnnotation: annotation }] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })) as typeof fetch;
+
+  const result = await googleVisionOcr("test-key", "QUJD", { fetcher });
+  assertEquals(result.text, annotation.text, "original OCR text is retained");
+  assert(
+    result.layoutText?.includes("Amount 420.00"),
+    "first amount must be paired with its visual label",
+  );
+  assert(
+    result.layoutText?.includes("Total Amount Sent ₱420.00"),
+    "total amount must be paired with its visual label",
+  );
+  assertEquals(
+    googleVisionLayoutText(annotation),
+    result.layoutText,
+    "pure layout reconstruction helper",
+  );
+});
+
+Deno.test("layout reconstruction safely ignores words without geometry", () => {
+  assertEquals(
+    googleVisionLayoutText({
+      pages: [{ blocks: [{ paragraphs: [{ words: [{ symbols: [{ text: "x" }] }] }] }] }],
+    }),
+    "",
+    "missing boxes",
+  );
 });

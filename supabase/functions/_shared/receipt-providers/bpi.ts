@@ -29,6 +29,8 @@ export type BpiRecipientField = {
   labelNormalized: string | null;
   accountRaw: string | null;
   accountSuffix: string | null;
+  accountNumber: string | null;
+  accountVisibility: "full" | "masked" | "missing";
   lineIndex: number | null;
 };
 
@@ -75,9 +77,7 @@ export type BpiReceiptVerificationEvidence = {
   dedupeKeys: ReceiptDedupeKey[];
 };
 
-type BpiVerificationContext = ReceiptVerificationContext & {
-  expectedRecipientLabel?: string;
-};
+type BpiVerificationContext = ReceiptVerificationContext;
 
 const MONTHS: Record<string, number> = {
   jan: 1,
@@ -179,7 +179,7 @@ function validDateParts(year: number, month: number, day: number): boolean {
 
 function parseTimestamp(lines: string[]): BankReceiptTimestamp {
   const pattern =
-    /\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)?\s*,?\s*(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2}),?\s+(\d{4})\s*,?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)\b/i;
+    /\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)?\s*,?\s*(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2}),?\s+(\d{4})\s*[,;]?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)\b/i;
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
     const match = lines[lineIndex].match(pattern);
     if (!match) continue;
@@ -255,6 +255,8 @@ function parseRecipient(lines: string[]): BpiRecipientField {
       labelNormalized: null,
       accountRaw: null,
       accountSuffix: null,
+      accountNumber: null,
+      accountVisibility: "missing",
       lineIndex: null,
     };
   }
@@ -264,19 +266,51 @@ function parseRecipient(lines: string[]): BpiRecipientField {
   );
   const labelIndex = destinationOffset >= 0 ? destinationOffset + 1 : 0;
   const labelRaw = String(block[labelIndex] || "").trim() || null;
-  const accountRaw =
-    block.slice(labelIndex + 1).find((line) =>
-      /(?:[*xX]{3,}|X{3,})[A-Z0-9]{2,6}$/i.test(line.replace(/\s/g, ""))
-    ) || null;
+  const accountRaw = block.slice(labelIndex + 1).find((line) => {
+    const compact = line.replace(/[\s-]/g, "");
+    return /^(?:\+?63|0)?9\d{9}$/.test(compact) ||
+      /^(?:[*xX]{3,})[A-Z0-9]{2,6}$/i.test(compact);
+  }) || null;
   const compactAccount = accountRaw?.replace(/\s/g, "") || "";
-  const suffix = compactAccount.replace(/^[*xX]+/, "").toUpperCase() || null;
+  const accountDigits = digitsOnly(compactAccount);
+  const accountNumber = /^(?:63|0)?9\d{9}$/.test(accountDigits)
+    ? accountDigits.replace(/^63/, "0")
+    : null;
+  const maskedAccount = /^[*xX]{3,}/.test(compactAccount);
+  const suffix = maskedAccount
+    ? compactAccount.replace(/^[*xX]+/, "").toUpperCase() || null
+    : null;
   return {
     labelRaw,
     labelNormalized: labelRaw ? normalizeBpiRecipientLabel(labelRaw) : null,
     accountRaw,
     accountSuffix: suffix,
+    accountNumber,
+    accountVisibility: accountNumber
+      ? "full"
+      : maskedAccount
+      ? "masked"
+      : "missing",
     lineIndex: labelRaw ? transferIndex + 1 + labelIndex : null,
   };
+}
+
+function normalizeGcashMobile(value: string): string {
+  const digits = digitsOnly(value);
+  if (/^09\d{9}$/.test(digits)) return digits;
+  if (/^639\d{9}$/.test(digits)) return `0${digits.slice(2)}`;
+  return "";
+}
+
+function compareDirectRecipientAccount(
+  observedRaw: string | null,
+  expectedRaw: string,
+): BpiRecipientAccountComparison {
+  const expected = normalizeGcashMobile(expectedRaw);
+  const observed = normalizeGcashMobile(observedRaw || "");
+  if (!expected) return "not_configured";
+  if (!observed) return "missing";
+  return observed === expected ? "exact" : "mismatch";
 }
 
 function compareRecipientLabel(
@@ -410,14 +444,22 @@ export function verifyBpiToGcashReceipt(
   context: BpiVerificationContext,
 ): BpiReceiptVerificationEvidence {
   const flags: string[] = [];
+  const qrReceipt = parsed.indicators.qrCodeRecipient;
   const recipientComparison = compareRecipientLabel(
     parsed.recipient.labelNormalized,
-    context.expectedRecipientLabel || context.expectedRecipientName || "",
+    qrReceipt
+      ? context.expectedRecipientLabel || context.expectedRecipientName || ""
+      : context.expectedRecipientName || "",
   );
-  const recipientAccountComparison = compareRecipientAccount(
-    parsed.recipient.accountSuffix,
-    context.expectedRecipientAccount || "",
-  );
+  const recipientAccountComparison = qrReceipt
+    ? compareRecipientAccount(
+      parsed.recipient.accountSuffix,
+      context.expectedRecipientAccount || "",
+    )
+    : compareDirectRecipientAccount(
+      parsed.recipient.accountNumber,
+      context.expectedRecipientNumber || "",
+    );
   if (!parsed.indicators.providerBrand) addUnique(flags, "BPI_UNREADABLE");
   if (parsed.indicators.competingProviderBrand) {
     addUnique(flags, "METHOD_MISMATCH");
@@ -428,9 +470,12 @@ export function verifyBpiToGcashReceipt(
   if (!parsed.indicators.destinationGcash) {
     addUnique(flags, "GXI_DESTINATION_UNREADABLE");
   }
-  if (!parsed.indicators.instaPay) addUnique(flags, "INSTAPAY_QRPH_UNREADABLE");
-  if (!parsed.indicators.qrCodeRecipient) {
-    addUnique(flags, "RECEIVER_NAME_UNREADABLE");
+  // Direct BPI-to-GCash receipts identify the destination with the exact
+  // GCash name and full mobile number. QR receipts instead expose the QR
+  // marker and a masked destination token, so only that layout requires the
+  // InstaPay/QR evidence pair.
+  if (qrReceipt && !parsed.indicators.instaPay) {
+    addUnique(flags, "INSTAPAY_QRPH_UNREADABLE");
   }
   if (!parsed.indicators.gmtPlus8) addUnique(flags, "TIMEZONE_UNREADABLE");
 

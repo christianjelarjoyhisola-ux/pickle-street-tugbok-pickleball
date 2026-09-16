@@ -90,6 +90,7 @@ type OcrProvider = "google_vision" | "none";
 
 type OcrResult = {
   text: string;
+  layoutText?: string;
   confidence: number;
   confidenceSource: "native" | "heuristic" | "none";
   provider: OcrProvider;
@@ -670,15 +671,8 @@ function expectedMerchantForProvider(
     return {
       number: settings.bpi_merchant_number || settings.gcash_merchant_number ||
         "",
-      // BPI QR receipts show the configured QR recipient label (for example
-      // "PaddleRage (QR Code)"), not necessarily the personal account name
-      // displayed beside the QR on the checkout page. Keep that receipt-only
-      // identity explicit so the BPI verifier never accepts an arbitrary
-      // GCash/G-Xchange destination.
-      name: settings.gcash_qr_receipt_recipient_name ||
-        settings.bpi_receipt_recipient_name ||
-        settings.bpi_merchant_name || settings.payment_merchant_name ||
-        settings.gcash_merchant_name || "",
+      name: settings.bpi_merchant_name || settings.gcash_merchant_name ||
+        settings.payment_merchant_name || "",
     };
   }
   if (provider === "gotyme" || provider === "maribank") {
@@ -1068,20 +1062,41 @@ async function runOCR(
   if (visionKey) {
     try {
       const v = await googleVisionOcr(visionKey, base64);
-      const gaps = ocrCriticalGaps(v.text, provider, typedRef);
+      const candidates = [v.text, v.layoutText]
+        .filter((text): text is string => Boolean(text?.trim()))
+        .filter((text, index, all) => all.indexOf(text) === index);
+      const ranked = candidates.map((text, index) => ({
+        text,
+        index,
+        gaps: ocrCriticalGaps(text, provider, typedRef),
+      })).sort((a, b) => a.gaps.length - b.gaps.length || a.index - b.index);
+      const selected = ranked[0] || {
+        text: v.text,
+        index: 0,
+        gaps: ocrCriticalGaps(v.text, provider, typedRef),
+      };
+      const gaps = selected.gaps;
+      const usedLayoutReconstruction = selected.index > 0;
       if (v.text && gaps.length === 0) {
         return {
           ...v,
+          text: selected.text,
           provider: "google_vision",
           primaryProvider: "google_vision",
+          fallbackReason: usedLayoutReconstruction
+            ? "google_layout_reconstruction"
+            : undefined,
         };
       }
       if (v.text) {
         return {
           ...v,
+          text: selected.text,
           provider: "google_vision",
           primaryProvider: "google_vision",
-          fallbackReason: gaps.length
+          fallbackReason: usedLayoutReconstruction
+            ? `google_layout_reconstruction_missing_${gaps.join("_")}`
+            : gaps.length
             ? `google_missing_${gaps.join("_")}`
             : undefined,
         };
@@ -2690,6 +2705,10 @@ Deno.serve(async (req) => {
           amountTolerance: 0.01,
           expectedRecipientNumber: expectedNumber,
           expectedRecipientName: expectedName,
+          expectedRecipientLabel: provider === "bpi"
+            ? settings.gcash_qr_receipt_recipient_name ||
+              settings.bpi_receipt_recipient_name || ""
+            : "",
           expectedRecipientAccount: provider === "bdopay" || provider === "bpi"
             ? settings.gcash_qr_receipt_destination_token ||
               settings.bdopay_receipt_destination_token || ""
@@ -2783,8 +2802,9 @@ Deno.serve(async (req) => {
           flags.push("RECEIVER_NAME_UNREADABLE");
         }
       } else if (provider === "bpi") {
-        // BPI focused path: require BPI + InstaPay + GCash/G-Xchange destination,
-        // but do not run the GCash-to-GCash verifier.
+        // BPI focused path: direct transfers bind the full configured GCash
+        // identity; QR transfers bind the separate QR alias/token and rail.
+        // Do not run the GCash-to-GCash verifier for either layout.
         if (!extractedRef) flags.push("BPI_CONFIRMATION_UNREADABLE");
         else if (typedRef && extractedRef !== typedRef) {
           flags.push("REF_MISMATCH");
@@ -2810,13 +2830,19 @@ Deno.serve(async (req) => {
         }
 
         if (!hasBpiIndicator(ocrText)) flags.push("BPI_UNREADABLE");
-        if (!hasInstapayQrphIndicator(ocrText)) {
+        const bpiQrReceipt = providerParse?.provider === "bpi" &&
+          providerParse.receipt.indicators.qrCodeRecipient;
+        if (bpiQrReceipt && !hasInstapayQrphIndicator(ocrText)) {
           flags.push("INSTAPAY_QRPH_UNREADABLE");
         }
         if (!hasGcashGxiDestination(ocrText)) {
           flags.push("GXI_DESTINATION_UNREADABLE");
         }
-        if (!hasExpectedReceiverName(ocrText, expectedName)) {
+        const bpiExpectedName = bpiQrReceipt
+          ? settings.gcash_qr_receipt_recipient_name ||
+            settings.bpi_receipt_recipient_name || ""
+          : expectedName;
+        if (!hasExpectedReceiverName(ocrText, bpiExpectedName)) {
           flags.push("RECEIVER_NAME_UNREADABLE");
         }
       } else {
@@ -2887,7 +2913,9 @@ Deno.serve(async (req) => {
         duplicateFlag: "DUPLICATE_INVOICE",
       });
     }
-    if (provider === "maya" && extractedInstapayRefNo && !providerVerification) {
+    if (
+      provider === "maya" && extractedInstapayRefNo && !providerVerification
+    ) {
       dedupeKeys.push({
         key: `maya_instapay:${extractedInstapayRefNo}`,
         providerKey: "maya_instapay",
@@ -3072,7 +3100,9 @@ Deno.serve(async (req) => {
         ? {
           reference: bankParse.reference,
           invoice: "invoice" in bankParse ? bankParse.invoice : null,
-          transferFee: "transferFee" in bankParse ? bankParse.transferFee : null,
+          transferFee: "transferFee" in bankParse
+            ? bankParse.transferFee
+            : null,
           railReference: "railReference" in bankParse
             ? bankParse.railReference
             : null,
@@ -3108,11 +3138,14 @@ Deno.serve(async (req) => {
       ocrConfidence,
       ocrConfidenceSource,
       ocrTextLength: ocrText.length,
-      expectedReceiverNumber:
-        provider === "bdopay" || provider === "maya" || provider === "bpi"
-          ? null
-          : expectedNumber || null,
+      expectedReceiverNumber: provider === "bdopay" || provider === "maya"
+        ? null
+        : expectedNumber || null,
       expectedReceiverName: expectedName || null,
+      expectedQrReceiverName: provider === "bpi"
+        ? settings.gcash_qr_receipt_recipient_name ||
+          settings.bpi_receipt_recipient_name || null
+        : null,
       expectedReceiverAccount: provider === "bdopay" || provider === "bpi"
         ? settings.gcash_qr_receipt_destination_token ||
           settings.bdopay_receipt_destination_token || null

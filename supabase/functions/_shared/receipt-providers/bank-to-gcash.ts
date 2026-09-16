@@ -93,6 +93,7 @@ export type ReceiptVerificationContext = {
   expectedRecipientNumber?: string;
   expectedRecipientName?: string;
   expectedRecipientAccount?: string;
+  expectedRecipientLabel?: string;
   bookingStartedAt?: string | null;
   bookingStartedDate?: string | null;
   paymentWindowMinutes: number;

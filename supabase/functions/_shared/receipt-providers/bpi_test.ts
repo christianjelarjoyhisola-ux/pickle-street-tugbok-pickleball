@@ -32,11 +32,77 @@ const CONTEXT = {
   amountTolerance: 0.01,
   expectedRecipientName: "PaddleRage",
   expectedRecipientAccount: "DWQM4TK3JDO9O0NS8",
+  expectedRecipientLabel: "PaddleRage",
   bookingStartedAt: "2026-09-01T23:06:00.000Z",
   bookingStartedDate: "2026-09-02",
   paymentWindowMinutes: 15,
   earlyToleranceMinutes: 2,
 };
+
+const DIRECT_RECEIPT = `
+Transfer successful!
+Saturday, Sep 12 2026; 06:20:13 AM (GMT +8)
+Confirmation No. 1625506829870
+Transaction Ref. No. 121975
+Sent via BPI
+Transfer to
+GCash/G-Xchange
+Venue Account
+09171234567
+Transfer amount
+PHP 320.00
+`;
+
+const DIRECT_CONTEXT = {
+  ...CONTEXT,
+  typedReference: "1625506829870",
+  expectedAmount: 320,
+  expectedRecipientName: "Venue Account",
+  expectedRecipientNumber: "09171234567",
+  bookingStartedAt: "2026-09-11T22:18:00.000Z",
+  bookingStartedDate: "2026-09-12",
+};
+
+Deno.test("BPI direct-to-GCash receipts can auto-verify by exact name and mobile", () => {
+  const parsed = parseBpiToGcashReceipt(DIRECT_RECEIPT, {
+    typedReference: DIRECT_CONTEXT.typedReference,
+  });
+  assert(
+    parsed.timestamp.instant === "2026-09-11T22:20:13.000Z",
+    "semicolon timestamp",
+  );
+  assert(parsed.recipient.accountNumber === "09171234567", "full GCash mobile");
+  assert(
+    parsed.recipient.accountVisibility === "full",
+    "direct account layout",
+  );
+  const evidence = verifyBpiToGcashReceipt(parsed, DIRECT_CONTEXT);
+  assert(
+    evidence.recipientComparison === "exact",
+    "exact direct recipient name",
+  );
+  assert(
+    evidence.recipientAccountComparison === "exact",
+    "exact direct mobile",
+  );
+  assert(
+    evidence.flags.length === 0,
+    `unexpected flags: ${JSON.stringify(evidence.flags)}`,
+  );
+});
+
+Deno.test("BPI direct receipts remain pending when recipient evidence conflicts", () => {
+  assertFlag(
+    DIRECT_RECEIPT.replace("Venue Account", "Different Account"),
+    "RECEIVER_NAME_MISMATCH",
+    DIRECT_CONTEXT,
+  );
+  assertFlag(
+    DIRECT_RECEIPT.replace("09171234567", "09991234567"),
+    "RECEIVER_ACCOUNT_MISMATCH",
+    DIRECT_CONTEXT,
+  );
+});
 
 function flagsFor(
   receipt: string,
@@ -86,6 +152,7 @@ Deno.test("BPI verifier fails closed for the wrong recipient or destination", ()
   );
   assertFlag(RECEIPT, "MERCHANT_CONFIG_MISSING", {
     expectedRecipientName: "",
+    expectedRecipientLabel: "",
   });
   assertFlag(
     RECEIPT.replace("XXXXXXXXXXXXNS8", "XXXXXXXXXXXXBAD"),
