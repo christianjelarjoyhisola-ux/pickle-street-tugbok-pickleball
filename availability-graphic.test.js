@@ -399,3 +399,13 @@ test('styles include the integration launch hook and responsive three-action lay
   assert.match(css, /@media \(max-width: 820px\)[\s\S]*?\.prag-workspace\s*\{[\s\S]*?display:\s*block;[\s\S]*?overflow-y:\s*auto;/);
   assert.match(css, /@media \(max-width: 820px\)[\s\S]*?\.prag-controls\s*\{[\s\S]*?min-height:\s*max-content;[\s\S]*?overflow:\s*visible;/);
 });
+
+test('production admin includes the live availability adapter and launch wiring', () => {
+  const admin = fs.readFileSync('admin.html', 'utf8');
+  const client = fs.readFileSync('supabase-config.js', 'utf8');
+  assert.match(admin, /Availability Post/);
+  assert.match(admin, /availability-graphic\.js/);
+  assert.match(client, /async getAvailabilityGraphic\(date, courtIds = \[\]\)/);
+  assert.match(client, /_sb\.rpc\('get_admin_availability_graphic'/);
+  assert.match(client, /async getAvailabilityGraphicSnapshot\(date, courtIds = \[\]\)/);
+});

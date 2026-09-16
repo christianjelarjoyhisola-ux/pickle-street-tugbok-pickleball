@@ -2081,6 +2081,74 @@ function _pbApprovedRefundPolicyForWrite(input) {
   return { version, title, intro, content, ownerApproved: true };
 }
 
+function _pbNormalizeAvailabilityGraphicSnapshot(payload, requestedDate, requestedCourtIds = []) {
+  const value = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : null;
+  const expectedDate = String(requestedDate || '');
+  if (!value || value.version !== 1 || value.date !== expectedDate || value.timezone !== 'Asia/Manila') {
+    throw new Error('The availability service returned an invalid snapshot. Refresh and try again.');
+  }
+
+  const openHour = Number(value.openHour);
+  const closeHour = Number(value.closeHour);
+  const asOf = String(value.asOf || '');
+  const courts = Array.isArray(value.courts) ? value.courts : null;
+  if (!Number.isInteger(openHour) || !Number.isInteger(closeHour) || openHour < 0 || closeHour > 24 || closeHour <= openHour
+      || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?\+08:00$/.test(asOf)
+      || !courts || courts.length === 0) {
+    throw new Error('The availability service returned an incomplete snapshot. Refresh and try again.');
+  }
+
+  const seenCourts = new Set();
+  const expectedCourtIds = new Set((Array.isArray(requestedCourtIds) ? requestedCourtIds : []).map(String));
+  const expectedSlotCount = closeHour - openHour;
+  const normalizedCourts = courts.map(court => {
+    const id = String(court?.id || '').trim();
+    const name = String(court?.name || '').trim();
+    const slots = Array.isArray(court?.slots) ? court.slots : null;
+    if (!id || !name || seenCourts.has(id) || !slots || slots.length !== expectedSlotCount) {
+      throw new Error('The availability service returned incomplete court data. Refresh and try again.');
+    }
+    seenCourts.add(id);
+
+    const normalizedSlots = slots.map((slot, index) => {
+      const hour = Number(slot?.hour);
+      const startHour = Number(slot?.startHour);
+      const endHour = Number(slot?.endHour);
+      const startLabel = String(slot?.startLabel || '').trim();
+      const endLabel = String(slot?.endLabel || '').trim();
+      const label = String(slot?.label || '').trim();
+      const state = String(slot?.state || '');
+      const reason = slot?.reason == null ? null : String(slot.reason);
+      if (hour !== openHour + index || startHour !== hour || endHour !== hour + 1
+          || !startLabel || !endLabel || !label || !['free', 'unavailable'].includes(state)
+          || (state === 'free' && reason !== null) || (state === 'unavailable' && !reason)) {
+        throw new Error('The availability service returned an invalid slot state. Refresh and try again.');
+      }
+      return { hour, startHour, endHour, startLabel, endLabel, state, reason, label };
+    });
+    const availableCount = normalizedSlots.filter(slot => slot.state === 'free').length;
+    if (Number(court.availableCount) !== availableCount || Number(court.totalSlots) !== expectedSlotCount) {
+      throw new Error('The availability service returned inconsistent slot totals. Refresh and try again.');
+    }
+    return { id, name, availableCount, totalSlots: expectedSlotCount, slots: normalizedSlots };
+  });
+  if (expectedCourtIds.size > 0
+      && (seenCourts.size !== expectedCourtIds.size || [...expectedCourtIds].some(id => !seenCourts.has(id)))) {
+    throw new Error('The availability service did not return the selected courts. Refresh and try again.');
+  }
+
+  return {
+    version: 1,
+    date: expectedDate,
+    timezone: 'Asia/Manila',
+    asOf,
+    generatedAt: asOf,
+    openHour,
+    closeHour,
+    courts: normalizedCourts,
+  };
+}
+
 window.DB = {
 
   async getResolvedTenantId() {
@@ -2118,6 +2186,28 @@ window.DB = {
       if (error) { console.error('getCourts:', error); return []; }
       return data.map(rowToCourt);
     });
+  },
+
+  async getAvailabilityGraphic(date, courtIds = []) {
+    const requestedDate = String(date || '').trim();
+    const requestedCourtIds = [...new Set((Array.isArray(courtIds) ? courtIds : [])
+      .map(id => String(id || '').trim()).filter(Boolean))];
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(requestedDate) || requestedCourtIds.length > 50) {
+      throw new Error('Choose a valid availability date and court selection.');
+    }
+    const { data, error } = await _sb.rpc('get_admin_availability_graphic', {
+      p_date: requestedDate,
+      p_court_ids: requestedCourtIds.length ? requestedCourtIds : null,
+    });
+    if (error) {
+      console.error('getAvailabilityGraphic:', error);
+      throw error;
+    }
+    return _pbNormalizeAvailabilityGraphicSnapshot(data, requestedDate, requestedCourtIds);
+  },
+
+  async getAvailabilityGraphicSnapshot(date, courtIds = []) {
+    return this.getAvailabilityGraphic(date, courtIds);
   },
 
   async saveCourt(court, { expectedRevisions } = {}) {
