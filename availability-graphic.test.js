@@ -239,7 +239,7 @@ test('dense schedules keep the selected court columns and all hours together', (
   }
 });
 
-test('poster shows the full 5 AM to midnight schedule on one image', async () => {
+test('poster keeps available rows and removes fully reserved rows from one image', async () => {
   const slots = Array.from({ length: 19 }, (_, index) => ({
     hour: 5 + index,
     end: 6 + index,
@@ -268,7 +268,7 @@ test('poster shows the full 5 AM to midnight schedule on one image', async () =>
     calls.push(...canvas.calls);
   }
   assert.equal(calls.filter(call => call.value === 'AVAILABLE').length, 20);
-  assert.equal(calls.filter(call => call.value === 'BOOKED').length, 18);
+  assert.equal(calls.filter(call => call.value === 'BOOKED').length, 0);
   assert.ok(calls.some(call => call.value === '5:00–6:00 AM'));
   assert.ok(calls.some(call => call.value === '11:00 PM–12:00 AM'));
 });
@@ -298,6 +298,65 @@ test('today poster hides fully elapsed rows and keeps current and future slots',
   assert.ok(canvas.calls.some(call => call.value === '12:00–1:00 PM'));
   assert.ok(canvas.calls.some(call => call.value === '1:00–2:00 PM'));
   assert.ok(canvas.calls.some(call => call.value === 'Earlier time slots hidden · showing what remains today'));
+});
+
+test('poster hides fully reserved rows and closed courts but keeps partially available rows', async () => {
+  const courts = [
+    {
+      id: '1', name: 'Court 1', slots: [
+        { start: 13, end: 14, status: 'unavailable', reason: 'booked' },
+        { start: 14, end: 15, status: 'unavailable', reason: 'booked' },
+      ],
+    },
+    {
+      id: '2', name: 'Court 2', slots: [
+        { start: 13, end: 14, status: 'available', reason: '' },
+        { start: 14, end: 15, status: 'unavailable', reason: 'booked' },
+      ],
+    },
+    {
+      id: '3', name: 'Court 3', slots: [
+        { start: 13, end: 14, status: 'unavailable', reason: 'maintenance' },
+        { start: 14, end: 15, status: 'unavailable', reason: 'maintenance' },
+      ],
+    },
+  ];
+  assert.deepEqual(graphic.posterCourtVisibility(courts).courts.map(court => court.name), ['Court 1', 'Court 2']);
+  const visibility = graphic.posterSlotVisibility(graphic.posterCourtVisibility(courts).courts);
+  assert.equal(visibility.hiddenUnavailableCount, 1);
+  assert.deepEqual(visibility.timeSlots.map(slot => slot.start), [13]);
+
+  const canvas = fakeCanvas();
+  await graphic.drawPoster(canvas, {
+    generatedAt: '2026-09-16T05:30:00.000Z',
+    timezone: 'Asia/Manila',
+    date: '2026-09-16',
+    courts,
+  }, 'feed', { logo: false, qr: false });
+  assert.ok(canvas.calls.some(call => call.value === 'COURT 1'));
+  assert.ok(canvas.calls.some(call => call.value === 'COURT 2'));
+  assert.equal(canvas.calls.some(call => call.value === 'COURT 3'), false);
+  assert.ok(canvas.calls.some(call => call.value === '1:00–2:00 PM'));
+  assert.equal(canvas.calls.some(call => call.value === '2:00–3:00 PM'), false);
+  assert.ok(canvas.calls.some(call => call.value.includes('Court 3 closed')));
+});
+
+test('fully blocked date renders a dedicated closed-date card instead of a schedule grid', async () => {
+  const courts = ['Court 1', 'Court 2', 'Court 3'].map((name, index) => ({
+    id: String(index + 1),
+    name,
+    slots: [{ start: 13, end: 14, status: 'unavailable', reason: 'blocked_date' }],
+  }));
+  const canvas = fakeCanvas();
+  await graphic.drawPoster(canvas, {
+    generatedAt: '2026-09-16T05:30:00.000Z',
+    timezone: 'Asia/Manila',
+    date: '2026-09-17',
+    courts,
+  }, 'feed', { logo: false, qr: false });
+  assert.ok(canvas.calls.some(call => call.value === 'CLOSED'));
+  assert.ok(canvas.calls.some(call => call.value === 'CLOSED ON THIS DATE'));
+  assert.equal(canvas.calls.some(call => call.value === 'TIME SLOT'), false);
 });
 
 test('feed and story draw one Court 3 card containing all three broken-time ranges', async () => {

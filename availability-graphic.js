@@ -964,7 +964,11 @@
     const openCourts = rangesByCourt.filter(ranges => ranges.length).length;
     let headline = 'OPEN COURTS';
     let kicker = 'BOOK YOUR GAME';
-    if (!openHours) {
+    const courtVisibility = posterCourtVisibility(courts);
+    if (courts.length && !courtVisibility.courts.length) {
+      headline = 'CLOSED';
+      kicker = 'VENUE NOTICE';
+    } else if (!openHours) {
       headline = 'FULLY BOOKED';
       kicker = 'CHECK ANOTHER DATE';
     } else if (openHours <= 3) {
@@ -1019,30 +1023,55 @@
     return { label: 'UNAVAILABLE', tone: 'unavailable' };
   }
 
+  function isClosedSlot(slot) {
+    const reason = text(slot?.reason).toLowerCase();
+    return reason === 'maintenance' || reason === 'blocked_date';
+  }
+
+  function posterCourtVisibility(courts) {
+    const hiddenCourtNames = [];
+    const visibleCourts = courts.filter(court => {
+      const remainingSlots = court.slots.filter(slot => text(slot.reason).toLowerCase() !== 'past');
+      const closedForRemainingDay = remainingSlots.length > 0 && remainingSlots.every(isClosedSlot);
+      if (closedForRemainingDay) hiddenCourtNames.push(court.name);
+      return !closedForRemainingDay;
+    });
+    return { courts: visibleCourts, hiddenCourtNames };
+  }
+
   function posterSlotVisibility(courts) {
     const allSlots = [...new Map(courts.flatMap(court => court.slots).map(slot => [`${slot.start}|${slot.end}`, slot])).values()]
       .sort((left, right) => left.start - right.start || left.end - right.end);
     let hiddenPastCount = 0;
+    let hiddenUnavailableCount = 0;
     const timeSlots = allSlots.filter(slotWindow => {
       const matchingSlots = courts
         .map(court => court.slots.find(candidate => candidate.start === slotWindow.start && candidate.end === slotWindow.end))
         .filter(Boolean);
       const fullyPast = matchingSlots.length === courts.length
         && matchingSlots.every(slot => text(slot.reason).toLowerCase() === 'past');
+      const fullyUnavailable = matchingSlots.length === courts.length
+        && matchingSlots.every(slot => (
+          slot.status !== 'available'
+          && text(slot.reason).toLowerCase() !== 'current'
+          && text(slot.reason).toLowerCase() !== 'past'
+        ));
       if (fullyPast) hiddenPastCount += 1;
-      return !fullyPast;
+      else if (fullyUnavailable) hiddenUnavailableCount += 1;
+      return !fullyPast && !fullyUnavailable;
     });
-    return { timeSlots, hiddenPastCount };
+    return { timeSlots, hiddenPastCount, hiddenUnavailableCount };
   }
 
   function drawCourtCards(context, summary, layout) {
     const { width, story } = layout;
-    const courts = summary.courts;
+    const courtVisibility = posterCourtVisibility(summary.courts);
+    const courts = courtVisibility.courts;
     const startY = layout.cardsStart;
     const endY = layout.cardsEnd;
     const cardWidth = width - 144;
 
-    if (!courts.length) {
+    if (!summary.courts.length) {
       fillRoundRect(context, 72, startY, cardWidth, story ? 240 : 210, 24, '#ffffff');
       strokeRoundRect(context, 72, startY, cardWidth, story ? 240 : 210, 24, '#d5e0e4', 2);
       context.fillStyle = '#173844';
@@ -1056,13 +1085,30 @@
       return;
     }
 
-    const { timeSlots, hiddenPastCount } = posterSlotVisibility(courts);
+    if (!courts.length) {
+      const boardHeight = story ? 300 : 230;
+      const boardStartY = startY + (endY - startY - boardHeight) / 2;
+      fillRoundRect(context, 72, boardStartY, cardWidth, boardHeight, 24, '#ffffff');
+      strokeRoundRect(context, 72, boardStartY, cardWidth, boardHeight, 24, '#b9cdd4', 2);
+      context.fillStyle = '#173844';
+      context.font = `800 ${story ? 48 : 40}px "Manrope", "DM Sans", sans-serif`;
+      context.textAlign = 'center';
+      context.fillText('CLOSED ON THIS DATE', width / 2, boardStartY + (story ? 126 : 98));
+      context.fillStyle = '#62747c';
+      context.font = `700 ${story ? 22 : 18}px "DM Sans", Arial, sans-serif`;
+      context.fillText('Choose another date to see live court availability.', width / 2, boardStartY + (story ? 178 : 142));
+      context.textAlign = 'left';
+      return;
+    }
+
+    const { timeSlots, hiddenPastCount, hiddenUnavailableCount } = posterSlotVisibility(courts);
     const headerHeight = story ? 58 : 46;
     const timeWidth = story ? 210 : 205;
     const columnGap = story ? 10 : 8;
     const rowGap = story ? 5 : 3;
     const maximumBoardHeight = endY - startY;
-    const noteHeight = hiddenPastCount ? (story ? 42 : 32) : 0;
+    const hasVisibilityNote = hiddenPastCount || hiddenUnavailableCount || courtVisibility.hiddenCourtNames.length;
+    const noteHeight = hasVisibilityNote ? (story ? 42 : 32) : 0;
     const maximumRowHeight = story ? 58 : 46;
     const availableRowsHeight = maximumBoardHeight - headerHeight - noteHeight
       - rowGap * Math.max(0, timeSlots.length - 1);
@@ -1125,24 +1171,34 @@
       context.textAlign = 'left';
     });
 
-    if (hiddenPastCount) {
+    if (hasVisibilityNote) {
       context.fillStyle = '#62747c';
       context.font = `700 ${story ? 17 : 14}px "DM Sans", Arial, sans-serif`;
       context.textAlign = 'center';
       const noteY = timeSlots.length
         ? boardStartY + boardHeight - noteHeight * .34
         : boardStartY + boardHeight - (story ? 28 : 22);
-      context.fillText(
-        timeSlots.length ? 'Earlier time slots hidden · showing what remains today' : 'Today’s court hours have ended',
-        width / 2,
-        noteY,
-      );
+      let note = 'Unavailable time slots hidden · showing bookable times';
+      if (hiddenPastCount && !hiddenUnavailableCount) note = 'Earlier time slots hidden · showing what remains today';
+      if (!timeSlots.length && hiddenPastCount && !hiddenUnavailableCount) note = 'Today’s court hours have ended';
+      if (courtVisibility.hiddenCourtNames.length) {
+        note = `${courtVisibility.hiddenCourtNames.join(', ')} closed · ${note}`;
+      }
+      fitFont(context, note, cardWidth - 48, story ? 17 : 14, 10, '"DM Sans", Arial, sans-serif', 700);
+      context.fillText(note, width / 2, noteY);
       context.textAlign = 'left';
-    } else if (!timeSlots.length) {
+    }
+
+    if (!timeSlots.length) {
       context.fillStyle = '#62747c';
       context.font = `700 ${story ? 30 : 27}px "DM Sans", Arial, sans-serif`;
       context.textAlign = 'center';
-      context.fillText('No operating time slots for this selection', width / 2, boardStartY + headerHeight + 90);
+      const emptyLabel = hiddenUnavailableCount
+        ? 'NO REMAINING OPENINGS'
+        : hiddenPastCount
+          ? 'TODAY’S COURT HOURS HAVE ENDED'
+          : 'No operating time slots for this selection';
+      context.fillText(emptyLabel, width / 2, boardStartY + headerHeight + 80);
       context.textAlign = 'left';
     }
 
@@ -1575,6 +1631,7 @@
     normalizeSlot,
     mergeAvailableRanges,
     formatPosterRange,
+    posterCourtVisibility,
     posterSlotVisibility,
     buildCaption,
     drawPoster,
