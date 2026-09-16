@@ -273,6 +273,33 @@ test('poster shows the full 5 AM to midnight schedule on one image', async () =>
   assert.ok(calls.some(call => call.value === '11:00 PM–12:00 AM'));
 });
 
+test('today poster hides fully elapsed rows and keeps current and future slots', async () => {
+  const courts = ['Court 1', 'Court 2', 'Court 3'].map((name, index) => ({
+    id: String(index + 1),
+    name,
+    slots: [
+      { start: 5, end: 6, status: 'unavailable', reason: 'past' },
+      { start: 12, end: 13, status: 'unavailable', reason: 'current' },
+      { start: 13, end: 14, status: 'available', reason: '' },
+    ],
+  }));
+  const visibility = graphic.posterSlotVisibility(courts);
+  assert.equal(visibility.hiddenPastCount, 1);
+  assert.deepEqual(visibility.timeSlots.map(slot => slot.start), [12, 13]);
+
+  const canvas = fakeCanvas();
+  await graphic.drawPoster(canvas, {
+    generatedAt: '2026-09-16T04:30:00.000Z',
+    timezone: 'Asia/Manila',
+    date: '2026-09-16',
+    courts,
+  }, 'feed', { logo: false, qr: false });
+  assert.equal(canvas.calls.some(call => call.value === '5:00–6:00 AM'), false);
+  assert.ok(canvas.calls.some(call => call.value === '12:00–1:00 PM'));
+  assert.ok(canvas.calls.some(call => call.value === '1:00–2:00 PM'));
+  assert.ok(canvas.calls.some(call => call.value === 'Earlier time slots hidden · showing what remains today'));
+});
+
 test('feed and story draw one Court 3 card containing all three broken-time ranges', async () => {
   const snapshot = graphic.normalizeSnapshot({
     date: '2026-09-20',

@@ -1019,6 +1019,22 @@
     return { label: 'UNAVAILABLE', tone: 'unavailable' };
   }
 
+  function posterSlotVisibility(courts) {
+    const allSlots = [...new Map(courts.flatMap(court => court.slots).map(slot => [`${slot.start}|${slot.end}`, slot])).values()]
+      .sort((left, right) => left.start - right.start || left.end - right.end);
+    let hiddenPastCount = 0;
+    const timeSlots = allSlots.filter(slotWindow => {
+      const matchingSlots = courts
+        .map(court => court.slots.find(candidate => candidate.start === slotWindow.start && candidate.end === slotWindow.end))
+        .filter(Boolean);
+      const fullyPast = matchingSlots.length === courts.length
+        && matchingSlots.every(slot => text(slot.reason).toLowerCase() === 'past');
+      if (fullyPast) hiddenPastCount += 1;
+      return !fullyPast;
+    });
+    return { timeSlots, hiddenPastCount };
+  }
+
   function drawCourtCards(context, summary, layout) {
     const { width, story } = layout;
     const courts = summary.courts;
@@ -1040,23 +1056,31 @@
       return;
     }
 
-    const timeSlots = [...new Map(courts.flatMap(court => court.slots).map(slot => [`${slot.start}|${slot.end}`, slot])).values()]
-      .sort((left, right) => left.start - right.start || left.end - right.end);
+    const { timeSlots, hiddenPastCount } = posterSlotVisibility(courts);
     const headerHeight = story ? 58 : 46;
     const timeWidth = story ? 210 : 205;
     const columnGap = story ? 10 : 8;
     const rowGap = story ? 5 : 3;
-    const boardHeight = endY - startY;
+    const maximumBoardHeight = endY - startY;
+    const noteHeight = hiddenPastCount ? (story ? 42 : 32) : 0;
+    const maximumRowHeight = story ? 58 : 46;
+    const availableRowsHeight = maximumBoardHeight - headerHeight - noteHeight
+      - rowGap * Math.max(0, timeSlots.length - 1);
     const rowHeight = timeSlots.length
-      ? (boardHeight - headerHeight - rowGap * Math.max(0, timeSlots.length - 1)) / timeSlots.length
-      : boardHeight - headerHeight;
+      ? Math.min(maximumRowHeight, availableRowsHeight / timeSlots.length)
+      : 0;
+    const contentHeight = timeSlots.length
+      ? headerHeight + noteHeight + rowHeight * timeSlots.length + rowGap * Math.max(0, timeSlots.length - 1)
+      : (story ? 280 : 220);
+    const boardHeight = Math.min(maximumBoardHeight, contentHeight);
+    const boardStartY = startY + (maximumBoardHeight - boardHeight) / 2;
     const courtWidth = (cardWidth - timeWidth - columnGap * courts.length) / courts.length;
 
-    fillRoundRect(context, 72, startY, cardWidth, boardHeight, 24, '#ffffff');
-    strokeRoundRect(context, 72, startY, cardWidth, boardHeight, 24, '#b9cdd4', 2);
+    fillRoundRect(context, 72, boardStartY, cardWidth, boardHeight, 24, '#ffffff');
+    strokeRoundRect(context, 72, boardStartY, cardWidth, boardHeight, 24, '#b9cdd4', 2);
     context.fillStyle = '#176e83';
     context.font = `900 ${story ? 17 : 14}px "DM Sans", Arial, sans-serif`;
-    trackedText(context, 'TIME SLOT', 98, startY + headerHeight * .64, 2);
+    trackedText(context, 'TIME SLOT', 98, boardStartY + headerHeight * .64, 2);
     courts.forEach((court, index) => {
       const x = 72 + timeWidth + columnGap + index * (courtWidth + columnGap);
       context.fillStyle = '#173844';
@@ -1064,17 +1088,17 @@
       const fontSize = fitFont(context, label, courtWidth - 12, story ? 24 : 21, 13, '"Manrope", "DM Sans", sans-serif', 800);
       context.font = `800 ${fontSize}px "Manrope", "DM Sans", sans-serif`;
       context.textAlign = 'center';
-      context.fillText(label, x + courtWidth / 2, startY + headerHeight * .66);
+      context.fillText(label, x + courtWidth / 2, boardStartY + headerHeight * .66);
     });
     context.textAlign = 'left';
 
     timeSlots.forEach((slotWindow, rowIndex) => {
-      const y = startY + headerHeight + rowIndex * (rowHeight + rowGap);
+      const y = boardStartY + headerHeight + rowIndex * (rowHeight + rowGap);
       context.fillStyle = rowIndex % 2 ? '#f8fbfc' : '#edf4f6';
       context.fillRect(88, y, timeWidth - 26, rowHeight);
       context.fillStyle = '#405a65';
       const timeLabel = formatPosterRange(slotWindow.start, slotWindow.end);
-      const timeFont = fitFont(context, timeLabel, timeWidth - 40, story ? 22 : 18, 12, '"DM Sans", Arial, sans-serif', 800);
+      const timeFont = fitFont(context, timeLabel, timeWidth - 40, story ? 24 : 20, 12, '"DM Sans", Arial, sans-serif', 800);
       context.font = `800 ${timeFont}px "DM Sans", Arial, sans-serif`;
       context.fillText(timeLabel, 98, y + rowHeight / 2 + timeFont * .35);
 
@@ -1093,7 +1117,7 @@
         fillRoundRect(context, x, y, courtWidth, rowHeight, 7, fill);
         strokeRoundRect(context, x, y, courtWidth, rowHeight, 7, stroke, 1.5);
         context.fillStyle = color;
-        const statusFont = fitFont(context, cellState.label, courtWidth - 14, story ? 17 : 15, 10, '"DM Sans", Arial, sans-serif', 900);
+        const statusFont = fitFont(context, cellState.label, courtWidth - 14, story ? 20 : 18, 10, '"DM Sans", Arial, sans-serif', 900);
         context.font = `900 ${statusFont}px "DM Sans", Arial, sans-serif`;
         context.textAlign = 'center';
         context.fillText(cellState.label, x + courtWidth / 2, y + rowHeight / 2 + statusFont * .34);
@@ -1101,11 +1125,24 @@
       context.textAlign = 'left';
     });
 
-    if (!timeSlots.length) {
+    if (hiddenPastCount) {
+      context.fillStyle = '#62747c';
+      context.font = `700 ${story ? 17 : 14}px "DM Sans", Arial, sans-serif`;
+      context.textAlign = 'center';
+      const noteY = timeSlots.length
+        ? boardStartY + boardHeight - noteHeight * .34
+        : boardStartY + boardHeight - (story ? 28 : 22);
+      context.fillText(
+        timeSlots.length ? 'Earlier time slots hidden · showing what remains today' : 'Today’s court hours have ended',
+        width / 2,
+        noteY,
+      );
+      context.textAlign = 'left';
+    } else if (!timeSlots.length) {
       context.fillStyle = '#62747c';
       context.font = `700 ${story ? 30 : 27}px "DM Sans", Arial, sans-serif`;
       context.textAlign = 'center';
-      context.fillText('No operating time slots for this selection', width / 2, startY + headerHeight + 90);
+      context.fillText('No operating time slots for this selection', width / 2, boardStartY + headerHeight + 90);
       context.textAlign = 'left';
     }
 
@@ -1538,6 +1575,7 @@
     normalizeSlot,
     mergeAvailableRanges,
     formatPosterRange,
+    posterSlotVisibility,
     buildCaption,
     drawPoster,
     isSnapshotStale,
