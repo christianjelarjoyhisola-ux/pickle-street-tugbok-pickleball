@@ -345,31 +345,10 @@
     const normalized = normalizeSnapshot(snapshot, snapshot?.date);
     const courts = normalized.courts || [];
     if (!courts.length) return [{ ...normalized, courts: [] }];
-    const slotsPerPage = format === 'story' ? 10 : 8;
     const pages = [];
     for (let courtStart = 0; courtStart < courts.length; courtStart += capacity) {
       const courtGroup = courts.slice(courtStart, courtStart + capacity);
-      const slotKeys = [...new Set(courtGroup.flatMap(court => court.slots.map(slot => `${slot.start}|${slot.end}`)))]
-        .map(key => {
-          const [start, end] = key.split('|').map(Number);
-          return { key, start, end };
-        })
-        .sort((left, right) => left.start - right.start || left.end - right.end);
-      const chunks = slotKeys.length
-        ? Array.from({ length: Math.ceil(slotKeys.length / slotsPerPage) }, (_, index) => slotKeys.slice(index * slotsPerPage, (index + 1) * slotsPerPage))
-        : [[]];
-      chunks.forEach(chunk => {
-        const keys = new Set(chunk.map(slot => slot.key));
-        pages.push({
-          ...normalized,
-          courts: courtGroup.map(court => ({
-            ...court,
-            slots: court.slots.filter(slot => keys.has(`${slot.start}|${slot.end}`)),
-          })),
-          slotPageStart: chunk[0]?.start ?? null,
-          slotPageEnd: chunk[chunk.length - 1]?.end ?? null,
-        });
-      });
+      pages.push({ ...normalized, courts: courtGroup });
     }
     return pages;
   }
@@ -502,11 +481,11 @@
       <div class="prag-overlay" data-prag-overlay hidden>
         <section class="prag-modal" role="dialog" aria-modal="true" aria-labelledby="pragTitle" aria-describedby="pragDescription" tabindex="-1">
           <header class="prag-header">
-            <div class="prag-brand-mark"><img src="assets/pickle-street-mark.svg" alt="Pickle Street official mark" width="52" height="52"></div>
+            <div class="prag-brand-mark"><img src="logopickle.jpg" alt="Pickle Street Tugbok logo" width="52" height="64"></div>
             <div class="prag-heading">
-              <span class="prag-eyebrow">Social studio <b>Live availability</b></span>
-              <h2 id="pragTitle">Create availability post</h2>
-              <p id="pragDescription">Turn the live court schedule into a polished, ready-to-post Facebook timeslot graphic.</p>
+              <span class="prag-eyebrow">Pickle Street content tool <b>Live schedule</b></span>
+              <h2 id="pragTitle">Court availability post</h2>
+              <p id="pragDescription">Create a clean Pickle Street post using every court and operating hour.</p>
             </div>
             <button class="prag-icon-button" type="button" data-prag-action="close" aria-label="Close availability graphic studio">${icon('close')}</button>
           </header>
@@ -864,8 +843,8 @@
 
   function drawCourtTexture(context, width, height) {
     context.save();
-    context.strokeStyle = 'rgba(215,255,63,.055)';
-    context.lineWidth = 2;
+    context.strokeStyle = 'rgba(23,110,131,.055)';
+    context.lineWidth = 1;
     const cell = 96;
     for (let x = -height; x < width + height; x += cell) {
       context.beginPath();
@@ -873,7 +852,7 @@
       context.lineTo(x + height, height);
       context.stroke();
     }
-    context.strokeStyle = 'rgba(255,255,255,.025)';
+    context.strokeStyle = 'rgba(23,56,68,.035)';
     for (let y = 0; y < height; y += 120) {
       context.beginPath();
       context.moveTo(0, y);
@@ -901,7 +880,7 @@
   }
 
   async function logoImage() {
-    if (!state.logoPromise) state.logoPromise = loadSameOriginImage(state.options.logoUrl || 'assets/pickle-street-mark.svg');
+    if (!state.logoPromise) state.logoPromise = loadSameOriginImage(state.options.logoUrl || 'logopickle.jpg');
     return state.logoPromise;
   }
 
@@ -927,29 +906,30 @@
     const { width, story } = layout;
     const x = 70;
     const y = layout.brandY;
-    const logoSize = story ? 112 : 96;
-    fillRoundRect(context, x, y, logoSize, logoSize, 25, '#f8faf4');
-    strokeRoundRect(context, x, y, logoSize, logoSize, 25, 'rgba(215,255,63,.72)', 2);
+    const logoWidth = story ? 92 : 82;
+    const logoHeight = story ? 118 : 105;
+    fillRoundRect(context, x, y, logoWidth, logoHeight, 14, '#ffffff');
+    strokeRoundRect(context, x, y, logoWidth, logoHeight, 14, '#d5e0e4', 2);
     if (logo) {
-      const inset = 8;
-      context.drawImage(logo, x + inset, y + inset, logoSize - inset * 2, logoSize - inset * 2);
+      const inset = 5;
+      context.drawImage(logo, x + inset, y + inset, logoWidth - inset * 2, logoHeight - inset * 2);
     } else {
-      context.fillStyle = '#050706';
-      context.font = `900 ${story ? 44 : 38}px "Bebas Neue", "Arial Narrow", sans-serif`;
+      context.fillStyle = '#173844';
+      context.font = `800 ${story ? 36 : 32}px "Manrope", "DM Sans", sans-serif`;
       context.textAlign = 'center';
-      context.fillText('PR', x + logoSize / 2, y + logoSize * .65);
+      context.fillText('PS', x + logoWidth / 2, y + logoHeight * .58);
       context.textAlign = 'left';
     }
-    context.fillStyle = '#f8faf4';
-    context.font = `900 ${story ? 39 : 34}px "Bebas Neue", "Arial Narrow", sans-serif`;
-    trackedText(context, 'PICKLE STREET', x + logoSize + 24, y + 40, 2.8);
-    context.fillStyle = '#b6f000';
+    context.fillStyle = '#173844';
+    context.font = `800 ${story ? 35 : 31}px "Manrope", "DM Sans", sans-serif`;
+    trackedText(context, 'PICKLE STREET', x + logoWidth + 24, y + 43, 1.2);
+    context.fillStyle = '#176e83';
     context.font = `800 ${story ? 16 : 14}px "DM Sans", Arial, sans-serif`;
-    trackedText(context, 'PICKLEBALL · CDO', x + logoSize + 24, y + 69, 3.6);
+    trackedText(context, 'TUGBOK · DAVAO CITY', x + logoWidth + 24, y + 74, 2.4);
 
-    fillRoundRect(context, width - (story ? 308 : 284) - 70, y + 9, story ? 308 : 284, story ? 57 : 50, 28, 'rgba(182,240,0,.11)');
-    strokeRoundRect(context, width - (story ? 308 : 284) - 70, y + 9, story ? 308 : 284, story ? 57 : 50, 28, 'rgba(182,240,0,.32)', 2);
-    context.fillStyle = '#d7ff3f';
+    fillRoundRect(context, width - (story ? 308 : 284) - 70, y + 9, story ? 308 : 284, story ? 57 : 50, 28, '#e5f2f5');
+    strokeRoundRect(context, width - (story ? 308 : 284) - 70, y + 9, story ? 308 : 284, story ? 57 : 50, 28, '#a6c3cd', 2);
+    context.fillStyle = '#176e83';
     context.font = `800 ${story ? 17 : 15}px "DM Sans", Arial, sans-serif`;
     trackedText(context, 'LIVE AVAILABILITY', width - (story ? 308 : 284) - 42, y + (story ? 45 : 41), 2.5);
   }
@@ -979,16 +959,16 @@
     const date = formatDate(snapshot.date);
     const weekday = formatDate(snapshot.date, 'weekday').toUpperCase();
 
-    context.fillStyle = '#b6f000';
+    context.fillStyle = '#176e83';
     context.font = `900 ${story ? 22 : 18}px "DM Sans", Arial, sans-serif`;
     trackedText(context, summary.kicker, 72, top, 5);
 
-    context.fillStyle = '#f8faf4';
-    const headlineSize = fitFont(context, summary.headline, width - 144, story ? 144 : 124, 82, '"Bebas Neue", "Arial Narrow", sans-serif', 900);
-    context.font = `900 ${headlineSize}px "Bebas Neue", "Arial Narrow", sans-serif`;
+    context.fillStyle = '#173844';
+    const headlineSize = fitFont(context, summary.headline, width - 144, story ? 126 : 108, 72, '"Manrope", "DM Sans", sans-serif', 800);
+    context.font = `800 ${headlineSize}px "Manrope", "DM Sans", sans-serif`;
     context.fillText(summary.headline, 68, top + (story ? 138 : 117));
 
-    context.fillStyle = '#d7ff3f';
+    context.fillStyle = '#176e83';
     context.font = `900 ${story ? 49 : 40}px "DM Sans", Arial, sans-serif`;
     context.fillText(`${weekday} · ${date.toUpperCase()}`, 72, top + (story ? 210 : 176));
 
@@ -999,9 +979,9 @@
       : `${selectedCount} COURT${selectedCount === 1 ? '' : 'S'} CHECKED  ·  NO OPEN SLOTS`;
     context.font = `800 ${story ? 20 : 17}px "DM Sans", Arial, sans-serif`;
     const pillWidth = width - 144;
-    fillRoundRect(context, 72, pillY, pillWidth, story ? 56 : 50, 15, 'rgba(255,255,255,.075)');
-    strokeRoundRect(context, 72, pillY, pillWidth, story ? 56 : 50, 15, 'rgba(255,255,255,.13)', 1.5);
-    context.fillStyle = '#e8eee5';
+    fillRoundRect(context, 72, pillY, pillWidth, story ? 56 : 50, 15, '#eaf0f2');
+    strokeRoundRect(context, 72, pillY, pillWidth, story ? 56 : 50, 15, '#c8d9df', 1.5);
+    context.fillStyle = '#405a65';
     fitFont(context, statText, pillWidth - 56, story ? 20 : 17, 13, '"DM Sans", Arial, sans-serif', 800);
     context.fillText(statText, 100, pillY + (story ? 36 : 32));
   }
@@ -1026,13 +1006,13 @@
     const cardWidth = width - 144;
 
     if (!courts.length) {
-      fillRoundRect(context, 72, startY, cardWidth, story ? 240 : 210, 30, 'rgba(255,255,255,.045)');
-      strokeRoundRect(context, 72, startY, cardWidth, story ? 240 : 210, 30, 'rgba(182,240,0,.22)', 2);
-      context.fillStyle = '#f8faf4';
-      context.font = `900 ${story ? 42 : 36}px "Bebas Neue", "Arial Narrow", sans-serif`;
+      fillRoundRect(context, 72, startY, cardWidth, story ? 240 : 210, 24, '#ffffff');
+      strokeRoundRect(context, 72, startY, cardWidth, story ? 240 : 210, 24, '#d5e0e4', 2);
+      context.fillStyle = '#173844';
+      context.font = `800 ${story ? 38 : 32}px "Manrope", "DM Sans", sans-serif`;
       context.textAlign = 'center';
       context.fillText('SELECT A COURT TO CONTINUE', width / 2, startY + (story ? 112 : 98));
-      context.fillStyle = '#99a397';
+      context.fillStyle = '#62747c';
       context.font = `600 ${story ? 19 : 16}px "DM Sans", Arial, sans-serif`;
       context.fillText('Your live openings will appear here.', width / 2, startY + (story ? 155 : 138));
       context.textAlign = 'left';
@@ -1044,24 +1024,24 @@
     const headerHeight = story ? 66 : 58;
     const timeWidth = story ? 172 : 158;
     const columnGap = story ? 10 : 8;
-    const rowGap = story ? 8 : 7;
+    const rowGap = story ? 5 : 3;
     const boardHeight = endY - startY;
     const rowHeight = timeSlots.length
       ? (boardHeight - headerHeight - rowGap * Math.max(0, timeSlots.length - 1)) / timeSlots.length
       : boardHeight - headerHeight;
     const courtWidth = (cardWidth - timeWidth - columnGap * courts.length) / courts.length;
 
-    fillRoundRect(context, 72, startY, cardWidth, boardHeight, 26, 'rgba(8,14,10,.96)');
-    strokeRoundRect(context, 72, startY, cardWidth, boardHeight, 26, 'rgba(182,240,0,.3)', 2);
-    context.fillStyle = '#b6f000';
+    fillRoundRect(context, 72, startY, cardWidth, boardHeight, 24, '#ffffff');
+    strokeRoundRect(context, 72, startY, cardWidth, boardHeight, 24, '#b9cdd4', 2);
+    context.fillStyle = '#176e83';
     context.font = `900 ${story ? 17 : 15}px "DM Sans", Arial, sans-serif`;
     trackedText(context, 'TIME SLOT', 98, startY + headerHeight * .64, 2);
     courts.forEach((court, index) => {
       const x = 72 + timeWidth + columnGap + index * (courtWidth + columnGap);
-      context.fillStyle = '#f8faf4';
+      context.fillStyle = '#173844';
       const label = text(court.name).toUpperCase();
-      const fontSize = fitFont(context, label, courtWidth - 12, story ? 26 : 23, 15, '"Bebas Neue", "Arial Narrow", sans-serif', 900);
-      context.font = `900 ${fontSize}px "Bebas Neue", "Arial Narrow", sans-serif`;
+      const fontSize = fitFont(context, label, courtWidth - 12, story ? 24 : 21, 13, '"Manrope", "DM Sans", sans-serif', 800);
+      context.font = `800 ${fontSize}px "Manrope", "DM Sans", sans-serif`;
       context.textAlign = 'center';
       context.fillText(label, x + courtWidth / 2, startY + headerHeight * .66);
     });
@@ -1069,9 +1049,9 @@
 
     timeSlots.forEach((slotWindow, rowIndex) => {
       const y = startY + headerHeight + rowIndex * (rowHeight + rowGap);
-      context.fillStyle = rowIndex % 2 ? 'rgba(255,255,255,.025)' : 'rgba(182,240,0,.035)';
+      context.fillStyle = rowIndex % 2 ? '#f8fbfc' : '#edf4f6';
       context.fillRect(88, y, timeWidth - 26, rowHeight);
-      context.fillStyle = '#e8eee5';
+      context.fillStyle = '#405a65';
       const timeLabel = formatRange(slotWindow.start, slotWindow.end);
       const timeFont = fitFont(context, timeLabel, timeWidth - 40, story ? 24 : 21, 14, '"DM Sans", Arial, sans-serif', 800);
       context.font = `800 ${timeFont}px "DM Sans", Arial, sans-serif`;
@@ -1082,11 +1062,11 @@
         const slot = court.slots.find(candidate => candidate.start === slotWindow.start && candidate.end === slotWindow.end);
         const cellState = slotCellLabel(slot);
         const tones = {
-          available: ['rgba(182,240,0,.16)', 'rgba(215,255,63,.66)', '#efffc1'],
-          booked: ['rgba(214,74,74,.16)', 'rgba(214,74,74,.52)', '#ffb5b5'],
-          blocked: ['rgba(205,153,55,.14)', 'rgba(205,153,55,.45)', '#e8c77f'],
-          past: ['rgba(255,255,255,.035)', 'rgba(255,255,255,.11)', '#838b92'],
-          unavailable: ['rgba(255,255,255,.045)', 'rgba(255,255,255,.14)', '#9ba3aa'],
+          available: ['#e5f2f5', '#52889b', '#234a5b'],
+          booked: ['#faedf0', '#c96c78', '#8c3543'],
+          blocked: ['#fff4df', '#d6a34a', '#795411'],
+          past: ['#e9eef0', '#cbd5dc', '#62747c'],
+          unavailable: ['#edf2f4', '#cbd5dc', '#62747c'],
         };
         const [fill, stroke, color] = tones[cellState.tone] || tones.unavailable;
         fillRoundRect(context, x, y, courtWidth, rowHeight, 11, fill);
@@ -1101,7 +1081,7 @@
     });
 
     if (!timeSlots.length) {
-      context.fillStyle = '#8e978b';
+      context.fillStyle = '#62747c';
       context.font = `700 ${story ? 30 : 27}px "DM Sans", Arial, sans-serif`;
       context.textAlign = 'center';
       context.fillText('No operating time slots for this selection', width / 2, startY + headerHeight + 90);
@@ -1117,9 +1097,9 @@
     const height = layout.story ? 42 : 36;
     const x = layout.width - width - 70;
     const y = layout.brandY + (layout.story ? 78 : 65);
-    fillRoundRect(context, x, y, width, height, height / 2, 'rgba(5,7,6,.72)');
-    strokeRoundRect(context, x, y, width, height, height / 2, 'rgba(215,255,63,.35)', 1.5);
-    context.fillStyle = '#d7ff3f';
+    fillRoundRect(context, x, y, width, height, height / 2, '#e5f2f5');
+    strokeRoundRect(context, x, y, width, height, height / 2, '#a6c3cd', 1.5);
+    context.fillStyle = '#176e83';
     context.font = `900 ${layout.story ? 14 : 12}px "DM Sans", Arial, sans-serif`;
     context.textAlign = 'center';
     context.fillText(label, x + width / 2, y + height * .65);
@@ -1132,22 +1112,22 @@
     const footerY = layout.footerY;
     const footerHeight = height - footerY;
     const gradient = context.createLinearGradient(0, footerY, width, height);
-    gradient.addColorStop(0, '#d7ff3f');
-    gradient.addColorStop(.6, '#b6f000');
-    gradient.addColorStop(1, '#91c000');
+    gradient.addColorStop(0, '#173e50');
+    gradient.addColorStop(.6, '#174c65');
+    gradient.addColorStop(1, '#126372');
     context.fillStyle = gradient;
     context.fillRect(0, footerY, width, footerHeight);
 
-    context.fillStyle = 'rgba(5,7,6,.08)';
+    context.fillStyle = 'rgba(255,255,255,.055)';
     context.beginPath();
     context.arc(width - 110, footerY + 10, story ? 290 : 230, 0, Math.PI * 2);
     context.fill();
 
     const x = 72;
-    context.fillStyle = '#050706';
+    context.fillStyle = '#ffffff';
     context.font = `900 ${footer.readyFontSize}px "DM Sans", Arial, sans-serif`;
     trackedText(context, 'READY TO PLAY?', x, footer.readyY, 3.1);
-    context.font = `900 ${footer.ctaFontSize}px "Bebas Neue", "Arial Narrow", sans-serif`;
+    context.font = `800 ${footer.ctaFontSize - 6}px "Manrope", "DM Sans", sans-serif`;
     context.fillText('BOOK YOUR COURT', x, footer.ctaY);
     const bookingDisplay = text(bookingUrl).replace(/^https?:\/\//, '').replace(/\/$/, '');
     fitFont(
@@ -1162,7 +1142,7 @@
     context.fillText(bookingDisplay, x, footer.urlY);
 
     const updateText = `Updated ${formatGeneratedAt(snapshot.generatedAt)} PHT · Slots may change`;
-    context.fillStyle = 'rgba(5,7,6,.82)';
+    context.fillStyle = 'rgba(255,255,255,.82)';
     fitFont(
       context,
       updateText,
@@ -1184,7 +1164,7 @@
       context.imageSmoothingEnabled = false;
       context.drawImage(qr, qrX, qrY, size, size);
       context.restore();
-      context.fillStyle = '#050706';
+      context.fillStyle = '#173844';
       context.font = `900 ${footer.qrLabelFontSize}px "DM Sans", Arial, sans-serif`;
       context.textAlign = 'center';
       context.fillText('SCAN TO BOOK', footer.qrCardX + cardSize / 2, footer.qrLabelY);
@@ -1209,18 +1189,18 @@
     ]);
 
     context.clearRect(0, 0, format.width, format.height);
-    context.fillStyle = '#050706';
+    context.fillStyle = '#f2f5f6';
     context.fillRect(0, 0, format.width, format.height);
     const glow = context.createRadialGradient(format.width * .78, format.height * .05, 10, format.width * .78, format.height * .05, format.width * .72);
-    glow.addColorStop(0, 'rgba(182,240,0,.23)');
-    glow.addColorStop(.38, 'rgba(182,240,0,.07)');
-    glow.addColorStop(1, 'rgba(5,7,6,0)');
+    glow.addColorStop(0, 'rgba(24,125,139,.16)');
+    glow.addColorStop(.38, 'rgba(24,125,139,.05)');
+    glow.addColorStop(1, 'rgba(242,245,246,0)');
     context.fillStyle = glow;
     context.fillRect(0, 0, format.width, format.height);
     drawCourtTexture(context, format.width, format.height);
 
     context.save();
-    context.strokeStyle = 'rgba(182,240,0,.18)';
+    context.strokeStyle = 'rgba(24,125,139,.14)';
     context.lineWidth = 2;
     context.beginPath();
     context.arc(format.width + 40, story ? 380 : 300, story ? 410 : 330, 0, Math.PI * 2);

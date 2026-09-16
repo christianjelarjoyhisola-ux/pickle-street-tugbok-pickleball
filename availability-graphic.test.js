@@ -177,7 +177,7 @@ test('court controls, captions, and carousel pages use stable natural court orde
   });
 });
 
-test('long schedules split into readable timeslot pages without dropping any slot', () => {
+test('long schedules keep every operating hour on one court page', () => {
   const slots = Array.from({ length: 9 }, (_, index) => ({
     hour: index * 2,
     end: index * 2 + 1,
@@ -188,8 +188,8 @@ test('long schedules split into readable timeslot pages without dropping any slo
     courts: [{ id: 'show-court', name: 'Show Court', slots }],
   });
   const pages = graphic.paginateSnapshot(snapshot, 'feed');
-  assert.equal(pages.length, 2);
-  assert.deepEqual(pages.map(page => page.courts[0].slots.length), [8, 1]);
+  assert.equal(pages.length, 1);
+  assert.deepEqual(pages.map(page => page.courts[0].slots.length), [9]);
   assert.deepEqual(
     pages.flatMap(page => page.courts[0].slots.map(slot => slot.start)),
     snapshot.courts[0].slots.map(slot => slot.start),
@@ -215,7 +215,7 @@ test('adaptive range grid keeps common and dense schedules readable inside one c
   });
 });
 
-test('every timeslot carousel page keeps the selected court columns together', () => {
+test('dense schedules keep the selected court columns and all hours together', () => {
   const denseSlots = Array.from({ length: 9 }, (_, index) => ({
     hour: index * 2,
     end: index * 2 + 1,
@@ -232,18 +232,17 @@ test('every timeslot carousel page keeps the selected court columns together', (
   });
   for (const format of ['feed', 'story']) {
     const pages = graphic.paginateSnapshot(snapshot, format);
-    assert.deepEqual(pages.map(page => page.courts.length), format === 'feed' ? [4, 4] : [4]);
+    assert.deepEqual(pages.map(page => page.courts.length), [4]);
     const ids = pages.flatMap(page => page.courts.map(court => court.id));
-    assert.deepEqual(ids, format === 'feed'
-      ? ['1', '2', '3', '4', '1', '2', '3', '4']
-      : ['1', '2', '3', '4']);
+    assert.deepEqual(ids, ['1', '2', '3', '4']);
+    assert.equal(pages[0].courts[0].slots.length, 9);
   }
 });
 
-test('poster shows every hourly slot as available or booked instead of merging open ranges', async () => {
-  const slots = Array.from({ length: 16 }, (_, index) => ({
-    hour: 6 + index,
-    end: 7 + index,
+test('poster shows the full 5 AM to midnight schedule on one image', async () => {
+  const slots = Array.from({ length: 19 }, (_, index) => ({
+    hour: 5 + index,
+    end: 6 + index,
     state: index % 2 ? 'booked' : 'free',
   }));
   const snapshot = graphic.normalizeSnapshot({
@@ -254,8 +253,8 @@ test('poster shows every hourly slot as available or booked instead of merging o
     ],
   });
   const pages = graphic.paginateSnapshot(snapshot, 'feed');
-  assert.equal(pages.length, 2);
-  assert.ok(pages.every(page => page.courts.every(court => court.slots.length === 8)));
+  assert.equal(pages.length, 1);
+  assert.ok(pages.every(page => page.courts.every(court => court.slots.length === 19)));
   const calls = [];
   for (let index = 0; index < pages.length; index += 1) {
     const canvas = fakeCanvas();
@@ -268,10 +267,10 @@ test('poster shows every hourly slot as available or booked instead of merging o
     });
     calls.push(...canvas.calls);
   }
-  assert.equal(calls.filter(call => call.value === 'AVAILABLE').length, 16);
-  assert.equal(calls.filter(call => call.value === 'BOOKED').length, 16);
-  assert.ok(calls.some(call => call.value === '6–7 AM'));
-  assert.ok(calls.some(call => call.value === '9–10 PM'));
+  assert.equal(calls.filter(call => call.value === 'AVAILABLE').length, 20);
+  assert.equal(calls.filter(call => call.value === 'BOOKED').length, 18);
+  assert.ok(calls.some(call => call.value === '5–6 AM'));
+  assert.ok(calls.some(call => call.value === '11 PM–12 AM'));
 });
 
 test('feed and story draw one Court 3 card containing all three broken-time ranges', async () => {
@@ -410,4 +409,15 @@ test('production admin includes the live availability adapter and launch wiring'
   assert.match(client, /if \(PB_PLATFORM_V1\)[\s\S]*?_pbPlatformAvailability\(requestedDate\)/);
   assert.match(client, /_sb\.rpc\('get_admin_availability_graphic'/);
   assert.match(client, /async getAvailabilityGraphicSnapshot\(date, courtIds = \[\]\)/);
+});
+
+test('studio uses the real Pickle Street crest and light booking-site theme', () => {
+  const source = fs.readFileSync('availability-graphic.js', 'utf8');
+  const css = fs.readFileSync('availability-graphic.css', 'utf8');
+  assert.match(source, /src="logopickle\.jpg" alt="Pickle Street Tugbok logo"/);
+  assert.match(source, /logoUrl \|\| 'logopickle\.jpg'/);
+  assert.match(source, /TUGBOK · DAVAO CITY/);
+  assert.match(css, /Pickle Street light brand treatment/);
+  assert.match(css, /--prag-neon:\s*#187d8b/);
+  assert.match(css, /\.prag-modal\s*\{[\s\S]*?background:\s*#f2f5f6/);
 });
