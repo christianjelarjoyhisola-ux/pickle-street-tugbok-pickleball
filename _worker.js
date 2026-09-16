@@ -23,6 +23,7 @@ export default {
       '/open-play-data.js',
       '/open-play-public.js',
       '/open-play.css',
+      '/availability-graphic.js',
     ]);
     const isSharedRuntime = url.pathname === '/supabase-config.js' ||
       releaseCoupledRuntime.has(url.pathname);
