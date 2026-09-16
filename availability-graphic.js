@@ -1164,7 +1164,7 @@
       context.imageSmoothingEnabled = false;
       context.drawImage(qr, qrX, qrY, size, size);
       context.restore();
-      context.fillStyle = '#173844';
+      context.fillStyle = '#ffffff';
       context.font = `900 ${footer.qrLabelFontSize}px "DM Sans", Arial, sans-serif`;
       context.textAlign = 'center';
       context.fillText('SCAN TO BOOK', footer.qrCardX + cardSize / 2, footer.qrLabelY);
