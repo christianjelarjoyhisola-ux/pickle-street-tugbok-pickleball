@@ -16,10 +16,10 @@
   });
   const POSTER_LAYOUTS = Object.freeze({
     feed: Object.freeze({
-      brandY: 54,
-      heroTop: 205,
-      cardsStart: 503,
-      cardsEnd: 1004,
+      brandY: 34,
+      heroTop: 153,
+      cardsStart: 374,
+      cardsEnd: 1024,
       footerY: 1040,
       safeTop: 0,
       safeBottom: 1350,
@@ -27,9 +27,9 @@
       capacity: 4,
     }),
     story: Object.freeze({
-      brandY: 105,
-      heroTop: 275,
-      cardsStart: 630,
+      brandY: 86,
+      heroTop: 236,
+      cardsStart: 530,
       cardsEnd: 1460,
       footerY: 1496,
       safeTop: 80,
@@ -300,6 +300,29 @@
   function formatRange(start, end) {
     const startLabel = formatHour(start);
     const endLabel = formatHour(end);
+    const startPeriod = startLabel.slice(-2);
+    const endPeriod = endLabel.slice(-2);
+    const startHalfDay = Math.floor((((number(start) % 24) + 24) % 24) / 12);
+    const endHalfDay = Math.floor(((((number(end) - .001) % 24) + 24) % 24) / 12);
+    if (startPeriod === endPeriod && startHalfDay === endHalfDay) {
+      return `${startLabel.slice(0, -3)}–${endLabel}`;
+    }
+    return `${startLabel}–${endLabel}`;
+  }
+
+  function formatPosterHour(value) {
+    let hour = number(value);
+    if (hour === 24) hour = 0;
+    hour = ((hour % 24) + 24) % 24;
+    const whole = Math.floor(hour);
+    const minute = Math.round((hour - whole) * 60);
+    const period = whole >= 12 ? 'PM' : 'AM';
+    return `${whole % 12 || 12}:${String(minute).padStart(2, '0')} ${period}`;
+  }
+
+  function formatPosterRange(start, end) {
+    const startLabel = formatPosterHour(start);
+    const endLabel = formatPosterHour(end);
     const startPeriod = startLabel.slice(-2);
     const endPeriod = endLabel.slice(-2);
     const startHalfDay = Math.floor((((number(start) % 24) + 24) % 24) / 12);
@@ -906,8 +929,8 @@
     const { width, story } = layout;
     const x = 70;
     const y = layout.brandY;
-    const logoWidth = story ? 92 : 82;
-    const logoHeight = story ? 118 : 105;
+    const logoWidth = story ? 88 : 72;
+    const logoHeight = story ? 112 : 92;
     fillRoundRect(context, x, y, logoWidth, logoHeight, 14, '#ffffff');
     strokeRoundRect(context, x, y, logoWidth, logoHeight, 14, '#d5e0e4', 2);
     if (logo) {
@@ -921,11 +944,11 @@
       context.textAlign = 'left';
     }
     context.fillStyle = '#173844';
-    context.font = `800 ${story ? 35 : 31}px "Manrope", "DM Sans", sans-serif`;
-    trackedText(context, 'PICKLE STREET', x + logoWidth + 24, y + 43, 1.2);
+    context.font = `800 ${story ? 34 : 29}px "Manrope", "DM Sans", sans-serif`;
+    trackedText(context, 'PICKLE STREET', x + logoWidth + 22, y + (story ? 42 : 37), 1.2);
     context.fillStyle = '#176e83';
     context.font = `800 ${story ? 16 : 14}px "DM Sans", Arial, sans-serif`;
-    trackedText(context, 'TUGBOK · DAVAO CITY', x + logoWidth + 24, y + 74, 2.4);
+    trackedText(context, 'TUGBOK · DAVAO CITY', x + logoWidth + 22, y + (story ? 73 : 66), 2.4);
 
     fillRoundRect(context, width - (story ? 308 : 284) - 70, y + 9, story ? 308 : 284, story ? 57 : 50, 28, '#e5f2f5');
     strokeRoundRect(context, width - (story ? 308 : 284) - 70, y + 9, story ? 308 : 284, story ? 57 : 50, 28, '#a6c3cd', 2);
@@ -960,30 +983,30 @@
     const weekday = formatDate(snapshot.date, 'weekday').toUpperCase();
 
     context.fillStyle = '#176e83';
-    context.font = `900 ${story ? 22 : 18}px "DM Sans", Arial, sans-serif`;
+    context.font = `900 ${story ? 21 : 16}px "DM Sans", Arial, sans-serif`;
     trackedText(context, summary.kicker, 72, top, 5);
 
     context.fillStyle = '#173844';
-    const headlineSize = fitFont(context, summary.headline, width - 144, story ? 126 : 108, 72, '"Manrope", "DM Sans", sans-serif', 800);
+    const headlineSize = fitFont(context, summary.headline, width - 144, story ? 112 : 91, 64, '"Manrope", "DM Sans", sans-serif', 800);
     context.font = `800 ${headlineSize}px "Manrope", "DM Sans", sans-serif`;
-    context.fillText(summary.headline, 68, top + (story ? 138 : 117));
+    context.fillText(summary.headline, 68, top + (story ? 118 : 91));
 
     context.fillStyle = '#176e83';
-    context.font = `900 ${story ? 49 : 40}px "DM Sans", Arial, sans-serif`;
-    context.fillText(`${weekday} · ${date.toUpperCase()}`, 72, top + (story ? 210 : 176));
+    context.font = `900 ${story ? 44 : 34}px "DM Sans", Arial, sans-serif`;
+    context.fillText(`${weekday} · ${date.toUpperCase()}`, 72, top + (story ? 186 : 139));
 
-    const pillY = top + (story ? 255 : 214);
+    const pillY = top + (story ? 224 : 164);
     const selectedCount = summary.courts.length;
     const statText = summary.openHours
       ? `${summary.openHours} AVAILABLE COURT-HOUR${summary.openHours === 1 ? '' : 'S'}  ·  ${summary.openCourts}/${selectedCount} COURTS`
       : `${selectedCount} COURT${selectedCount === 1 ? '' : 'S'} CHECKED  ·  NO OPEN SLOTS`;
-    context.font = `800 ${story ? 20 : 17}px "DM Sans", Arial, sans-serif`;
+    context.font = `800 ${story ? 19 : 15}px "DM Sans", Arial, sans-serif`;
     const pillWidth = width - 144;
-    fillRoundRect(context, 72, pillY, pillWidth, story ? 56 : 50, 15, '#eaf0f2');
-    strokeRoundRect(context, 72, pillY, pillWidth, story ? 56 : 50, 15, '#c8d9df', 1.5);
+    fillRoundRect(context, 72, pillY, pillWidth, story ? 52 : 42, 15, '#eaf0f2');
+    strokeRoundRect(context, 72, pillY, pillWidth, story ? 52 : 42, 15, '#c8d9df', 1.5);
     context.fillStyle = '#405a65';
-    fitFont(context, statText, pillWidth - 56, story ? 20 : 17, 13, '"DM Sans", Arial, sans-serif', 800);
-    context.fillText(statText, 100, pillY + (story ? 36 : 32));
+    fitFont(context, statText, pillWidth - 56, story ? 19 : 15, 12, '"DM Sans", Arial, sans-serif', 800);
+    context.fillText(statText, 100, pillY + (story ? 34 : 27));
   }
 
   function slotCellLabel(slot) {
@@ -1021,8 +1044,8 @@
 
     const timeSlots = [...new Map(courts.flatMap(court => court.slots).map(slot => [`${slot.start}|${slot.end}`, slot])).values()]
       .sort((left, right) => left.start - right.start || left.end - right.end);
-    const headerHeight = story ? 66 : 58;
-    const timeWidth = story ? 172 : 158;
+    const headerHeight = story ? 58 : 46;
+    const timeWidth = story ? 210 : 205;
     const columnGap = story ? 10 : 8;
     const rowGap = story ? 5 : 3;
     const boardHeight = endY - startY;
@@ -1034,7 +1057,7 @@
     fillRoundRect(context, 72, startY, cardWidth, boardHeight, 24, '#ffffff');
     strokeRoundRect(context, 72, startY, cardWidth, boardHeight, 24, '#b9cdd4', 2);
     context.fillStyle = '#176e83';
-    context.font = `900 ${story ? 17 : 15}px "DM Sans", Arial, sans-serif`;
+    context.font = `900 ${story ? 17 : 14}px "DM Sans", Arial, sans-serif`;
     trackedText(context, 'TIME SLOT', 98, startY + headerHeight * .64, 2);
     courts.forEach((court, index) => {
       const x = 72 + timeWidth + columnGap + index * (courtWidth + columnGap);
@@ -1052,8 +1075,8 @@
       context.fillStyle = rowIndex % 2 ? '#f8fbfc' : '#edf4f6';
       context.fillRect(88, y, timeWidth - 26, rowHeight);
       context.fillStyle = '#405a65';
-      const timeLabel = formatRange(slotWindow.start, slotWindow.end);
-      const timeFont = fitFont(context, timeLabel, timeWidth - 40, story ? 24 : 21, 14, '"DM Sans", Arial, sans-serif', 800);
+      const timeLabel = formatPosterRange(slotWindow.start, slotWindow.end);
+      const timeFont = fitFont(context, timeLabel, timeWidth - 40, story ? 22 : 18, 12, '"DM Sans", Arial, sans-serif', 800);
       context.font = `800 ${timeFont}px "DM Sans", Arial, sans-serif`;
       context.fillText(timeLabel, 98, y + rowHeight / 2 + timeFont * .35);
 
@@ -1069,8 +1092,8 @@
           unavailable: ['#edf2f4', '#cbd5dc', '#62747c'],
         };
         const [fill, stroke, color] = tones[cellState.tone] || tones.unavailable;
-        fillRoundRect(context, x, y, courtWidth, rowHeight, 11, fill);
-        strokeRoundRect(context, x, y, courtWidth, rowHeight, 11, stroke, 1.5);
+        fillRoundRect(context, x, y, courtWidth, rowHeight, 7, fill);
+        strokeRoundRect(context, x, y, courtWidth, rowHeight, 7, stroke, 1.5);
         context.fillStyle = color;
         const statusFont = fitFont(context, cellState.label, courtWidth - 14, story ? 17 : 15, 10, '"DM Sans", Arial, sans-serif', 900);
         context.font = `900 ${statusFont}px "DM Sans", Arial, sans-serif`;
@@ -1516,6 +1539,7 @@
     normalizeSnapshot,
     normalizeSlot,
     mergeAvailableRanges,
+    formatPosterRange,
     buildCaption,
     drawPoster,
     isSnapshotStale,

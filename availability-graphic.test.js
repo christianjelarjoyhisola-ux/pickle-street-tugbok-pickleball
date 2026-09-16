@@ -269,8 +269,8 @@ test('poster shows the full 5 AM to midnight schedule on one image', async () =>
   }
   assert.equal(calls.filter(call => call.value === 'AVAILABLE').length, 20);
   assert.equal(calls.filter(call => call.value === 'BOOKED').length, 18);
-  assert.ok(calls.some(call => call.value === '5–6 AM'));
-  assert.ok(calls.some(call => call.value === '11 PM–12 AM'));
+  assert.ok(calls.some(call => call.value === '5:00–6:00 AM'));
+  assert.ok(calls.some(call => call.value === '11:00 PM–12:00 AM'));
 });
 
 test('feed and story draw one Court 3 card containing all three broken-time ranges', async () => {
@@ -294,7 +294,7 @@ test('feed and story draw one Court 3 card containing all three broken-time rang
     const canvas = fakeCanvas();
     await graphic.drawPoster(canvas, pages[0], format, { logo: false, qr: false });
     assert.equal(canvas.calls.filter(call => call.value === 'COURT 3').length, 1);
-    ['8 AM–3 PM', '6–7 PM', '11 PM–12 AM'].forEach(label => {
+    ['8:00 AM–3:00 PM', '6:00–7:00 PM', '11:00 PM–12:00 AM'].forEach(label => {
       assert.ok(canvas.calls.some(call => call.value === label), `${format} must draw ${label}`);
     });
     assert.equal(canvas.calls.some(call => /(?:1\/2|2\/2)/.test(call.value)), false);
@@ -333,6 +333,8 @@ test('poster layouts keep branded content inside feed and story safe areas', () 
   const feed = graphic.posterLayouts.feed;
   const story = graphic.posterLayouts.story;
   assert.ok(feed.footerContentBottom <= feed.safeBottom);
+  assert.ok(feed.cardsStart <= 390, 'feed schedule begins high enough to avoid an oversized hero');
+  assert.ok(feed.cardsEnd - feed.cardsStart >= 640, 'feed schedule has enough height for 19 readable rows');
   assert.ok(story.brandY >= story.safeTop);
   assert.ok(story.footerContentBottom <= story.safeBottom);
   assert.ok(story.cardsEnd < story.footerY);
