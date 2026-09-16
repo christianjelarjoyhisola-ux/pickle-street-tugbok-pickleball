@@ -41,6 +41,7 @@ export function verifyByMethod(input:Input):Result {
 }
 export function publicPendingReason(flags:string[],errorCode=''):string {
   const all=[...flags,errorCode].join(' ').toLowerCase();
+  if(/maya_provider_confirmation_required/.test(all)) return 'Pending — Maya does not show a transaction date and time on this receipt screen, so staff must confirm it.';
   if(/duplicate|reference_used|already_used/.test(all)) return 'Pending — this receipt or transaction reference may already be in use. Contact the venue to resolve it.';
   if(/slot|hold|availability|court|booking_not_eligible/.test(all)) return 'Pending — the court time needs an availability check before confirmation. Contact the venue if your original time is unavailable.';
   if(/unsupported|method_disabled|layout/.test(all)) return 'Pending — automatic verification is not available for this receipt format yet. Your proof is saved.';

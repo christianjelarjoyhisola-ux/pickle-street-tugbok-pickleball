@@ -64,6 +64,7 @@ export type MayaReceiptParse = {
   timestamp: BankReceiptTimestamp;
   recipient: MayaReceiptRecipient;
   indicators: {
+    nativeWalletLayout: boolean;
     providerBrand: boolean;
     competingProviderBrand: MayaCompetingProvider | null;
     sentMoneyVia: boolean;
@@ -111,6 +112,9 @@ const ACCOUNT_NUMBER_LABEL_RE =
 const ACCOUNT_NAME_LABEL_RE = /^account\s*name\b\s*[:#\-–—]?\s*(.*)$/i;
 const TRANSFER_FEE_LABEL_RE =
   /^(?:transfer|service)\s*fee\b\s*[:#\-–—]?\s*(.*)$/i;
+const NATIVE_DESTINATION_LABEL_RE = /^destination\b\s*[:#\-–—]?\s*(.*)$/i;
+const NATIVE_SOURCE_LABEL_RE = /^source\b\s*[:#\-–—]?\s*(.*)$/i;
+const NATIVE_DETAILS_LABEL_RE = /^transaction\s+details\b/i;
 const DESTINATION_RE = /\bg-?xchange\s*(?:,|\.)?\s*inc\.?\s*\/\s*gcash\b/i;
 const MONEY_RE = /(?:PHP|₱|P)\s*((?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2})(?![\d,.])/i;
 
@@ -485,7 +489,7 @@ function looksLikeRecipientName(value: string): boolean {
 
 function strictGcashMobile(value: string): string | null {
   const text = String(value || "").trim();
-  if (!/^(?:(?:\+?63)|0)?9(?:[\s-]*\d){9}$/.test(text)) return null;
+  if (!/^(?:(?:\+?63)[\s-]*|0)?9(?:[\s-]*\d){9}$/.test(text)) return null;
   return normalizeGcashMobile(text);
 }
 
@@ -588,6 +592,69 @@ function parseRecipient(lines: string[]): {
     invalidAccount: accounts.length === 1 &&
       !strictGcashMobile(accounts[0].raw),
     invalidName: names.length === 1 && !looksLikeRecipientName(names[0].raw),
+  };
+}
+
+function parseNativeWalletRecipient(lines: string[]): {
+  recipient: MayaReceiptRecipient;
+  ambiguousAccount: boolean;
+  ambiguousName: boolean;
+} {
+  const destinationIndexes = lines.map((line, index) =>
+    NATIVE_DESTINATION_LABEL_RE.test(line) ? index : -1
+  ).filter((index) => index >= 0);
+  const accounts: IndexedValue[] = [];
+  const names: IndexedValue[] = [];
+  for (const start of destinationIndexes) {
+    const inline = lines[start].match(NATIVE_DESTINATION_LABEL_RE)?.[1]?.trim();
+    if (inline) {
+      const phone = strictGcashMobile(inline);
+      if (phone) accounts.push({ raw: inline, lineIndex: start });
+      else if (looksLikeRecipientName(inline)) {
+        names.push({ raw: inline, lineIndex: start });
+      }
+    }
+    for (
+      let index = start + 1;
+      index < lines.length && index <= start + 6;
+      index++
+    ) {
+      const line = lines[index];
+      if (
+        NATIVE_DETAILS_LABEL_RE.test(line) ||
+        NATIVE_SOURCE_LABEL_RE.test(line) ||
+        MAYA_REFERENCE_LABEL_RE.test(line) ||
+        TRANSFER_FEE_LABEL_RE.test(line)
+      ) break;
+      const phone = strictGcashMobile(line);
+      if (phone) accounts.push({ raw: line, lineIndex: index });
+      else if (
+        looksLikeRecipientName(line) &&
+        !/^\+?\s*add\s+to\s+contacts\b/i.test(line)
+      ) names.push({ raw: line, lineIndex: index });
+    }
+  }
+  const uniqueAccounts = [
+    ...new Map(accounts.map((item) => [strictGcashMobile(item.raw), item]))
+      .values(),
+  ];
+  const uniqueNames = [
+    ...new Map(names.map((item) => [normalizeRecipientName(item.raw), item]))
+      .values(),
+  ];
+  const account = uniqueAccounts.length === 1 ? uniqueAccounts[0] : null;
+  const name = uniqueNames.length === 1 ? uniqueNames[0] : null;
+  return {
+    recipient: {
+      nameRaw: name?.raw || null,
+      nameNormalized: name ? normalizeRecipientName(name.raw) : null,
+      accountRaw: account?.raw || null,
+      phoneNormalized: account ? strictGcashMobile(account.raw) : null,
+      nameLineIndex: name?.lineIndex ?? null,
+      accountLineIndex: account?.lineIndex ?? null,
+    },
+    ambiguousAccount: uniqueAccounts.length > 1,
+    ambiguousName: uniqueNames.length > 1,
   };
 }
 
@@ -700,18 +767,36 @@ export function parseMayaToGcashReceipt(
 ): MayaReceiptParse {
   const lines = linesOf(rawText);
   const text = lines.join("\n");
+  const nativeWalletLayout =
+    lines.some((line) => /^sent\s+money$/i.test(line)) &&
+    lines.some((line) => NATIVE_DESTINATION_LABEL_RE.test(line)) &&
+    lines.some((line) => NATIVE_DETAILS_LABEL_RE.test(line));
   const reference = parseReference(lines, options.typedReference || "");
   const railReference = parseRailReference(lines);
   const amount = extractReceiptAmount(text, { provider: "maya" });
   const transferFee = parseTransferFee(lines);
   const timestamp = parseTimestamp(lines);
-  const parsedRecipient = parseRecipient(lines);
+  const bankRecipient = parseRecipient(lines);
+  const nativeRecipient = parseNativeWalletRecipient(lines);
+  const parsedRecipient = nativeWalletLayout
+    ? {
+      recipient: nativeRecipient.recipient,
+      destinationRaw: nativeRecipient.recipient.accountRaw,
+      ambiguousDestination: false,
+      ambiguousAccount: nativeRecipient.ambiguousAccount,
+      ambiguousName: nativeRecipient.ambiguousName,
+      invalidAccount: false,
+      invalidName: false,
+    }
+    : bankRecipient;
   const failureStatus =
     /\b(?:failed|failure|declined|cancelled|canceled|unsuccessful|reversed|refunded)\b/i
       .test(text);
   const pendingStatus = /\b(?:pending|processing|in\s+progress|scheduled)\b/i
     .test(text);
   const sentMoneyVia = /\bsent\s+money\s+via\b/i.test(text);
+  const nativeCompleted = nativeWalletLayout &&
+    lines.some((line) => /^(?:status\s*:?\s*)?completed!?$/i.test(line));
   const issues: string[] = [];
   if (reference.ambiguous) issues.push("AMBIGUOUS_REFERENCE");
   if (!reference.field.value) issues.push("REFERENCE_MISSING");
@@ -749,12 +834,14 @@ export function parseMayaToGcashReceipt(
     timestamp,
     recipient: parsedRecipient.recipient,
     indicators: {
+      nativeWalletLayout,
       providerBrand: /\bmaya\b/i.test(text),
       competingProviderBrand: competingProvider(text),
       sentMoneyVia,
       // This identifies Maya's completed receipt/detail screen. It validates
       // the uploaded receipt; it does not assert downstream bank settlement.
-      completionScreen: sentMoneyVia && !failureStatus && !pendingStatus,
+      completionScreen: (sentMoneyVia || nativeCompleted) && !failureStatus &&
+        !pendingStatus,
       failureStatus,
       pendingStatus,
       destinationGcash: Boolean(parsedRecipient.destinationRaw),
@@ -793,21 +880,31 @@ export function verifyMayaToGcashReceipt(
     addUnique(flags, "TRANSFER_STATUS_INVALID");
   }
   if (parsed.indicators.pendingStatus) addUnique(flags, "TRANSFER_PENDING");
-  if (!parsed.indicators.sentMoneyVia || !parsed.indicators.completionScreen) {
+  if (
+    (!parsed.indicators.sentMoneyVia &&
+      !parsed.indicators.nativeWalletLayout) ||
+    !parsed.indicators.completionScreen
+  ) {
     addUnique(flags, "TRANSFER_STATUS_UNREADABLE");
   }
-  if (!parsed.indicators.instaPay) {
+  if (!parsed.indicators.nativeWalletLayout && !parsed.indicators.instaPay) {
     addUnique(flags, "INSTAPAY_QRPH_UNREADABLE");
   }
   if (
-    !context.ignoreMayaAccountType && (!parsed.indicators.destinationGcash || !parsed.indicators.accountTypeLabel)
+    !context.ignoreMayaAccountType &&
+    (!parsed.indicators.destinationGcash || !parsed.indicators.accountTypeLabel)
   ) {
     addUnique(flags, "GXI_DESTINATION_UNREADABLE");
   }
-  if (!parsed.indicators.accountNumberLabel) {
+  if (
+    !parsed.indicators.nativeWalletLayout &&
+    !parsed.indicators.accountNumberLabel
+  ) {
     addUnique(flags, "NUMBER_UNREADABLE");
   }
-  if (!parsed.indicators.accountNameLabel) {
+  if (
+    !parsed.indicators.nativeWalletLayout && !parsed.indicators.accountNameLabel
+  ) {
     addUnique(flags, "RECEIVER_NAME_UNREADABLE");
   }
   if (
@@ -817,8 +914,9 @@ export function verifyMayaToGcashReceipt(
     addUnique(flags, "REF_UNREADABLE");
   }
   if (
-    !parsed.indicators.railReferenceLabel || !parsed.railReference.value ||
-    parsed.railReference.confidence !== "high"
+    !parsed.indicators.nativeWalletLayout &&
+    (!parsed.indicators.railReferenceLabel || !parsed.railReference.value ||
+      parsed.railReference.confidence !== "high")
   ) {
     addUnique(flags, "INSTAPAY_REF_UNREADABLE");
   }

@@ -1,4 +1,22 @@
-# Maya to GCash receipt verification
+# Maya receipt verification
+
+## Current native Maya screen
+
+Pickle Street's Maya method now receives Maya-to-Maya wallet transfers. The
+current `Sent Money` screen can prove the Maya brand, `Completed` status,
+principal amount, configured destination name and full mobile number, and the
+12-character Reference ID. The verifier parses those fields and reads the
+Reference ID from the receipt instead of requiring customers to transcribe it.
+
+That screen does **not** display a transaction date/time or an independent
+network reference. The phone status-bar clock is not transaction evidence and
+must never be substituted for a receipt timestamp. Therefore this exact Maya
+screen remains pending for staff review even when all visible fields match.
+Automatic confirmation for this layout requires authenticated Maya merchant
+payment status (API/webhook reconciliation), not a weaker screenshot rule.
+
+The older verifier described below remains relevant only to historical
+Maya-to-GCash receipts that include their own timestamp and InstaPay reference.
 
 Maya uses a dedicated parser and verifier (`maya_to_gcash_v1`) through the existing `verify-gcash-receipt` Edge Function. This checks uploaded receipt evidence; it does not query Maya or GCash to confirm that funds were credited.
 

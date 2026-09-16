@@ -6,14 +6,15 @@ function helpers(){const c={window:{}};vm.runInNewContext(text('payment-source-u
 test('all proposed scripts parse',()=>{for(const file of ['payment-source-ui.js','payment-method-brand.js'])new vm.Script(text(file));for(const m of text('index.html').matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi))new vm.Script(m[1]);});
 test('five sending apps map to GCash and BDO aliases retain the proper icon',()=>{const w=helpers();for(const code of ['gcash','bdo_pay','bpi','gotyme','maribank']){assert.equal(w.PaymentSourceUI.destination(code),'gcash');assert(w.PaymentMethodBrand.iconSrc(code).endsWith('.png'));}for(const alias of ['bdo','bdo_pay','bdopay']){assert.equal(w.PaymentSourceUI.uiCode(alias),'bdopay');assert.equal(w.PaymentMethodBrand.iconSrc(alias),'assets/payment-methods/bdo-pay.png');}assert.equal(w.PaymentSourceUI.label('bdo_pay'),'BDO Pay → GCash');assert.equal(w.PaymentSourceUI.label('maribank'),'MariBank → GCash');assert.equal(w.PaymentSourceUI.destination('pnb'),'pnb');assert.equal(w.PaymentSourceUI.destination('cash'),'cash');});
 test('source-specific references preserve complete GoTyme and MariBank identifiers',()=>{const h=helpers().PaymentSourceUI;assert.equal(h.normalizeReference('GT-TEST12345','gotyme'),'GT-TEST12345');assert.equal(h.normalizeReference('MB-20260908-ABC123','maribank'),'MB-20260908-ABC123');assert.equal(h.referenceError('GT-TEST12345','gotyme'),'');assert.equal(h.referenceError('MB-20260908-ABC123','maribank'),'');assert.equal(h.referenceError('BN-20260908-12345678','bdo_pay'),'');assert(h.referenceError('INVOICE-12345','bdo_pay'));assert.equal(h.referenceError('ABCD EFGH 1234','maya'),'');assert.equal(h.normalizeReference('MAYA-20260909-123456789','maya'),'MAYA-20260909-123456789');assert.equal(h.referenceError('MAYA-20260909-123456789','maya'),'');assert(h.referenceError('123','maya'));assert.equal(h.destination('maya'),'maya');assert.equal(h.label('maya'),'Maya');assert.equal(h.referenceError('1234567890123','bpi'),'');assert(h.referenceError('BPI-TRANSFER-123','bpi'));assert.equal(h.referenceError('1234567890123','gcash'),'');assert(h.referenceError('123456','gcash'));assert.equal(h.referenceRules('gotyme').inputMode,'text');assert.equal(h.referenceRules('maribank').maxLength,64);});
-test('Maya selection exposes a required reference and expanded transaction-details receipt example',()=>{
+test('Maya receipt-only checkout reads the expanded transaction-details receipt without manual reference transcription',()=>{
  const page=text('index.html');
  assert.match(page,/id="mayaReferenceRequirement" style="display:none"/);
  assert.match(page,/id="mayaReceiptGuide" role="note"/);
  assert.match(page,/assets\/maya-transaction-details-receipt\.png/);
  assert.match(page,/Tap <b>Transaction details<\/b>/);
- assert.match(page,/const paymentReference = payMethod === 'maya'/);
- assert.match(page,/payMethod === 'maya' && !paymentReference/);
+ assert.match(page,/const paymentReference = ''/);
+ assert.doesNotMatch(page,/payMethod === 'maya' && !paymentReference/);
+ assert.match(page,/requirement\.style\.display = mayaOnly && !window\.PB_PLATFORM_V1/);
  assert.match(page,/receiptGuide\.classList\.toggle\('show', mayaOnly\)/);
  assert.equal(fs.existsSync(path.join(__dirname,'assets','maya-transaction-details-receipt.png')),true);
 });

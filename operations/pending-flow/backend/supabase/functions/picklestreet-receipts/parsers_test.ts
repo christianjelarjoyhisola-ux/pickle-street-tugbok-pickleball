@@ -33,6 +33,7 @@ Deno.test('shared verifier still uses its existing 10-minute policy without the 
 });
 Deno.test('blank OCR text remains pending',()=>{const f=fixture();f.vision.text='';assert.equal(verifyByMethod(f).autoApprove,false);});
 Deno.test('customer pending reasons avoid rejection instructions',()=>{for(const flags of [['duplicate_receipt_file'],['automatic_method_unsupported'],['payment_receiver_unverified'],['amount_mismatch'],['receipt_time_not_detected'],['vision_timeout']]){const r=publicPendingReason(flags);assert.match(r,/^Pending/);assert.doesNotMatch(r,/cancelled|rejected|pay again/i);}});
+Deno.test('native Maya explains its real manual-review limitation',()=>{assert.match(publicPendingReason(['maya_provider_confirmation_required']),/Maya does not show a transaction date and time/);});
 Deno.test('foreign tenant request is denied before database configuration access',async()=>{const response=await handleRequest(new Request('https://example.test?tenantSlug=other',{method:'POST',headers:{Origin:'https://picklestreet.pages.dev'}}));assert.equal(response.status,403);});
 Deno.test('internal credentials are never accepted from this endpoint',async()=>{const response=await handleRequest(new Request('https://example.test?tenantSlug=pickle-street-tugbok',{method:'POST',headers:{'x-internal-secret':'invalid',Origin:'https://picklestreet.pages.dev'}}));assert.equal(response.status,403);});
 

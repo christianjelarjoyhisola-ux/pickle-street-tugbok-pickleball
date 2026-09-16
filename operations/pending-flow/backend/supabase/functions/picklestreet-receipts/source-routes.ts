@@ -328,6 +328,10 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
       };
       const evidence = verifyProviderReceipt(parsed, context);
       for (const value of evidence.flags) add(value);
+      if (
+        parsed.provider === "maya" &&
+        parsed.receipt.indicators.nativeWalletLayout
+      ) add("maya_provider_confirmation_required");
       const receipt = parsed.receipt;
       const matched = routeMatches(parsed);
       route.parserVersion = source === "maya" ? "maya_configured_receiver_v1" : parsed.parserVersion;
@@ -341,6 +345,14 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
         route.recipient = {
           observedName: parsed.receipt.receiver.name.raw?.slice(0, 160) || null,
           observedNumber: parsed.receipt.receiver.phone.raw?.slice(0, 80) || null,
+          phoneMatch: evidence.recipientComparison.phone,
+          nameMatch: evidence.recipientComparison.name,
+        };
+      } else if (parsed.provider === "maya" && evidence.provider === "maya") {
+        route.recipient = {
+          observedName: parsed.receipt.recipient.nameRaw?.slice(0, 160) || null,
+          observedNumber: parsed.receipt.recipient.accountRaw?.slice(0, 80) ||
+            null,
           phoneMatch: evidence.recipientComparison.phone,
           nameMatch: evidence.recipientComparison.name,
         };
@@ -378,6 +390,8 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
       if (!route.referenceMatched) add("payment_reference_unverified");
       if (
         source !== "gcash" && source !== "maribank" &&
+        !(parsed.provider === "maya" &&
+          parsed.receipt.indicators.nativeWalletLayout) &&
         route.secondaryReferences.length !== 1
       ) {
         add("secondary_reference_unverified");
