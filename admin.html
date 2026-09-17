@@ -289,7 +289,10 @@ h1, h2, h3, h4 { font-family: 'Bebas Neue', sans-serif; letter-spacing: 1px; }
 }
 .rm-live-kicker { color:var(--green); font-size:.66rem; font-weight:900; text-transform:uppercase; letter-spacing:1px; }
 .rm-live-amount { margin-top:5px; color:var(--text); font:900 clamp(2rem,5vw,3.2rem)/1 'Bebas Neue',sans-serif; letter-spacing:.8px; }
-.rm-live-meta { display:flex; flex-wrap:wrap; gap:7px 12px; margin-top:8px; color:var(--text2); font-size:.74rem; font-weight:700; }
+.rm-live-meta { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:10px; }
+.rm-live-moment { min-width:0; padding:9px 10px; border:1px solid var(--border); border-radius:10px; background:var(--surface); }
+.rm-live-moment-label { display:block; color:var(--text3); font-size:.58rem; font-weight:900; text-transform:uppercase; letter-spacing:.65px; }
+.rm-live-moment-value { display:block; margin-top:3px; color:var(--text); font-size:.76rem; font-weight:900; line-height:1.35; overflow-wrap:anywhere; }
 .rm-live-note { max-width:700px; margin-top:9px; color:var(--text3); font-size:.72rem; line-height:1.45; }
 .rm-calc-strip { display:grid; grid-template-columns:minmax(105px,.7fr) minmax(105px,.7fr) minmax(120px,.8fr) minmax(240px,1.8fr); gap:7px; margin-top:13px; }
 .rm-calc-metric { min-width:0; padding:10px 11px; border:1px solid var(--border); border-radius:11px; background:var(--bg2); }
@@ -426,6 +429,7 @@ h1, h2, h3, h4 { font-family: 'Bebas Neue', sans-serif; letter-spacing: 1px; }
   .rm-cycle-banner .rm-pill { align-self:flex-start; }
   .rm-live-card { padding:14px; }
   .rm-live-amount { font-size:2.15rem; }
+  .rm-live-meta { grid-template-columns:1fr; }
   .rm-record-head, .rm-hero { grid-template-columns:1fr; }
   .rm-record-grid, .rm-detail-grid, .rm-form-grid { grid-template-columns:1fr; }
   .rm-calc-strip { grid-template-columns:1fr; }
@@ -3365,9 +3369,9 @@ tr:hover td { background: var(--bg2); }
         <div>
           <div class="rm-live-kicker" id="rmLiveTitle">Live accumulated balance</div>
           <div class="rm-live-amount" id="rmLiveAmount" aria-live="polite">&#8369;0.00</div>
-          <div class="rm-live-meta">
-            <span id="rmLivePeriod">Accumulation start: &mdash;</span>
-            <span id="rmLiveAsOf">Updated: &mdash;</span>
+          <div class="rm-live-meta" aria-label="Current accumulation period">
+            <div class="rm-live-moment"><span class="rm-live-moment-label">Started</span><strong class="rm-live-moment-value" id="rmLivePeriod">&mdash;</strong></div>
+            <div class="rm-live-moment"><span class="rm-live-moment-label">Current cutoff</span><strong class="rm-live-moment-value" id="rmLiveAsOf">&mdash;</strong></div>
           </div>
           <div class="rm-calc-strip" aria-label="Live booking-fee calculation">
             <div class="rm-calc-metric"><div class="rm-calc-label">Reservations</div><div class="rm-calc-value" id="rmLiveReservations">0</div></div>
@@ -13749,8 +13753,8 @@ async function renderRemittances({ announce = false } = {}) {
     $('rmLiveFormula').textContent = rmFeeBreakdownText(live);
     $('rmLiveFeeBreakdown').innerHTML = liveBreakdown.length > 1 ? rmFeeBreakdownHtml(live) : '';
     $('rmLiveFeeBreakdown').hidden = liveBreakdown.length <= 1;
-    $('rmLivePeriod').textContent = rmPeriodStart(live) ? `Accumulating since ${rmDateTime(rmPeriodStart(live))}` : 'Starts with the first eligible booking';
-    $('rmLiveAsOf').textContent = `Updated ${rmDateTime(serverNow)}`;
+    $('rmLivePeriod').textContent = rmPeriodStart(live) ? rmDateTime(rmPeriodStart(live)) : 'First eligible booking';
+    $('rmLiveAsOf').textContent = rmDateTime(serverNow);
     $('rmActiveCount').textContent = String(active.length);
     $('rmHistoryCount').textContent = String(history.length);
 
