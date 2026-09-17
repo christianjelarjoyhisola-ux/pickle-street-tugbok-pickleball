@@ -955,7 +955,7 @@ function _pbPlatformBookingToLegacy(row, courtMap, timeZone) {
     confirmed: 'confirmed',
     cancelled: 'cancelled',
     completed: 'completed',
-    expired: 'forfeited',
+    expired: 'expired',
   }[rawStatus] || rawStatus;
   const rawPaymentStatus = row.payment_status || row.paymentStatus;
   const paymentStatus = {

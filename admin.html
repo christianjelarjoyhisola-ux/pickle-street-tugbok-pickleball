@@ -2929,6 +2929,7 @@ tr:hover td { background: var(--bg2); }
                   <option value="completed">Completed</option>
                   <option value="verifying">Processing</option>
                   <option value="cancelled">Cancelled</option>
+                  <option value="expired">Expired</option>
                   <option value="forfeited">Forfeited</option>
                 </select>
               </label>
@@ -4329,7 +4330,7 @@ function isPlaceholderHold(b) {
   return b?.email === 'reserve@hold.internal';
 }
 function isCancelledBooking(b) {
-  return ['cancelled','forfeited'].includes(String(b?.status || '').toLowerCase()) ||
+  return ['cancelled','forfeited','expired'].includes(String(b?.status || '').toLowerCase()) ||
     String(b?.paymentStatus || b?.payment_status || '').toLowerCase() === 'deposit_retained';
 }
 function isScheduleActiveBooking(b) {
@@ -4665,7 +4666,7 @@ function renderBillingCourtBreakdown(statement, bookings = [], courts = [], feeC
     </div>
   </div>`;
 }
-function statusBdg(s){const m={pending:'bdg-p',confirmed:'bdg-c',completed:'bdg-d',verifying:'bdg-v',cancelled:'bdg-x',forfeited:'bdg-f',deleted:'bdg-x',restored:'bdg-c'};const label=s==='forfeited'?'Forfeited':s;return`<span class="bdg ${m[s]||''}">${esc(label)}</span>`;}
+function statusBdg(s){const m={pending:'bdg-p',confirmed:'bdg-c',completed:'bdg-d',verifying:'bdg-v',cancelled:'bdg-x',expired:'bdg-x',forfeited:'bdg-f',deleted:'bdg-x',restored:'bdg-c'};const label=s==='forfeited'?'Forfeited':s==='expired'?'Expired':s;return`<span class="bdg ${m[s]||''}">${esc(label)}</span>`;}
 function payStatusBdg(s){
   const v = (s || 'unpaid').toLowerCase();
   const label = v === 'paid' ? 'Fully Paid' : v === 'downpayment_paid' ? 'Balance Due' : v === 'deposit_retained' ? 'Deposit Retained' : v === 'for_verification' ? 'For Verification' : v === 'pending' ? 'Pending' : v === 'rejected' ? 'Rejected' : v === 'failed' ? 'Failed' : 'Unpaid';
@@ -5832,7 +5833,7 @@ async function openRescheduleFromBookingDetails(ref) {
   if (!opened) requestAnimationFrame(() => focusIfVisible(returnFocus));
 }
 function bookingSlotLabel(b) {
-  if (b.status === 'forfeited' || b.status === 'cancelled') return 'Released';
+  if (['forfeited','cancelled','expired'].includes(b.status)) return 'Released';
   if (b.status === 'completed') return 'Completed';
   return 'Reserved';
 }
@@ -7711,6 +7712,7 @@ function shiftedScheduleDate(dateKey,offset){
 function scheduleBookingStatusGroup(booking){
   const status=String(booking?.status||'').toLowerCase();
   if(status==='forfeited')return'forfeited';
+  if(status==='expired')return'expired';
   if(status==='cancelled')return'cancelled';
   if(status==='completed')return'completed';
   if(status==='confirmed')return'confirmed';
@@ -7781,7 +7783,7 @@ async function openScheduleInBookings(){
   if(selectedStatus){
     _bookingStage=['confirmed','completed'].includes(selectedStatus)
       ?'confirmed'
-      :['cancelled','forfeited'].includes(selectedStatus)?'cancelled':'verifying';
+      :['cancelled','forfeited','expired'].includes(selectedStatus)?'cancelled':'verifying';
   }
   await goto('bookings');
   if($('fDate'))$('fDate').value=selectedDate;
@@ -7897,9 +7899,9 @@ function renderScheduleExplorer(bookings){
     const past=String(booking?.date||'')<now.dateKey||(booking?.date===now.dateKey&&range.end<=now.minutes);
     const review=todayBookingReviewPending(booking);
     const statusGroup=scheduleBookingStatusGroup(booking);
-    const cancelled=['cancelled','forfeited'].includes(statusGroup);
+    const cancelled=['cancelled','forfeited','expired'].includes(statusGroup);
     const stateClass=cancelled?'cancelled':live?'live':isNext?'next':review?'review':statusGroup==='confirmed'?'confirmed':'';
-    const stateLabel=statusGroup==='forfeited'?'Forfeited':statusGroup==='cancelled'?'Cancelled':live?'Playing':isNext?'Next':review?'Review':statusGroup==='completed'||past?'Finished':statusGroup==='confirmed'?'Confirmed':'Later';
+    const stateLabel=statusGroup==='forfeited'?'Forfeited':statusGroup==='expired'?'Expired':statusGroup==='cancelled'?'Cancelled':live?'Playing':isNext?'Next':review?'Review':statusGroup==='completed'||past?'Finished':statusGroup==='confirmed'?'Confirmed':'Later';
     const dateCopy=_scheduleExplorerMode==='day'?'':`<span class="today-booking-date">${esc(scheduleDateLabel(booking?.date,{short:true}))}</span>`;
     return`<button type="button" class="today-booking-row${past?' past':''}" onclick="openBookingDetails('${jsArg(booking.ref)}')" aria-label="Open ${esc(booking.fullName||'customer')} booking details">
       <span class="today-booking-time">${dateCopy}${esc(todayBookingTimeLabel(booking))}</span>
@@ -8230,7 +8232,7 @@ function bookingWorkflowStage(booking) {
       : [booking];
   const statuses = items.map(item => String(item?.status || '').toLowerCase());
   if (statuses.length && statuses.every(status => ['confirmed','completed'].includes(status))) return 'confirmed';
-  if (statuses.length && statuses.every(status => ['cancelled','forfeited'].includes(status))) return 'cancelled';
+  if (statuses.length && statuses.every(status => ['cancelled','forfeited','expired'].includes(status))) return 'cancelled';
   return 'verifying';
 }
 function syncBookingStageUi() {
@@ -15220,7 +15222,7 @@ async function checkAgreementGate(session) {
 
 <script src="supabase.min.js"></script>
 <script src="tenant-config.js?v=20260909-owner-actions"></script>
-<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260915-runaway-settings-guard"></script><script src="payment-source-ui.js?v=20260917-maya-reference-policy"></script>
+<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260917-expired-hold-cleanup"></script><script src="payment-source-ui.js?v=20260917-maya-reference-policy"></script>
 <script src="receipt-pending.js?v=20260908-routes2"></script>
 <script src="payment-method-brand.js?v=20260908-routes2"></script>
 <script src="payment-settings.js?v=20260917-maya-reference-policy"></script>
