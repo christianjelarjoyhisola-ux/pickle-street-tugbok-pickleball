@@ -6,7 +6,7 @@ function helpers(){const c={window:{}};vm.runInNewContext(text('payment-source-u
 test('all proposed scripts parse',()=>{for(const file of ['payment-source-ui.js','payment-method-brand.js'])new vm.Script(text(file));for(const m of text('index.html').matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi))new vm.Script(m[1]);});
 test('six sending apps map to GCash and BDO aliases retain the proper icon',()=>{const w=helpers();for(const code of ['gcash','bdo_pay','maya','bpi','gotyme','maribank']){assert.equal(w.PaymentSourceUI.destination(code),'gcash');assert(w.PaymentMethodBrand.iconSrc(code).endsWith('.png'));}for(const alias of ['bdo','bdo_pay','bdopay']){assert.equal(w.PaymentSourceUI.uiCode(alias),'bdopay');assert.equal(w.PaymentMethodBrand.iconSrc(alias),'assets/payment-methods/bdo-pay.png');}assert.equal(w.PaymentSourceUI.label('bdo_pay'),'BDO Pay → GCash');assert.equal(w.PaymentSourceUI.label('maya'),'Maya → GCash');assert.equal(w.PaymentSourceUI.label('maribank'),'MariBank → GCash');assert.equal(w.PaymentSourceUI.destination('pnb'),'pnb');assert.equal(w.PaymentSourceUI.destination('cash'),'cash');});
 test('source-specific references preserve complete GoTyme and MariBank identifiers',()=>{const h=helpers().PaymentSourceUI;assert.equal(h.normalizeReference('GT-TEST12345','gotyme'),'GT-TEST12345');assert.equal(h.normalizeReference('MB-20260908-ABC123','maribank'),'MB-20260908-ABC123');assert.equal(h.referenceError('GT-TEST12345','gotyme'),'');assert.equal(h.referenceError('MB-20260908-ABC123','maribank'),'');assert.equal(h.referenceError('BN-20260908-12345678','bdo_pay'),'');assert(h.referenceError('INVOICE-12345','bdo_pay'));assert.equal(h.referenceError('ABCD EFGH 1234','maya'),'');assert.equal(h.normalizeReference('MAYA-20260909-123456789','maya'),'MAYA-20260909-123456789');assert.equal(h.referenceError('MAYA-20260909-123456789','maya'),'');assert(h.referenceError('123','maya'));assert.equal(h.destination('maya'),'gcash');assert.equal(h.label('maya'),'Maya → GCash');assert.equal(h.referenceError('1234567890123','bpi'),'');assert(h.referenceError('BPI-TRANSFER-123','bpi'));assert.equal(h.referenceError('1234567890123','gcash'),'');assert(h.referenceError('123456','gcash'));assert.equal(h.referenceRules('gotyme').inputMode,'text');assert.equal(h.referenceRules('maribank').maxLength,64);});
-test('Maya receipt-only checkout requires a typed reference as an OCR cross-check',()=>{
+test('Maya and BDO Pay checkout require typed references as OCR cross-checks',()=>{
  const page=text('index.html');
  assert.match(page,/id="mayaReferenceRequirement" style="display:none"/);
  assert.match(page,/id="mayaReceiptGuide" role="note"/);
@@ -14,12 +14,14 @@ test('Maya receipt-only checkout requires a typed reference as an OCR cross-chec
  assert.match(page,/Open <b>Transaction details<\/b>/);
  assert.match(page,/<b>Completed<\/b> or <b>Processing<\/b> can auto-verify/);
  assert.match(page,/Each Reference ID can be used only once/);
- assert.match(page,/const paymentReference = payMethod === 'maya'/);
+ assert.match(page,/const paymentReference = \['maya','bdopay'\]\.includes\(payMethod\)/);
  assert.match(page,/normalizePaymentRef\(\$\('bGcashRef'\)\?\.value \|\| '', payMethod\)/);
  assert.match(page,/payMethod === 'maya' && !paymentReference/);
- assert.match(page,/requirement\.style\.display = mayaOnly \? '' : 'none'/);
+ assert.match(page,/requirement\.style\.display = manualReferenceRequired \? '' : 'none'/);
  assert.match(page,/We compare it with the uploaded receipt/);
  assert.match(page,/receiptGuide\.classList\.toggle\('show', mayaOnly\)/);
+ assert.match(page,/BDO Pay Reference no\./);
+ assert.match(page,/methodCode === 'bdopay' && !isBdoPayRefValid\(paymentReference\)/);
  assert.equal(fs.existsSync(path.join(__dirname,'assets','maya-transaction-details-receipt.png')),true);
 });
 test('overnight bookings require two-hour notice and an explicit access acknowledgement',()=>{

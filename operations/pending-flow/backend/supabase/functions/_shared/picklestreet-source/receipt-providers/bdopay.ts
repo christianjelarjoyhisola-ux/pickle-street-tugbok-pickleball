@@ -302,8 +302,12 @@ function parseTimestamp(lines: string[]): BankReceiptTimestamp {
 }
 
 function validDestinationAccount(value: string): boolean {
-  return /^[A-Z0-9]{10,40}$/.test(value) && /[A-Z]/.test(value) &&
-    /\d/.test(value);
+  const digits = String(value || "").replace(/\D/g, "");
+  return /^(?:09\d{9}|639\d{9})$/.test(digits);
+}
+
+function normalizeDestinationAccount(value: string): string {
+  return String(value || "").replace(/\D/g, "").replace(/^(?:63|0)(?=9)/, "");
 }
 
 function parseRecipient(lines: string[]): BdoPayRecipientField {
@@ -339,8 +343,7 @@ function parseRecipient(lines: string[]): BdoPayRecipientField {
     : null;
   const accountRaw = destinationOffset >= 0
     ? block.slice(destinationOffset + 1).find((line) => {
-      const normalized = normalizeBdoPayRecipient(line);
-      return validDestinationAccount(normalized);
+      return validDestinationAccount(line);
     }) || null
     : null;
   return {
@@ -348,7 +351,7 @@ function parseRecipient(lines: string[]): BdoPayRecipientField {
     nameNormalized: nameRaw ? normalizeBdoPayRecipient(nameRaw) : null,
     destinationRaw,
     accountRaw,
-    accountNormalized: accountRaw ? normalizeBdoPayRecipient(accountRaw) : null,
+    accountNormalized: accountRaw ? normalizeDestinationAccount(accountRaw) : null,
     lineIndex: nameRaw ? toIndex : null,
   };
 }
@@ -379,7 +382,7 @@ function compareRecipient(
   expectedAccountRaw: string,
 ): BdoPayRecipientComparison {
   const expectedName = normalizeBdoPayRecipient(expectedNameRaw);
-  const expectedAccount = normalizeBdoPayRecipient(expectedAccountRaw);
+  const expectedAccount = normalizeDestinationAccount(expectedAccountRaw);
   return {
     name: !expectedName
       ? "not_configured"
@@ -489,7 +492,12 @@ export function verifyBdoPayToGcashReceipt(
   if (!parsed.indicators.destinationGcash) {
     addUnique(flags, "GXI_DESTINATION_UNREADABLE");
   }
-  if (!parsed.indicators.instaPay) addUnique(flags, "INSTAPAY_QRPH_UNREADABLE");
+  // BDO's stylized InstaPay logo is frequently omitted by OCR. The explicit
+  // G-Xchange/GCash destination is authoritative route evidence on the native
+  // BDO Pay receipt, so a missed logo alone must not block verification.
+  if (!parsed.indicators.instaPay && !parsed.indicators.destinationGcash) {
+    addUnique(flags, "INSTAPAY_QRPH_UNREADABLE");
+  }
   if (!parsed.indicators.referenceLabel) {
     addUnique(flags, "REF_LABEL_UNREADABLE");
   }

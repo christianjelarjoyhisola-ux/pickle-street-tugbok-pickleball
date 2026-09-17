@@ -9815,7 +9815,7 @@ function pickPay(m) {
     $('cashPaymentInstructions').textContent = receiver.instructions ? ` — ${receiver.instructions}` : '';
   }
   if ($('refMethodLabel')) $('refMethodLabel').textContent = digitalPay ? `— ${paymentMethodName(m)}` : '';
-  if (m === 'maya') $('bGcashRef')?.setAttribute('required','');
+  if (['maya','bdopay'].includes(m)) $('bGcashRef')?.setAttribute('required','');
   else $('bGcashRef')?.removeAttribute('required');
   syncBookingRefUi(m);
   updatePaymentAmountUI();
@@ -9905,13 +9905,17 @@ function paymentRefHelpText(method) { return window.PaymentSourceUI.referenceRul
 
 function syncBookingRefUi(method = $('bPay')?.value || 'gcash') {
   const mayaOnly = method === 'maya';
+  const bdoOnly = method === 'bdopay';
+  const manualReferenceRequired = mayaOnly || bdoOnly;
   const requirement = $('mayaReferenceRequirement');
-  if (requirement) requirement.style.display = mayaOnly ? '' : 'none';
+  if (requirement) requirement.style.display = manualReferenceRequired ? '' : 'none';
   const receiptGuide = $('mayaReceiptGuide');
   if (receiptGuide) receiptGuide.classList.toggle('show', mayaOnly);
   const referenceCopy = $('receiptReferenceCopy');
   if (referenceCopy) referenceCopy.textContent = mayaOnly
     ? 'Enter the Reference ID exactly as Maya shows it. We compare it with the uploaded receipt.'
+    : bdoOnly
+    ? 'Enter the BDO Pay Reference no. exactly as shown. Do not enter the invoice number; both values are checked for duplicate use.'
     : 'Upload your complete receipt. We read the payment reference automatically.';
   const input = $('bGcashRef');
   if (input) {
@@ -9924,7 +9928,7 @@ function syncBookingRefUi(method = $('bPay')?.value || 'gcash') {
   }
   const refLabel = document.querySelector('.bpay-ref-label');
   if (refLabel) {
-    refLabel.innerHTML = `${method === 'bpi' ? 'BPI Confirmation No.' : 'Reference #'}${mayaOnly ? ' <span aria-hidden="true" style="color:#e53935">*</span>' : ''} <span id="refMethodLabel" style="color:var(--muted);text-transform:none;font-size:.68rem;font-weight:500;letter-spacing:0">${method ? '&mdash; ' + esc(paymentMethodName(method)) : ''}</span>`;
+    refLabel.innerHTML = `${method === 'bpi' ? 'BPI Confirmation No.' : bdoOnly ? 'BDO Pay Reference no.' : 'Reference #'}${manualReferenceRequired ? ' <span aria-hidden="true" style="color:#e53935">*</span>' : ''} <span id="refMethodLabel" style="color:var(--muted);text-transform:none;font-size:.68rem;font-weight:500;letter-spacing:0">${method ? '&mdash; ' + esc(paymentMethodName(method)) : ''}</span>`;
   }
   if ($('bRefHelp')) $('bRefHelp').textContent = paymentRefHelpText(method);
   updateRefCount();
@@ -10300,7 +10304,7 @@ async function submitPlatformBooking() {
     return;
   }
   const payMethod = $('bPay')?.value || '';
-  const paymentReference = payMethod === 'maya'
+  const paymentReference = ['maya','bdopay'].includes(payMethod)
     ? normalizePaymentRef($('bGcashRef')?.value || '', payMethod)
     : '';
   const checks = [
@@ -10309,6 +10313,8 @@ async function submitPlatformBooking() {
     [!overnightPolicyAccepted(), 'Please review and agree to the overnight access and quiet-hours rules.', 'overnightPolicyCheck', 4],
     [payMethod === 'maya' && !paymentReference, 'Enter the Reference ID shown in Maya.', 'bGcashRef', 5],
     [payMethod === 'maya' && paymentReference && !isMayaRefValid(paymentReference), 'Enter the complete Reference ID shown in Maya.', 'bGcashRef', 5],
+    [payMethod === 'bdopay' && !paymentReference, 'Enter the BDO Pay Reference no. shown on the receipt.', 'bGcashRef', 5],
+    [payMethod === 'bdopay' && paymentReference && !isBdoPayRefValid(paymentReference), 'BDO Pay reference must look like BN-YYYYMMDD-########. Do not enter the invoice number.', 'bGcashRef', 5],
     [!_receiptFile, 'Please upload your receipt screenshot before confirming.', 'bReceiptDrop', 5],
   ];
   for (const [failed, message, target, step] of checks) {
@@ -11713,7 +11719,13 @@ function updateBalancePaymentMethod() {
   const method = methods.find(item => String(item.code) === String(code)) || methods[0] || null;
   if ($('balancePayMethodDetail')) $('balancePayMethodDetail').innerHTML = balanceMethodDetailHtml(method);
   const input = $('balancePayReference'), rules = window.PaymentSourceUI.referenceRules(method?.code);
-  if (input) { input.maxLength=rules.maxLength;input.inputMode=rules.inputMode;input.placeholder=rules.placeholder; }
+  const referenceRequired = ['maya','bdopay'].includes(window.PaymentSourceUI.uiCode(method?.code));
+  if (input) {
+    input.maxLength=rules.maxLength;input.inputMode=rules.inputMode;input.placeholder=rules.placeholder;
+    input.required=referenceRequired;
+    input.closest('.fg')?.toggleAttribute('hidden', !referenceRequired);
+    if (!referenceRequired) input.value='';
+  }
   const referenceLabel = document.querySelector('label[for="balancePayReference"]');
   if (referenceLabel) referenceLabel.textContent = rules.label;
   if ($('balanceReferenceHelp')) $('balanceReferenceHelp').textContent = rules.help;
@@ -11753,7 +11765,7 @@ function renderBalancePayment(balance) {
       <div class="balance-pay-section">
         <h3 class="balance-pay-step"><span class="balance-step-number">2</span><span>${correction ? 'Upload corrected proof of your existing payment' : 'Submit the new receipt'}</span></h3>
         ${automaticBalanceReceiptFlow() ? '<p>Do not pay again because verification is pending. Upload a clear receipt of the payment you already made.</p>' : ''}
-        <div class="fg" hidden aria-hidden="true" style="display:none">
+        <div class="fg" hidden>
           <label class="fl" for="balancePayReference">Payment reference number</label>
           <input class="fi" id="balancePayReference" type="text" maxlength="64" autocomplete="off" aria-describedby="balanceReferenceHelp" placeholder="Enter the reference shown on the new receipt">
           <p id="balanceReferenceHelp" style="font-size:.76rem;color:var(--muted);margin-top:5px"></p>
@@ -11824,8 +11836,15 @@ async function submitBalanceReceipt() {
   if (!automaticBalanceReceiptFlow()) return submitBalanceReceiptLegacy();
   if (_balanceReceiptSaving || !_balancePaymentAccess || !balanceCanSubmitReceipt(_balancePaymentState)) return;
   const method = $('balancePayMethod')?.value || '';
-  const paymentReference = '';
-  const referenceError = '';
+  const methodCode = window.PaymentSourceUI.uiCode(method);
+  const paymentReference = ['maya','bdopay'].includes(methodCode)
+    ? normalizePaymentRef($('balancePayReference')?.value || '', methodCode)
+    : '';
+  const referenceError = methodCode === 'maya' && !isMayaRefValid(paymentReference)
+    ? 'Enter the complete Reference ID shown in Maya.'
+    : methodCode === 'bdopay' && !isBdoPayRefValid(paymentReference)
+    ? 'Enter the BDO Pay Reference no., not the invoice number.'
+    : '';
   const file = _balanceReceiptFile;
   if (referenceError || !file || !method) {
     toast(referenceError || 'Choose a method and attach the receipt image.', 'err');

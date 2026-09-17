@@ -257,7 +257,7 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
   ) add("receiving_account_unconfigured");
   const alias = String(input.route?.gcashQrAlias || "").trim();
   const token = String(input.route?.gcashQrToken || "").trim();
-  if (source === "bdopay" || source === "bpi") {
+  if (source === "bpi") {
     if (
       alias.length < 2 ||
       !/^[A-Z0-9]{10,40}$/i.test(normalizedReference(token)) ||
@@ -319,10 +319,11 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
       const typed = String(input.payment?.submittedReference || "");
       const observedReference = parsed.receipt.reference.confidence === "high"
         ? parsed.receipt.reference.value : null;
-      // Maya requires the customer-entered Reference ID as a second factor.
-      // Other providers retain receipt-only checkout when OCR is conclusive.
+      // Maya and BDO Pay require a customer-entered reference as an
+      // independent second factor. Other providers retain receipt-only
+      // checkout when OCR is conclusive.
       const comparedReference = typed ||
-        (source !== "maya" && observedReference
+        (source !== "maya" && source !== "bdopay" && observedReference
           ? String(observedReference)
           : "");
       if (!typed && comparedReference) parsed = parseProviderReceipt(source,text,{typedReference:comparedReference});
@@ -333,10 +334,12 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
         pricingAvailable: Number.isFinite(expected) && expected > 0,
         amountTolerance: 0.001,
         expectedRecipientNumber: String(input.payment?.receiverReference || ""),
-        expectedRecipientName: source === "bdopay" || source === "bpi"
+        expectedRecipientName: source === "bpi"
           ? alias
           : String(input.payment?.receiverName || ""),
-        expectedRecipientAccount: token,
+        expectedRecipientAccount: source === "bpi"
+          ? token
+          : String(input.payment?.receiverReference || ""),
         bookingStartedAt: input.timing?.bookingStartedAt,
         paymentWindowMinutes: SOURCE_ROUTE_WINDOW_MINUTES,
         earlyToleranceMinutes: 2,
@@ -369,6 +372,16 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
           observedNumber: parsed.receipt.recipient.accountRaw?.slice(0, 80) ||
             null,
           phoneMatch: evidence.recipientComparison.phone,
+          nameMatch: evidence.recipientComparison.name,
+        };
+      } else if (
+        parsed.provider === "bdopay" && evidence.provider === "bdopay"
+      ) {
+        route.recipient = {
+          observedName: parsed.receipt.recipient.nameRaw?.slice(0, 160) || null,
+          observedNumber: parsed.receipt.recipient.accountRaw?.slice(0, 80) ||
+            null,
+          phoneMatch: evidence.recipientComparison.account,
           nameMatch: evidence.recipientComparison.name,
         };
       } else if (

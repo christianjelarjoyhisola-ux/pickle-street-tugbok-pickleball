@@ -35,7 +35,7 @@ Send Money via InstaPay
 To
 ${NAME}
 G-XCHANGE, INC. / GCASH
-${QR}
+${MOBILE}
 From
 SYNTHETIC SENDER
 •••• •••• 9999
@@ -259,15 +259,73 @@ Deno.test("bdo, bdo_pay and bdopay resolve only the BDO Pay source route", () =>
   assert.equal(canonicalSourceProvider("pnb"), null);
   assert.equal(canonicalSourceProvider("unknown"), null);
 });
-Deno.test("BDO/BPI require private venue QR receipt alias and token with no account-number fallback", () => {
-  for (const provider of ["bdopay", "bpi"] as const) {
-    for (const key of ["gcashQrAlias", "gcashQrToken"] as const) {
-      const f = fixture(provider);
-      delete f.route[key];
-      const r = verifySourceRoute(f);
-      assert.equal(r.autoApprove, false);
-      assert.ok(r.flags.includes("qr_receipt_identity_unconfigured"));
-    }
+Deno.test("BPI keeps private QR identity while BDO uses the configured GCash recipient", () => {
+  for (const key of ["gcashQrAlias", "gcashQrToken"] as const) {
+    const bpi = fixture("bpi");
+    delete bpi.route[key];
+    const bpiResult = verifySourceRoute(bpi);
+    assert.equal(bpiResult.autoApprove, false);
+    assert.ok(bpiResult.flags.includes("qr_receipt_identity_unconfigured"));
+
+    const bdo = fixture("bdopay");
+    delete bdo.route[key];
+    const bdoResult = verifySourceRoute(bdo);
+    assert.equal(bdoResult.autoApprove, true, JSON.stringify(bdoResult.flags));
+  }
+});
+
+Deno.test("native BDO Pay to GCash receipt verifies without OCR reading the InstaPay logo", () => {
+  const f = fixture("bdopay");
+  f.expectedAmount = 1740;
+  f.payment.receiverName = "Renielo Vhal Apari";
+  f.payment.receiverReference = "09272172285";
+  f.payment.submittedReference = "BN-20260917-88293428";
+  f.timing.bookingStartedAt = "2026-09-17T05:35:00Z";
+  f.route.gcashQrAlias = "";
+  f.route.gcashQrToken = "";
+  f.vision.text = `Sent!
+PHP 1,740.00
+Service Fee
+PHP 0.00
+Total Amount
+PHP 1,740.00
+Send Money via
+To
+Renielo Vhal Apari
+G-Xchange, Inc. / GCash
+09272172285
+From
+Abe Basic
+••••••••7720
+Created on
+Sep 17, 2026 01:37 PM
+Reference no.
+BN-20260917-88293428
+Invoice no.
+595974`;
+  const r = verifySourceRoute(f);
+  assert.equal(r.autoApprove, true, JSON.stringify(r.flags));
+  assert.deepEqual(r.flags, ["auto_approval_eligible"]);
+  assert.equal(r.paymentReference, "BN2026091788293428");
+  assert.deepEqual(r.extractedData.detected.route.secondaryReferences, [{
+    kind: "bdopay_invoice",
+    value: "595974",
+  }]);
+  assert.deepEqual(r.extractedData.detected.route.recipient, {
+    observedName: "Renielo Vhal Apari",
+    observedNumber: "09272172285",
+    phoneMatch: "exact",
+    nameMatch: "exact",
+  });
+});
+
+Deno.test("BDO Pay requires the customer-entered reference to match OCR", () => {
+  for (const typed of ["", "BN-20260917-88293429"]) {
+    const f = fixture("bdopay");
+    f.payment.submittedReference = typed;
+    const r = verifySourceRoute(f);
+    assert.equal(r.autoApprove, false);
+    assert.ok(r.flags.includes("payment_reference_unverified"));
   }
 });
 Deno.test("principal excludes fee and detects contradictory receipt amounts", () => {
@@ -494,9 +552,9 @@ for (const provider of Object.keys(receipts) as Provider[]) {
  Deno.test(provider+' receipt-only checkout reads a high-confidence reference',()=>{
   const f=fixture(provider);f.payment.submittedReference='';
   const result=verifySourceRoute(f);
-  assert.equal(result.autoApprove,provider !== 'maya',JSON.stringify(result.flags));
+  assert.equal(result.autoApprove,!['maya','bdopay'].includes(provider),JSON.stringify(result.flags));
   assert.equal(result.paymentReference,receipts[provider].reference);
-  if(provider === 'maya')assert.ok(result.flags.includes('payment_reference_unverified'));
+  if(['maya','bdopay'].includes(provider))assert.ok(result.flags.includes('payment_reference_unverified'));
  });
  Deno.test(provider+' unreadable receipt-only reference remains pending',()=>{
   const f=fixture(provider);f.payment.submittedReference='';f.vision.text='Unreadable image';
