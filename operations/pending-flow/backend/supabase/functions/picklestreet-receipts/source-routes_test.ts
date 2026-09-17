@@ -140,8 +140,8 @@ function fixture(provider: Provider): SourceRouteInput {
       tenantId: SOURCE_ROUTE_TENANT_ID,
       tenantSlug: SOURCE_ROUTE_TENANT_SLUG,
       sourceProvider: provider,
-      destinationProvider: provider === "maya" ? "maya" : "gcash",
-      destinationMethodCode: provider === "maya" ? "maya" : "gcash",
+      destinationProvider: "gcash",
+      destinationMethodCode: "gcash",
       enabled: true,
       autoApprovalEnabled: true,
       gcashQrAlias: NAME,
@@ -158,7 +158,7 @@ for (const provider of Object.keys(receipts) as Provider[]) {
     assert.equal(r.extractedData.confidence.effective, 0.99);
     assert.equal(
       r.extractedData.detected.route.routeId,
-      provider === "maya" ? "maya_configured_receiver" : `${provider}_to_gcash`,
+      `${provider}_to_gcash`,
     );
     assert.equal(r.extractedData.comparison.amountMatched, true);
     assert.equal(r.extractedData.timing.allowedWindowMinutes, 15);
@@ -224,7 +224,7 @@ for (const provider of Object.keys(receipts) as Provider[]) {
       }, (f: SourceRouteInput) => {
         f.route.autoApprovalEnabled = false;
       }, (f: SourceRouteInput) => {
-        f.route.destinationMethodCode = provider === "maya" ? "gcash" : "maya";
+        f.route.destinationMethodCode = "maya";
       }, (f: SourceRouteInput) => {
         f.payment.submittedReference = "9999999999999";
       }]
@@ -494,8 +494,9 @@ for (const provider of Object.keys(receipts) as Provider[]) {
  Deno.test(provider+' receipt-only checkout reads a high-confidence reference',()=>{
   const f=fixture(provider);f.payment.submittedReference='';
   const result=verifySourceRoute(f);
-  assert.equal(result.autoApprove,true,JSON.stringify(result.flags));
+  assert.equal(result.autoApprove,provider !== 'maya',JSON.stringify(result.flags));
   assert.equal(result.paymentReference,receipts[provider].reference);
+  if(provider === 'maya')assert.ok(result.flags.includes('payment_reference_unverified'));
  });
  Deno.test(provider+' unreadable receipt-only reference remains pending',()=>{
   const f=fixture(provider);f.payment.submittedReference='';f.vision.text='Unreadable image';
@@ -503,14 +504,14 @@ for (const provider of Object.keys(receipts) as Provider[]) {
  });
 }
 
-Deno.test("Maya account type is optional while account and both references remain required",()=>{
- for(const type of ["G-Xchange Inc. / GCash","Maya Philippines",""]){
-  const f=fixture("maya");f.payment.submittedReference="";
+Deno.test("Maya requires the GCash destination, account and both receipt references",()=>{
+ for(const [type,expected] of [["G-Xchange Inc. / GCash",true],["Maya Philippines",false],["",false]] as const){
+  const f=fixture("maya");
   f.vision.text=f.vision.text.replace("Account type\nG-Xchange Inc. / GCash",type?"Account type\n"+type:"");
-  const r=verifySourceRoute(f);assert.equal(r.autoApprove,true,JSON.stringify(r.flags));
+  const r=verifySourceRoute(f);assert.equal(r.autoApprove,expected,JSON.stringify(r.flags));
  }
  for(const remove of ["Account number\n"+MOBILE,"Reference ID\nA1B2 C3D4 E5F6","InstaPay Ref. No\n7654321"]){
-  const f=fixture("maya");f.payment.submittedReference="";f.vision.text=f.vision.text.replace(remove,"");
+  const f=fixture("maya");f.vision.text=f.vision.text.replace(remove,"");
   assert.equal(verifySourceRoute(f).autoApprove,false);
  }
 });

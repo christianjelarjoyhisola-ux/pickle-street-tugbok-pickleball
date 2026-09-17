@@ -221,8 +221,8 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
   ) add("tenant_context_invalid");
   if (!source || source !== paymentSource) add("source_route_unsupported");
   if (
-    input.route?.destinationProvider !== (source === "maya" ? "maya" : "gcash") ||
-    input.route?.destinationMethodCode !== (source === "maya" ? "maya" : "gcash")
+    input.route?.destinationProvider !== "gcash" ||
+    input.route?.destinationMethodCode !== "gcash"
   ) add("destination_route_unsupported");
   if (input.route?.enabled !== true) add("source_route_disabled");
   if (input.route?.autoApprovalEnabled !== true) {
@@ -278,10 +278,10 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
   }
   const route: RouteEvidence = {
     schemaVersion: 1,
-    routeId: source === "maya" ? "maya_configured_receiver" : source ? `${source}_to_gcash` : "unsupported_to_gcash",
+    routeId: source ? `${source}_to_gcash` : "unsupported_to_gcash",
     sourceProvider: source || "unsupported",
-    destinationProvider: source === "maya" ? "maya" : "gcash",
-    destinationMethodCode: source === "maya" ? "maya" : "gcash",
+    destinationProvider: "gcash",
+    destinationMethodCode: "gcash",
     parserVersion: "unsupported",
     verifierVersion: "picklestreet_sources_20260909_1",
     sourceMatched: false,
@@ -309,7 +309,12 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
       const typed = String(input.payment?.submittedReference || "");
       const observedReference = parsed.receipt.reference.confidence === "high"
         ? parsed.receipt.reference.value : null;
-      const comparedReference = typed || (observedReference ? String(observedReference) : "");
+      // Maya requires the customer-entered Reference ID as a second factor.
+      // Other providers retain receipt-only checkout when OCR is conclusive.
+      const comparedReference = typed ||
+        (source !== "maya" && observedReference
+          ? String(observedReference)
+          : "");
       if (!typed && comparedReference) parsed = parseProviderReceipt(source,text,{typedReference:comparedReference});
       const context = {
         ignoreMayaAccountType: source === "maya",
@@ -334,9 +339,9 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
       ) add("maya_provider_confirmation_required");
       const receipt = parsed.receipt;
       const matched = routeMatches(parsed);
-      route.parserVersion = source === "maya" ? "maya_configured_receiver_v1" : parsed.parserVersion;
+      route.parserVersion = parsed.parserVersion;
       route.sourceMatched = matched.source;
-      route.destinationMatched = source === "maya" ? evidence.provider === "maya" && evidence.recipientComparison.phone === "exact" : matched.destination;
+      route.destinationMatched = matched.destination;
       route.successMatched = matched.successful;
       route.recipientMatched = recipientPassed(parsed, evidence);
       if (parsed.provider === "gcash" && evidence.provider === "gcash") {

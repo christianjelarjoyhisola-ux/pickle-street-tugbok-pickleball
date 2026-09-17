@@ -32,8 +32,11 @@ Deno.test('PNB retains its independent receiver and receives no GCash private id
   assert.equal(h.queries.some(q=>q.table==='picklestreet_receipt_route_settings'),false);
 });
 
-Deno.test('native Maya keeps its independent receiver without GCash identity',async()=>{
- const h=database({wrongDestination:true});const c=await paymentReceiptContext(h.db as any,'maya');
- assert.equal(c.route.destinationMethodCode,'maya');assert.equal(c.route.autoApprovalEnabled,true);assert.equal(c.snapshot.method,'maya');assert.equal(c.snapshot.account,'09999999999');
- assert.equal(h.queries.some(q=>q.filters.method_code==='gcash'||q.table==='picklestreet_receipt_route_settings'),false);
+Deno.test('Maya uses its dedicated parser route to the shared GCash receiver',async()=>{
+ const h=database();const c=await paymentReceiptContext(h.db as any,'maya');
+ assert.equal(c.route.sourceProvider,'maya');assert.equal(c.route.destinationProvider,'gcash');assert.equal(c.route.destinationMethodCode,'gcash');
+ assert.equal(c.route.autoApprovalEnabled,true);assert.equal(c.route.gcashQrAlias,'TEST ALIAS');assert.equal(c.snapshot.method,'maya');
+ assert.equal(c.snapshot.destinationMethod,'gcash');assert.equal(c.snapshot.account,h.receiver.account_reference);assert.equal(c.snapshot.verificationSettingsRevision,7);
+ assert.ok(h.queries.find(q=>q.filters.method_code==='maya')?.filters.is_active);
+ await assert.rejects(paymentReceiptContext(database({wrongDestination:true}).db as any,'maya'));
 });

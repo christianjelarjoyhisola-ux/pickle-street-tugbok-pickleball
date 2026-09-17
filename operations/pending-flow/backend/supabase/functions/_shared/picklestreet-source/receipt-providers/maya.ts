@@ -626,6 +626,7 @@ function parseNativeWalletRecipient(lines: string[]): {
         MAYA_REFERENCE_LABEL_RE.test(line) ||
         TRANSFER_FEE_LABEL_RE.test(line)
       ) break;
+      if (DESTINATION_RE.test(line)) continue;
       const phone = strictGcashMobile(line);
       if (phone) accounts.push({ raw: line, lineIndex: index });
       else if (
@@ -768,7 +769,7 @@ export function parseMayaToGcashReceipt(
   const lines = linesOf(rawText);
   const text = lines.join("\n");
   const nativeWalletLayout =
-    lines.some((line) => /^sent\s+money$/i.test(line)) &&
+    lines.some((line) => /^(?:sent\s+money|bank\s+transfer\s+to)$/i.test(line)) &&
     lines.some((line) => NATIVE_DESTINATION_LABEL_RE.test(line)) &&
     lines.some((line) => NATIVE_DETAILS_LABEL_RE.test(line));
   const reference = parseReference(lines, options.typedReference || "");
@@ -835,7 +836,7 @@ export function parseMayaToGcashReceipt(
     recipient: parsedRecipient.recipient,
     indicators: {
       nativeWalletLayout,
-      providerBrand: /\bmaya\b/i.test(text),
+      providerBrand: /\bmaya\b/i.test(text) || nativeWalletLayout,
       competingProviderBrand: competingProvider(text),
       sentMoneyVia,
       // This identifies Maya's completed receipt/detail screen. It validates

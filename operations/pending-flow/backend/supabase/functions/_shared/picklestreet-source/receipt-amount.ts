@@ -133,7 +133,7 @@ const TOTAL_LABEL_RE = /\b(?:grand\s+total|total(?:\s+amount)?)\b/i;
 // Maya's bank-transfer receipt says "Sent money via" while its current
 // wallet-to-wallet completed screen uses the shorter "Sent Money" heading.
 // Both place the principal debit immediately below the heading.
-const MAYA_ANCHOR_RE = /^\s*sent\s+money(?:\s+via)?\s*$/i;
+const MAYA_ANCHOR_RE = /^\s*(?:sent\s+money(?:\s+via)?|bank\s+transfer\s+to)\s*$/i;
 const GCASH_SENT_VIA_RE = /\bsent\s+via\s+gcash\b/i;
 const GCASH_TOTAL_AMOUNT_SENT_RE = /^\s*total\s+amount\s+sent\s*[:=\-–—]?\s*$/i;
 const GCASH_REFERENCE_BOUNDARY_RE =

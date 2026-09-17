@@ -4247,7 +4247,7 @@ body.dark #splashScreen {
                   <img src="assets/maya-transaction-details-receipt.png" alt="Maya transfer screen pointing to the Transaction details control" />
                   <div>
                     <strong>Before uploading your Maya receipt</strong>
-                    <p>Tap <b>Transaction details</b> so the recipient, amount, Completed status, and full Reference ID are visible. Maya's current Sent Money screen does not show the transaction date and time, so it may still need staff review.</p>
+                    <p>Wait until Maya shows <b>Completed</b>, then open <b>Transaction details</b>. Enter the full Reference ID below and upload the screen with the recipient, amount, status, and Reference ID visible. Processing transfers cannot be verified yet.</p>
                   </div>
                 </div>
                 <label class="bpay-ref-label" style="display:block;margin-bottom:6px">
@@ -9815,7 +9815,7 @@ function pickPay(m) {
     $('cashPaymentInstructions').textContent = receiver.instructions ? ` — ${receiver.instructions}` : '';
   }
   if ($('refMethodLabel')) $('refMethodLabel').textContent = digitalPay ? `— ${paymentMethodName(m)}` : '';
-  if (m === 'maya' && !window.PB_PLATFORM_V1) $('bGcashRef')?.setAttribute('required','');
+  if (m === 'maya') $('bGcashRef')?.setAttribute('required','');
   else $('bGcashRef')?.removeAttribute('required');
   syncBookingRefUi(m);
   updatePaymentAmountUI();
@@ -9906,11 +9906,13 @@ function paymentRefHelpText(method) { return window.PaymentSourceUI.referenceRul
 function syncBookingRefUi(method = $('bPay')?.value || 'gcash') {
   const mayaOnly = method === 'maya';
   const requirement = $('mayaReferenceRequirement');
-  if (requirement) requirement.style.display = mayaOnly && !window.PB_PLATFORM_V1 ? '' : 'none';
+  if (requirement) requirement.style.display = mayaOnly ? '' : 'none';
   const receiptGuide = $('mayaReceiptGuide');
   if (receiptGuide) receiptGuide.classList.toggle('show', mayaOnly);
   const referenceCopy = $('receiptReferenceCopy');
-  if (referenceCopy) referenceCopy.textContent = 'Upload your complete receipt. We read the payment reference automatically.';
+  if (referenceCopy) referenceCopy.textContent = mayaOnly
+    ? 'Enter the Reference ID exactly as Maya shows it. We compare it with the uploaded receipt.'
+    : 'Upload your complete receipt. We read the payment reference automatically.';
   const input = $('bGcashRef');
   if (input) {
     input.maxLength = paymentRefMaxLength(method);
@@ -10298,11 +10300,15 @@ async function submitPlatformBooking() {
     return;
   }
   const payMethod = $('bPay')?.value || '';
-  const paymentReference = '';
+  const paymentReference = payMethod === 'maya'
+    ? normalizePaymentRef($('bGcashRef')?.value || '', payMethod)
+    : '';
   const checks = [
     [!isDigitalPayMethod(payMethod), 'Please select an available online full-payment method.', 'payMethodBlock', 4],
     [refundPolicyFeatureEnabled() && !currentRefundPolicyAccepted(), 'Please read and agree to the Refund & Reschedule Policy before confirming.', $('bookingPolicyAgree')?.closest('.booking-policy-check'), 5],
     [!overnightPolicyAccepted(), 'Please review and agree to the overnight access and quiet-hours rules.', 'overnightPolicyCheck', 4],
+    [payMethod === 'maya' && !paymentReference, 'Enter the Reference ID shown in Maya.', 'bGcashRef', 5],
+    [payMethod === 'maya' && paymentReference && !isMayaRefValid(paymentReference), 'Enter the complete Reference ID shown in Maya.', 'bGcashRef', 5],
     [!_receiptFile, 'Please upload your receipt screenshot before confirming.', 'bReceiptDrop', 5],
   ];
   for (const [failed, message, target, step] of checks) {

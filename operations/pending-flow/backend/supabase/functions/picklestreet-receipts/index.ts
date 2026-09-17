@@ -126,11 +126,6 @@ export async function paymentReceiptContext(db:DB,paymentMethod:string):Promise<
   const tenant=await db.from('tenants').select('public_config').eq('id',TENANT_ID).single();
   if(tenant.error||!tenant.data)fail('PAYMENT_SETTINGS_UNAVAILABLE','Payment settings could not be checked.',503);
   const config=obj(tenant.data.public_config),provider=canonicalSourceProvider(paymentMethod);
-  // Maya uses its own configured receiver and dedicated receipt checks.
-  // Account type is not an approval requirement; the receiving account must match.
-  if(provider==='maya')return {source:source.data,receiver:source.data,config,
-    route:{tenantId:TENANT_ID,tenantSlug:TENANT_SLUG,sourceProvider:'maya',destinationProvider:'maya',destinationMethodCode:'maya',enabled:true,autoApprovalEnabled:config.bookingApprovalMode!=='manual'},
-    snapshot:{method:paymentMethod,name:source.data.account_name,account:source.data.account_reference}};
   if(!provider)return {source:source.data,receiver:source.data,config,route:null,
     snapshot:{method:paymentMethod,name:source.data.account_name,account:source.data.account_reference}};
   const [destination,privateSettings]=await Promise.all([
