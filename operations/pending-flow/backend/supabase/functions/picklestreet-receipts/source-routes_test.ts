@@ -516,7 +516,7 @@ Deno.test("Maya requires the GCash destination, account and both receipt referen
  }
 });
 
-Deno.test("current native Maya completed screen parses its trustworthy fields without treating the phone clock as transaction time", () => {
+Deno.test("current native Maya completed screen uses the venue reference-only policy", () => {
   const f = fixture("maya");
   f.expectedAmount = 2130;
   f.payment.receiverName = "DANIELO JR A.";
@@ -543,11 +543,8 @@ Reference ID
 AB6140BDAIFF
 maya`;
   const r = verifySourceRoute(f);
-  assert.equal(
-    r.autoApprove,
-    false,
-    "Maya does not print a transaction timestamp on this screen",
-  );
+  assert.equal(r.autoApprove, true, JSON.stringify(r.flags));
+  assert.deepEqual(r.flags, ["auto_approval_eligible"]);
   assert.equal(r.paymentReference, "AB6140BDAIFF");
   assert.equal(r.extractedData.comparison.amountMatched, true);
   assert.equal(r.extractedData.detected.route.sourceMatched, true);
@@ -560,29 +557,53 @@ maya`;
   assert.equal(r.extractedData.detected.route.recipientMatched, true);
   assert.equal(r.extractedData.detected.route.referenceMatched, true);
   assert.equal(r.extractedData.detected.route.successMatched, true);
+  assert.equal(r.extractedData.detected.route.mayaReferenceOnlyPolicy, true);
+  assert.equal(r.extractedData.detected.route.mayaStatus, "completed");
   assert.deepEqual(r.extractedData.detected.route.secondaryReferences, []);
-  assert.ok(r.flags.includes("date_unreadable"));
-  assert.ok(r.flags.includes("time_unreadable"));
-  assert.ok(r.flags.includes("receipt_datetime_unverified"));
-  assert.ok(r.flags.includes("maya_provider_confirmation_required"));
-  for (
-    const irrelevant of [
-      "transfer_status_unreadable",
-      "instapay_qrph_unreadable",
-      "gxi_destination_unreadable",
-      "number_unreadable",
-      "receiver_name_unreadable",
-      "amount_unreadable",
-      "payment_principal_unverified",
-      "payment_receiver_unverified",
-      "payment_reference_unverified",
-      "secondary_reference_unverified",
-    ]
-  ) {
-    assert.equal(
-      r.flags.includes(irrelevant),
-      false,
-      irrelevant + ": " + JSON.stringify(r.flags),
-    );
-  }
+  assert.equal(r.extractedData.timing.receiptDateTime, null);
+  assert.equal(r.extractedData.timing.withinWindow, false);
+});
+
+Deno.test("current native Maya Processing screen auto-verifies matching single-use reference evidence", () => {
+  const f = fixture("maya");
+  f.expectedAmount = 1270;
+  f.payment.receiverName = "Renielo Vhal Apari";
+  f.payment.receiverReference = "09272172285";
+  f.payment.submittedReference = "769CD5AA7D92";
+  f.timing.bookingStartedAt = "2026-09-17T07:29:00Z";
+  f.vision.text = `7:31
+Bank transfer to
+vhal
+09272172285
+- ₱1,270.00
+Processing
+Source
+My Wallet
++63 939 569 5354
+Destination
+G-Xchange Inc. / GCash
+vhal
+09272172285
+Purpose
+paymeng
+Transaction details
+Transaction fee
+₱10.00
+Gateway
+InstaPay
+Reference ID
+769cd5aa7d92
+maya`;
+  const r = verifySourceRoute(f);
+  assert.equal(r.autoApprove, true, JSON.stringify(r.flags));
+  assert.deepEqual(r.flags, ["auto_approval_eligible"]);
+  assert.equal(r.paymentReference, "769CD5AA7D92");
+  assert.equal(r.extractedData.detected.route.mayaReferenceOnlyPolicy, true);
+  assert.equal(r.extractedData.detected.route.mayaStatus, "processing");
+  assert.equal(r.extractedData.detected.route.successMatched, false);
+  assert.equal(r.extractedData.detected.route.recipientMatched, true);
+  assert.equal(r.extractedData.detected.route.referenceMatched, true);
+  assert.equal(r.extractedData.comparison.amountMatched, true);
+  assert.equal(r.extractedData.timing.receiptDateTime, null);
+  assert.equal(r.extractedData.timing.withinWindow, false);
 });

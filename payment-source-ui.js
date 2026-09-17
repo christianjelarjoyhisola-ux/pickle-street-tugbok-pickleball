@@ -17,7 +17,7 @@
     const rules={
       gcash:{maxLength:13,inputMode:'numeric',label:'GCash reference number',placeholder:'13-digit GCash reference',help:'Enter the 13-digit GCash reference number.'},
       bdopay:{maxLength:32,inputMode:'text',label:'BDO Pay Reference no.',placeholder:'BN-YYYYMMDD-########',help:'Use BDO Pay Reference no., not the invoice number.'},
-      maya:{maxLength:64,inputMode:'text',label:'Maya Reference ID',placeholder:'e.g. 769CD5AA7D92',help:'Enter the complete Reference ID shown on the completed Maya transaction details screen.'},
+      maya:{maxLength:64,inputMode:'text',label:'Maya Reference ID',placeholder:'e.g. 769CD5AA7D92',help:'Enter the complete Reference ID shown on the Maya Transaction details screen. Each Reference ID can be used only once.'},
       bpi:{maxLength:20,inputMode:'numeric',label:'BPI Confirmation No.',placeholder:'BPI Confirmation No.',help:'Use BPI Confirmation No., not the Transaction Ref. No.'},
     };
     return rules[code] || {maxLength:64,inputMode:'text',label:name(code)+' transaction reference',placeholder:'Complete '+name(code)+' reference',help:'Enter the complete '+name(code)+' transaction reference, including letters and hyphens shown on the successful receipt.'};

@@ -63,6 +63,9 @@ export type RouteEvidence = {
   recipientMatched: boolean;
   referenceMatched: boolean;
   successMatched: boolean;
+  /** Venue-approved Maya fallback when Maya omits transaction date/time. */
+  mayaReferenceOnlyPolicy?: true;
+  mayaStatus?: "completed" | "processing";
   secondaryReferences: SecondaryReference[];
   recipient?: {
     observedName: string | null;
@@ -202,6 +205,12 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
     const normalized = flag(value);
     if (!flags.includes(normalized)) flags.push(normalized);
   };
+  const remove = (...values: string[]) => {
+    for (const value of values) {
+      const index = flags.indexOf(flag(value));
+      if (index >= 0) flags.splice(index, 1);
+    }
+  };
   const source = canonicalSourceProvider(input.route?.sourceProvider);
   const paymentSource = canonicalSourceProvider(input.payment?.paymentMethod);
   const expected = Number(input.expectedAmount);
@@ -299,6 +308,7 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
   let amountMatched = false;
   let withinWindow = false;
   let ageMinutes: number | null = null;
+  let mayaReferenceOnlyPolicy = false;
   if (source) {
     try {
       let parsed = parseProviderReceipt(source, text, {
@@ -431,6 +441,36 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
       }
       if (!receiptAt) add("receipt_datetime_unverified");
       else if (!withinWindow) add("payment_window_expired");
+      // Maya's current native Transaction details screen omits a transaction
+      // date/time. By explicit venue policy, accept Completed or Processing
+      // only when all stable receipt identity fields match. Durable database
+      // reference claims still make the typed/OCR Reference ID single-use.
+      if (
+        parsed.provider === "maya" &&
+        parsed.receipt.indicators.nativeWalletLayout &&
+        parsed.receipt.timestamp.completeness === "missing" &&
+        !parsed.receipt.indicators.failureStatus &&
+        (parsed.receipt.indicators.completionScreen ||
+          parsed.receipt.indicators.pendingStatus) &&
+        route.sourceMatched && route.destinationMatched &&
+        route.recipientMatched && route.referenceMatched && amountMatched
+      ) {
+        mayaReferenceOnlyPolicy = true;
+        route.mayaReferenceOnlyPolicy = true;
+        route.mayaStatus = parsed.receipt.indicators.pendingStatus
+          ? "processing"
+          : "completed";
+        remove(
+          "date_unreadable",
+          "time_unreadable",
+          "receipt_datetime_unverified",
+          "maya_provider_confirmation_required",
+          "transaction_not_successful",
+          "transfer_pending",
+          "transfer_status_unreadable",
+          "transaction_success_unverified",
+        );
+      }
       // Dedicated provider evidence above is authoritative for receipt fields.
       // In particular, GCash requires matching Amount/Total Amount Sent displays
       // and a full receiving number with a compatible visible name. A second
@@ -444,11 +484,11 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
   const evidence = [
     route.sourceMatched,
     route.destinationMatched,
-    route.successMatched,
+    route.successMatched || mayaReferenceOnlyPolicy,
     route.recipientMatched,
     route.referenceMatched,
     amountMatched,
-    withinWindow,
+    withinWindow || mayaReferenceOnlyPolicy,
   ]
     .filter(Boolean).length / 7;
   const effective = nativeConfidence === null

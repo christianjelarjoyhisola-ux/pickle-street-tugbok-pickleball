@@ -605,6 +605,8 @@ function parseNativeWalletRecipient(lines: string[]): {
   ).filter((index) => index >= 0);
   const accounts: IndexedValue[] = [];
   const names: IndexedValue[] = [];
+  const nativeName = (line: string) => looksLikeRecipientName(line) ||
+    /^[A-Za-z][A-Za-z'.-]{3,}$/.test(line.trim());
   for (const start of destinationIndexes) {
     const inline = lines[start].match(NATIVE_DESTINATION_LABEL_RE)?.[1]?.trim();
     if (inline) {
@@ -623,6 +625,8 @@ function parseNativeWalletRecipient(lines: string[]): {
       if (
         NATIVE_DETAILS_LABEL_RE.test(line) ||
         NATIVE_SOURCE_LABEL_RE.test(line) ||
+        /^purpose\b/i.test(line) ||
+        /^gateway\b/i.test(line) ||
         MAYA_REFERENCE_LABEL_RE.test(line) ||
         TRANSFER_FEE_LABEL_RE.test(line)
       ) break;
@@ -630,7 +634,7 @@ function parseNativeWalletRecipient(lines: string[]): {
       const phone = strictGcashMobile(line);
       if (phone) accounts.push({ raw: line, lineIndex: index });
       else if (
-        looksLikeRecipientName(line) &&
+        nativeName(line) &&
         !/^\+?\s*add\s+to\s+contacts\b/i.test(line)
       ) names.push({ raw: line, lineIndex: index });
     }
@@ -713,6 +717,22 @@ function compareMayaMaskedName(
 ): GcashNameComparison {
   const raw = String(observedRaw || "").trim();
   if (!raw) return compareGcashMaskedName(raw, expectedName);
+
+  // Maya's bank-transfer screen may display only one saved recipient token
+  // (for example "vhal") even though the configured GCash account contains
+  // the full legal name. Accept that bounded abbreviation only when every
+  // visible token is present in the configured name and one carries at least
+  // four letters; the independently matched full mobile number is still
+  // required by the verifier.
+  const words = (value: string) => value.normalize("NFKC").toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ").trim().split(/\s+/).filter(Boolean);
+  const observedWords = words(raw);
+  const expectedWords = new Set(words(expectedName));
+  if (
+    observedWords.length > 0 && observedWords.length <= 2 &&
+    observedWords.some((word) => word.length >= 4) &&
+    observedWords.every((word) => expectedWords.has(word))
+  ) return "masked_compatible";
 
   // Maya sometimes removes the horizontal gap between adjacent masked name
   // tokens in OCR (for example, "J..KE....H M."). Try every plausible token

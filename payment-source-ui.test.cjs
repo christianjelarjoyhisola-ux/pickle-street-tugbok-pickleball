@@ -11,7 +11,9 @@ test('Maya receipt-only checkout requires a typed reference as an OCR cross-chec
  assert.match(page,/id="mayaReferenceRequirement" style="display:none"/);
  assert.match(page,/id="mayaReceiptGuide" role="note"/);
  assert.match(page,/assets\/maya-transaction-details-receipt\.png/);
- assert.match(page,/open <b>Transaction details<\/b>/);
+ assert.match(page,/Open <b>Transaction details<\/b>/);
+ assert.match(page,/<b>Completed<\/b> or <b>Processing<\/b> can auto-verify/);
+ assert.match(page,/Each Reference ID can be used only once/);
  assert.match(page,/const paymentReference = payMethod === 'maya'/);
  assert.match(page,/normalizePaymentRef\(\$\('bGcashRef'\)\?\.value \|\| '', payMethod\)/);
  assert.match(page,/payMethod === 'maya' && !paymentReference/);

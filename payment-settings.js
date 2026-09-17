@@ -16,7 +16,7 @@
   const defaults = {
     gcash:'Send the full booking amount to the GCash recipient shown. Upload your completed receipt and its reference number.',
     bdo_pay:'Pay from BDO Pay to the GCash recipient shown. Upload the completed receipt and enter its reference number.',
-    maya:'In Maya, use Bank Transfer to GCash. Wait for Completed, enter the Reference ID, and upload the full transaction details screen.',
+    maya:'In Maya, use Bank Transfer to GCash. Enter the Reference ID and upload the full Transaction details screen. Completed or Processing can auto-verify when the recipient, amount, and Reference ID match. Each Reference ID can be used only once.',
     bpi:'Pay from BPI to the GCash recipient shown. Upload the completed receipt and enter its confirmation reference.',
     gotyme:'Send from GoTyme to the GCash recipient shown. Upload the completed receipt and enter its GoTyme reference.',
     maribank:'Send from MariBank to the GCash recipient shown. Upload the completed receipt and enter its transaction reference.',
