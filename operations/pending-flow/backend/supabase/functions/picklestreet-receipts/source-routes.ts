@@ -10,6 +10,7 @@ import {
   type ProviderReceiptVerificationEvidence,
   verifyProviderReceipt,
 } from "../_shared/picklestreet-source/receipt-providers/index.ts";
+import { normalizeMayaDestinationAccount } from "../_shared/picklestreet-source/receipt-providers/maya.ts";
 import type {
   InspectedReceiptImage,
   SafeReceiptExtraction,
@@ -117,7 +118,10 @@ function recipientPassed(
       ["exact", "masked_compatible"].includes(evidence.recipientComparison.name);
   }
   if (evidence.provider === "maya") {
-    return evidence.recipientComparison.phone === "exact" &&
+    const nativeOpaqueDestination = parsed.provider === "maya" &&
+      parsed.receipt.indicators.nativeWalletLayout &&
+      normalizeMayaDestinationAccount(parsed.receipt.recipient.accountRaw || "") !== null;
+    return (evidence.recipientComparison.phone === "exact" || nativeOpaqueDestination) &&
       ["exact", "masked_compatible"].includes(
         evidence.recipientComparison.name,
       );
@@ -367,11 +371,17 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
           nameMatch: evidence.recipientComparison.name,
         };
       } else if (parsed.provider === "maya" && evidence.provider === "maya") {
+        const opaqueDestination = parsed.receipt.indicators.nativeWalletLayout &&
+          normalizeMayaDestinationAccount(
+            parsed.receipt.recipient.accountRaw || "",
+          ) !== null;
         route.recipient = {
           observedName: parsed.receipt.recipient.nameRaw?.slice(0, 160) || null,
           observedNumber: parsed.receipt.recipient.accountRaw?.slice(0, 80) ||
             null,
-          phoneMatch: evidence.recipientComparison.phone,
+          phoneMatch: opaqueDestination
+            ? "opaque_destination"
+            : evidence.recipientComparison.phone,
           nameMatch: evidence.recipientComparison.name,
         };
       } else if (
@@ -465,6 +475,8 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
         !parsed.receipt.indicators.failureStatus &&
         (parsed.receipt.indicators.completionScreen ||
           parsed.receipt.indicators.pendingStatus) &&
+        (parsed.receipt.recipient.phoneNormalized !== null ||
+          parsed.receipt.indicators.instaPay) &&
         route.sourceMatched && route.destinationMatched &&
         route.recipientMatched && route.referenceMatched && amountMatched
       ) {

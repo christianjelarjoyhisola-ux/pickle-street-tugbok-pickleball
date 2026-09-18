@@ -118,6 +118,15 @@ const NATIVE_DETAILS_LABEL_RE = /^transaction\s+details\b/i;
 const DESTINATION_RE = /\bg-?xchange\s*(?:,|\.)?\s*inc\.?\s*\/\s*gcash\b/i;
 const MONEY_RE = /(?:PHP|₱|P)\s*((?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2})(?![\d,.])/i;
 
+export function normalizeMayaDestinationAccount(value: string): string | null {
+  const normalized = String(value || "").normalize("NFKC").toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+  return normalized.length >= 12 && normalized.length <= 40 &&
+      /[A-Z]/.test(normalized) && /[0-9]/.test(normalized)
+    ? normalized
+    : null;
+}
+
 const MONTHS: Record<string, number> = {
   jan: 1,
   january: 1,
@@ -633,6 +642,9 @@ function parseNativeWalletRecipient(lines: string[]): {
       if (DESTINATION_RE.test(line)) continue;
       const phone = strictGcashMobile(line);
       if (phone) accounts.push({ raw: line, lineIndex: index });
+      else if (normalizeMayaDestinationAccount(line)) {
+        accounts.push({ raw: line, lineIndex: index });
+      }
       else if (
         nativeName(line) &&
         !/^\+?\s*add\s+to\s+contacts\b/i.test(line)
@@ -640,7 +652,10 @@ function parseNativeWalletRecipient(lines: string[]): {
     }
   }
   const uniqueAccounts = [
-    ...new Map(accounts.map((item) => [strictGcashMobile(item.raw), item]))
+    ...new Map(accounts.map((item) => [
+      strictGcashMobile(item.raw) || normalizeMayaDestinationAccount(item.raw),
+      item,
+    ]))
       .values(),
   ];
   const uniqueNames = [
@@ -999,9 +1014,11 @@ export function verifyMayaToGcashReceipt(
   if (!context.expectedRecipientNumber || !context.expectedRecipientName) {
     addUnique(flags, "MERCHANT_CONFIG_MISSING");
   }
+  const nativeOpaqueDestination = parsed.indicators.nativeWalletLayout &&
+    normalizeMayaDestinationAccount(parsed.recipient.accountRaw || "") !== null;
   if (recipientComparison.phone === "mismatch") {
     addUnique(flags, "WRONG_GCASH_NUMBER");
-  } else if (recipientComparison.phone !== "exact") {
+  } else if (recipientComparison.phone !== "exact" && !nativeOpaqueDestination) {
     addUnique(flags, "NUMBER_UNREADABLE");
   }
   if (recipientComparison.name === "mismatch") {
