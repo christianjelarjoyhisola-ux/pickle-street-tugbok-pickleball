@@ -29,7 +29,7 @@ function harness({ entry=true, ready=true } = {}) {
   const c = { $, window:{ PB_PLATFORM_V1:true }, document:{ querySelectorAll:()=>[], body:{style:{}}, activeElement:null }, Event:class Event{},
     REFUND_POLICY_CONFIGURED:ready, REFUND_POLICY_VERSION:ready?version:'', REFUND_POLICY_SIGNATURE:ready?signature:'',
     REFUND_POLICY_ACCEPTED_VERSION:'', REFUND_POLICY_ACCEPTED_SIGNATURE:'',
-    refundPolicyFeatureEnabled:()=>true, syncRefundPolicyAcceptanceUi(){}, syncRefundPolicyFeatureUi(){},
+    refundPolicyFeatureEnabled:()=>true, syncRefundPolicyAcceptanceUi(){}, syncRefundPolicyFeatureUi(){}, overnightPolicyAccepted:()=>true,
     _platformHoldCreatePromise:null, _platformHoldCompletePromise:null, _proceedToBookPromise:null,
     _platformBookingAccess:{reference:'TEST-HOLD',bookingToken:'test-capability',expiresAt:expiry,preliminaryHold:true,booking:{detailsCompleted:false,status:'pending_payment',reservationHeld:true,expiresAt:expiry}},
     wizStep:4, bookingMode:'regular', payFull:true, EVENT_MAX_GUESTS:50, ALL_PAYMENT_METHODS:['gcash'],paymentMethods:{gcash:true},

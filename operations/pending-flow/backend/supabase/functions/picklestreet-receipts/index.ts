@@ -295,7 +295,14 @@ export function receiptApprovalTiming(booking:Obj,requestDetails:Obj|null=null,n
       return matches.length===1&&Date.parse(String(obj(matches[0]).startsAt||''))>now;
     });
   }
-  return Date.parse(String(booking.starts_at||''))>now;
+  if(requestDetails?.requestType==='reschedule_adjustment'){
+    return booking.status==='confirmed' && booking.payment_status==='paid' &&
+      Date.parse(String(booking.starts_at||''))>now && Date.parse(String(requestDetails.newStartsAt||''))>now;
+  }
+  // Staff may reconcile a stored receipt after play starts or ends. The database
+  // still verifies the payment, original slots, conflicts and reviewer authority.
+  return ['pending_payment','payment_review','expired'].includes(booking.status) &&
+    ['pending','partial'].includes(booking.payment_status) && Number.isFinite(Date.parse(String(booking.starts_at||'')));
 }
 export function receiptRecipientDiagnostics(extracted:unknown):Obj{
   // The shared manager projection intentionally omits route evidence. Expose
@@ -333,14 +340,14 @@ export async function staffReviewResponse(db:DB,body:Obj,actor:string,origin:str
     if(job.error||!job.data?.current_attempt_id||job.data.receipt_id!==verificationId)fail('REVIEW_UNAVAILABLE','Run Retry verification first, then reopen this receipt.');
     let requestDetails:Obj|null=null;
     if(balanceId){
-      const balance=await db.from('booking_balance_requests').select('request_details').eq('tenant_id',TENANT_ID).eq('booking_id',booking.data!.id).eq('id',balanceId).maybeSingle();
+      const balance=await db.from('booking_balance_requests').select('request_details,request_type').eq('tenant_id',TENANT_ID).eq('booking_id',booking.data!.id).eq('id',balanceId).maybeSingle();
       if(balance.error||!balance.data)fail('REVIEW_UNAVAILABLE','The additional-payment schedule could not be verified. Reload this receipt.',503);
-      requestDetails=obj(balance.data.request_details);
+      requestDetails={...obj(balance.data.request_details),requestType:balance.data.request_type};
     }
     const canApprove=receiptApprovalTiming(booking.data!,requestDetails);
     return jsonResponse({ok:true,verificationId,attemptId:job.data.current_attempt_id,balanceRequestId:balanceId||null,
       bookingReference,paymentWindowMinutes:PICKLESTREET_PAYMENT_WINDOW_MINUTES,canApprove,
-      approvalUnavailableReason:canApprove?'':requestDetails?.groupRescheduleV1===true?'The proposed sessions or booking status no longer allow approval. Refresh the booking before reviewing payment.':'This court time has already started or the booking is no longer eligible for payment confirmation.'},200,origin);
+      approvalUnavailableReason:canApprove?'':requestDetails?.requestType==='reschedule_adjustment'?'The proposed schedule or booking status no longer allows approval. Refresh the booking before reviewing payment.':'This booking is no longer eligible for payment confirmation. Refresh its details.'},200,origin);
   }
   const decision=String(body.decision||'');
   const note=String(body.note||'').trim();

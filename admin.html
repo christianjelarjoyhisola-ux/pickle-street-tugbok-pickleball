@@ -2679,6 +2679,8 @@ tr:hover td { background: var(--bg2); }
 <meta name="robots" content="noindex,nofollow">
 <link rel="stylesheet" href="payment-method-brand.css?v=20260908-routes2" />
 <link rel="stylesheet" href="payment-settings.css?v=20260908-routes2" />
+<link rel="stylesheet" href="weather-credit.css?v=20260923-v1" />
+<script src="weather-credit.js?v=20260923-v1"></script>
 </head>
 <body class="admin-booting" data-theme="light">
 <div id="adminBootScreen" role="status" aria-live="polite" aria-label="Loading secure dashboard">
@@ -3462,7 +3464,7 @@ tr:hover td { background: var(--bg2); }
       <!-- ADVANCE RESERVED / BLOCKED DATES -->
       <div class="panel" id="blockedDatesManagerPanel" style="max-width:760px">
         <h4>📅 Reserved &amp; Blocked Dates</h4>
-        <p style="color:var(--muted);font-size:.84rem;margin:8px 0 16px">Reserve a whole day or choose exact hours. To prevent time-slot data from overloading the database, you can reserve a maximum of 6 calendar dates at a time, and only 6 active or upcoming court closures can be live at once.</p>
+        <p style="color:var(--muted);font-size:.84rem;margin:8px 0 16px">Reserve a whole day or choose exact hours. To prevent accidental oversized requests, you can reserve a maximum of 6 calendar dates at a time. There is no limit on how many active or upcoming closures can remain scheduled.</p>
         <div class="blk-safety-note">Confirmed and active customer bookings are protected. The system will refuse a new reservation if its hours overlap an existing booking.</div>
         <div class="blk-form-grid">
           <div style="grid-column:1/-1">
@@ -6105,6 +6107,7 @@ async function openBookingDetails(ref) {
     $('bookingDetailsActions').innerHTML = `
       <button class="btn btn-g" onclick="closeBookingDetails()">Close</button>
       ${hasReceipt ? `<button class="btn btn-g" onclick="closeBookingDetails();openVerifyModal('${jsArg(actionRef)}')">View Payment</button>` : ''}
+      ${canReviewWeatherRefund() && b.paymentStatus === 'paid' ? `<button class="btn btn-g" onclick="PBWeatherCredit.openManager('${jsArg(actionRef)}')">Weather Credit</button>` : ''}
       ${canOpenWeatherRefund(b) ? `<button class="btn btn-g" onclick="openWeatherRefundFromBookingDetails('${jsArg(actionRef)}')">${esc(weatherRefundActionLabel(b))}</button>` : ''}
       ${b.balanceRequestId && ['awaiting_payment','payment_review'].includes(b.balanceRequestStatus) ? `<button class="btn btn-g" onclick="resendPlatformBalanceNotice('${jsArg(actionRef)}','${jsArg(b.balanceRequestId)}',this)">Resend Balance Email</button>` : ''}
       ${canRescheduleBooking(b) || canRescheduleCourtSessions(b) ? `<button class="btn btn-p" onclick="openRescheduleFromBookingDetails('${jsArg(actionRef)}')">Reschedule</button>` : ''}
@@ -14428,9 +14431,7 @@ function blockedTodayDate(){
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-const MAX_LIVE_BLOCKED_DATES = 6;
 let _blockedCourtOptions = [];
-let _liveBlockedDateCount = 0;
 
 function selectedBlockedRangeDays(){
   const start = $('newBlk')?.value || '';
@@ -14441,23 +14442,15 @@ function selectedBlockedRangeDays(){
 
 function syncBlockedLiveLimit(){
   const requested = selectedBlockedRangeDays();
-  const remaining = Math.max(0, MAX_LIVE_BLOCKED_DATES - _liveBlockedDateCount);
-  const limitReached = _liveBlockedDateCount >= MAX_LIVE_BLOCKED_DATES;
-  const requestTooLarge = requested > remaining;
+  const requestTooLarge = requested > 6;
   const note = $('blockedDateLimitNote');
   const button = $('newBlkBtn');
   if (note) {
-    note.textContent = limitReached
-      ? `Maximum: 6 dates per reservation. Active/upcoming closures: ${_liveBlockedDateCount} of ${MAX_LIVE_BLOCKED_DATES}. Remove a closure or wait for one to expire before adding another.`
-      : `Maximum: 6 dates per reservation. Active/upcoming closures: ${_liveBlockedDateCount} of ${MAX_LIVE_BLOCKED_DATES}. ${remaining} remaining.`;
+    note.textContent = 'Maximum: 6 dates per reservation. Active and upcoming closures are unlimited.';
   }
   if (button) {
-    button.disabled = limitReached || requestTooLarge;
-    button.title = limitReached
-      ? 'The 6-closure limit has been reached.'
-      : requestTooLarge
-      ? `This selection needs ${requested} closures, but only ${remaining} remain.`
-      : '';
+    button.disabled = requestTooLarge;
+    button.title = requestTooLarge ? 'Reserve a maximum of 6 dates at a time.' : '';
   }
 }
 
@@ -14606,7 +14599,6 @@ async function renderBlocked(){
     DB.getCourts(),
   ]);
   populateBlockedCourtPicker(courts);
-  _liveBlockedDateCount = (records || []).filter(record => record?.blockedOn >= today).length;
   syncBlockedLiveLimit();
   syncBlockedCourt();
   syncBlockedTimeMode();
@@ -14628,14 +14620,6 @@ async function addBlocked(){
   const rangeDays = selectedBlockedRangeDays();
   if (!Number.isFinite(rangeDays) || rangeDays < 1 || rangeDays > 6) {
     toast('Reserve up to 6 dates at a time.', 'err');
-    return;
-  }
-  if (_liveBlockedDateCount + rangeDays > MAX_LIVE_BLOCKED_DATES) {
-    const remaining = Math.max(0, MAX_LIVE_BLOCKED_DATES - _liveBlockedDateCount);
-    toast(remaining
-      ? `Only ${remaining} more active closure${remaining === 1 ? '' : 's'} can be added.`
-      : 'The 6 active/upcoming closure limit has been reached. Remove one or wait for it to expire.', 'err');
-    syncBlockedLiveLimit();
     return;
   }
   if (specificHours) {
@@ -15277,7 +15261,7 @@ async function checkAgreementGate(session) {
 <script src="open-play-admin.js?v=20260907-audit"></script>
 <script src="open-play-reporting.js?v=20260907-audit"></script>
 <script src="qrcode.min.js?v=1.5.4"></script>
-<script src="availability-graphic.js?v=20260916-elapsed-slots-v10"></script>
+<script src="availability-graphic.js?v=20260916-facebook-page-v9"></script>
 <script src="pickle-street.js?v=2"></script>
 </body>
 </html>

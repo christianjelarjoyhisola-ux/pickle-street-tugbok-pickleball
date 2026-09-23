@@ -1,0 +1,55 @@
+{
+  "at": "2026-09-23T12:58:03.187Z",
+  "hash": "93f5d84da0ce33ce896968387863c855a956c1374e7825c45d3d9a101e9f2a8f",
+  "rolledBack": true,
+  "result": [
+    {
+      "checks": [
+        {
+          "name": "Real grouped hold and consent flow: credit confirms every original selected session atomically",
+          "passed": true
+        },
+        {
+          "name": "Issue once; preserve source booking and original payment",
+          "passed": true
+        },
+        {
+          "name": "Full replacement confirms original slots without another booking fee; retry spends once",
+          "passed": true
+        },
+        {
+          "name": "Partial credit retains exact top-up; unpaid expiry returns time once and blocks revival",
+          "passed": true
+        },
+        {
+          "name": "Existing receipt review verifies only remaining payment and confirms credited booking",
+          "passed": true
+        },
+        {
+          "name": "Remittance charges only net extra fee; fully covered replacement adds no fee",
+          "passed": true
+        },
+        {
+          "name": "Unauthorized issuance and invalid guest token denied",
+          "passed": true
+        },
+        {
+          "name": "Issued source cannot also be rescheduled",
+          "passed": true
+        },
+        {
+          "name": "Credit ledger and transaction inaccessible directly to public callers",
+          "passed": true
+        },
+        {
+          "name": "Voucher email enforced; equivalent time remains covered after a rate change",
+          "passed": true
+        },
+        {
+          "name": "Changed issuance amount cannot overwrite an existing voucher",
+          "passed": true
+        }
+      ]
+    }
+  ]
+}

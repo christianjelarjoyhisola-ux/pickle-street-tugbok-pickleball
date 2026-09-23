@@ -17,7 +17,17 @@ Deno.test('checked-in, cancelled or unpaid bookings never gain approval through 
     assert.equal(receiptApprovalTiming({...booking,...patch},details,now),false);
   }
 });
-Deno.test('ordinary initial receipts retain their own future-booking timing check',()=>{
+Deno.test('ordinary initial receipts allow staff review before, during and after the session',()=>{
   assert.equal(receiptApprovalTiming({...booking,status:'payment_review',payment_status:'pending',starts_at:'2026-09-10T10:00:00Z'},null,now),true);
+  for(const status of ['payment_review','expired']){
+    assert.equal(receiptApprovalTiming({...booking,status,payment_status:'pending'},null,now),true);
+  }
   assert.equal(receiptApprovalTiming(booking,null,now),false);
+});
+Deno.test('late initial approval does not enable terminal bookings or past rescheduling',()=>{
+  for(const status of ['cancelled','completed','void']){
+    assert.equal(receiptApprovalTiming({...booking,status,payment_status:'pending'},null,now),false);
+  }
+  assert.equal(receiptApprovalTiming({...booking,status:'payment_review',payment_status:'pending',starts_at:'invalid'},null,now),false);
+  assert.equal(receiptApprovalTiming(booking,{requestType:'reschedule_adjustment',newStartsAt:'2026-09-10T10:00:00Z'},now),false);
 });

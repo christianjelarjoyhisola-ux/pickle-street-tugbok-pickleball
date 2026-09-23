@@ -1,6 +1,11 @@
 # Dedicated Pickle Street functions. Deploy only explicitly named functions.
 project_id = "pickle-street-tugbok"
 
+[functions.picklestreet-weather-credit]
+verify_jwt = false
+entrypoint = "./functions/picklestreet-weather-credit/index.ts"
+import_map = "./functions/deno.json"
+
 [functions.picklestreet-booking-hold]
 verify_jwt = false
 entrypoint = "./functions/picklestreet-booking-hold/index.ts"

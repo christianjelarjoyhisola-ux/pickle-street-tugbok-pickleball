@@ -247,6 +247,7 @@ test('poster keeps available rows and removes fully reserved rows from one image
   }));
   const snapshot = graphic.normalizeSnapshot({
     date: '2026-09-20',
+    asOf: '2026-09-19T12:00:00.000Z',
     courts: [
       { id: '1', name: 'Court 1', slots },
       { id: '2', name: 'Court 2', slots },
@@ -392,6 +393,7 @@ test('fully blocked date renders a dedicated closed-date card instead of a sched
 test('feed and story draw one Court 3 card containing all three broken-time ranges', async () => {
   const snapshot = graphic.normalizeSnapshot({
     date: '2026-09-20',
+    asOf: '2026-09-19T12:00:00.000Z',
     courts: [
       { id: '1', name: 'Court 1', slots: [{ hour: 8, end: 19, state: 'free' }, { hour: 23, end: 24, state: 'free' }] },
       { id: '2', name: 'Court 2', slots: [{ hour: 8, end: 19, state: 'free' }, { hour: 23, end: 24, state: 'free' }] },
@@ -487,12 +489,11 @@ test('footer keeps a large crisp QR and readable booking copy inside safe bounds
   assert.match(source, /Updated \$\{formatGeneratedAt\(snapshot\.generatedAt\)/);
 });
 
-test('poster has no stale opening-date gate and Web Share fallback is explicit', () => {
+test('poster has no stale opening-date gate and Facebook Page errors are explicit', () => {
   assert.equal(Object.hasOwn(graphic.constants, 'OPENING_DATE'), false);
   assert.equal(graphic.constants.DEFAULT_BOOKING_URL, 'https://picklestreetcourt.com/');
-  assert.match(graphic.shareErrorMessage({ name: 'NotAllowedError' }), /Download PNG/);
-  assert.match(graphic.shareErrorMessage({ name: 'NotAllowedError' }), /upload.*Facebook/i);
-  assert.equal(graphic.shareErrorMessage({ name: 'AbortError' }), '');
+  assert.match(graphic.shareErrorMessage({ name: 'AbortError' }), /Facebook took too long/i);
+  assert.match(graphic.shareErrorMessage(new Error('Facebook Page publishing is not connected yet.')), /not connected/i);
 });
 
 test('every output path is guarded by a forced serialized live refresh', () => {
@@ -503,8 +504,11 @@ test('every output path is guarded by a forced serialized live refresh', () => {
   assert.match(source, /const pages = paginateSnapshot\(snapshot, state\.format\)/);
   assert.match(source, /const \{ items \} = await prepareOutputSet\('download'\)/);
   assert.match(source, /await ensureFreshForExport\('caption copy'\)/);
-  assert.match(source, /const \{ items, snapshot \} = await prepareOutputSet\('share'\)/);
-  assert.match(source, /navigator\.share\(\{ title: 'Pickle Street court availability', text: caption, files \}\)/);
+  assert.match(source, /const \{ items, snapshot \} = await prepareOutputSet\('Facebook Page post'\)/);
+  assert.match(source, /fetch\('\/api\/facebook-page\/publish'/);
+  assert.match(source, /form\.append\('caption', caption\)/);
+  assert.match(source, /items\.forEach\(item => form\.append\('images', item\.blob, item\.name\)\)/);
+  assert.doesNotMatch(source, /navigator\.share\(/);
   assert.doesNotMatch(source, /if \(state\.busy\) return currentSnapshot\(\)/);
 });
 

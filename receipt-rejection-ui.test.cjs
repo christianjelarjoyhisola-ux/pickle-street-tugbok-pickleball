@@ -9,7 +9,7 @@ function harness(result,{lostResponse=false}={}){
   fields.bPay.value='gcash';fields.bGcashRef.value='1234567890123';fields.wizNextBtn={disabled:false};
   const c={$:id=>fields[id],_platformBookingAccess:{reference:'TEST-REF',bookingToken:'test-token',booking:{totalAmount:150}},_receiptFile:{},
     normalizePaymentRef:x=>x,isDigitalPayMethod:()=>true,isGcashRefValid:()=>true,isBdoPayRefValid:()=>true,isMayaRefValid:()=>true,isBpiConfirmationValid:()=>true,
-    refundPolicyFeatureEnabled:()=>false,currentRefundPolicyAccepted:()=>true,PaymentSourceUI:{referenceError:()=>''},
+    refundPolicyFeatureEnabled:()=>false,currentRefundPolicyAccepted:()=>true,overnightPolicyAccepted:()=>true,PaymentSourceUI:{referenceError:()=>''},
     DB:{submitPublicPaymentReceipt:async()=>{if(lostResponse)throw new TypeError('Load failed');return result;}},
     activeBookingItems:()=>[{total:150,courtName:'Test court'}],bookingMode:'regular',
     showInvoice:b=>events.invoices.push(b),toast:(message,type)=>events.messages.push({message,type}),

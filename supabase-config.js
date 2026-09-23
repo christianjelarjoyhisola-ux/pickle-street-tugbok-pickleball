@@ -1629,7 +1629,7 @@ async function _invokePaymentSessionFallback(payload) {
 
 async function _invokeEdgeFunction(name, payload = {}, { allowFailure = false, preferDirect = false } = {}) {
   const endpoint = String(name).split('?')[0];
-  const guestEndpoint = ['create-booking','booking-status','cancel-booking','balance-payment-status','player-rain-report','picklestreet-booking-hold'].includes(endpoint) || (endpoint === 'picklestreet-receipts' && ['status','balance_status'].includes(payload.action));
+  const guestEndpoint = ['create-booking','booking-status','cancel-booking','balance-payment-status','player-rain-report','picklestreet-booking-hold'].includes(endpoint) || (endpoint === 'picklestreet-receipts' && ['status','balance_status'].includes(payload.action)) || (endpoint === 'picklestreet-weather-credit' && payload.action === 'apply');
   if (PB_PLATFORM_V1 && payload.tenantSlug !== PB_TENANT_SLUG) throw new Error('A venue-scoped request is required.');
   if (guestEndpoint) preferDirect = true;
   let data = null;
@@ -4503,6 +4503,17 @@ window.DB = {
     if (!result?.ok || result.verificationId !== verificationId || !result.attemptId) {
       throw new Error(result?.message || 'The receipt changed or is no longer pending. Refresh its details.');
     }
+    return result;
+  },
+
+  async weatherCredit(action, payload) {
+    if (!PB_PLATFORM_V1 || PB_TENANT_SLUG !== 'pickle-street-tugbok' || !['get','issue','email','apply'].includes(action)) throw new Error('Weather credit is unavailable.');
+    if (action !== 'apply' && PB_PAGE_DATA_SCOPE !== 'manager') throw new Error('Sign in to manage weather credits.');
+    const result = await _invokeEdgeFunction(`picklestreet-weather-credit?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`, {
+      ...payload, tenantSlug:PB_TENANT_SLUG, action,
+    }, {preferDirect:true});
+    if (!result?.ok) throw new Error(result?.message || 'Weather credit could not be saved.');
+    _pbClearFastCache(['bookings','platformAvailability']);
     return result;
   },
 

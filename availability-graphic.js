@@ -599,11 +599,11 @@
           </div>
 
           <footer class="prag-footer">
-            <div class="prag-footer-copy">${icon('sparkle')}<span><strong>Freshness protected</strong><small>Download, caption, and share always check the live schedule first.</small></span></div>
+            <div class="prag-footer-copy">${icon('sparkle')}<span><strong>Freshness protected</strong><small>Download, caption, and Facebook publishing always check the live schedule first.</small></span></div>
             <div class="prag-actions">
               <button class="prag-button prag-button-secondary" type="button" data-prag-action="copy">${icon('copy')}<span>Copy caption</span></button>
-              <button class="prag-button prag-button-secondary" type="button" data-prag-action="share" hidden>${icon('share')}<span>Share</span></button>
-              <button class="prag-button prag-button-primary" type="button" data-prag-action="download">${icon('download')}<span>Download PNG</span></button>
+              <button class="prag-button prag-button-secondary" type="button" data-prag-action="download">${icon('download')}<span>Download PNG</span></button>
+              <button class="prag-button prag-button-primary" type="button" data-prag-action="share">${icon('share')}<span>Post to Facebook Page</span></button>
             </div>
           </footer>
         </section>
@@ -632,8 +632,6 @@
     state.overlay.addEventListener('pointerdown', event => {
       if (event.target === state.overlay && !state.busy) close();
     });
-    const shareButton = element('[data-prag-action="share"]');
-    if (shareButton) shareButton.hidden = typeof root.navigator?.share !== 'function';
     return state.overlay;
   }
 
@@ -1440,11 +1438,8 @@
   }
 
   function shareErrorMessage(error) {
-    if (error?.name === 'AbortError') return '';
-    if (error?.name === 'NotAllowedError') {
-      return 'The share sheet could not stay open while live slots refreshed. Use Download PNG, then upload the fresh image to Facebook.';
-    }
-    return text(error?.message) || 'Could not share the post. Use Download PNG, then upload it to Facebook.';
+    if (error?.name === 'AbortError') return 'Facebook took too long to respond. Please try again.';
+    return text(error?.message) || 'Could not publish the Facebook Page post.';
   }
 
   function download() {
@@ -1503,28 +1498,34 @@
   }
 
   function share() {
-    if (typeof root.navigator?.share !== 'function') return;
     return withOutputLock(async () => {
       try {
-        const { items, snapshot } = await prepareOutputSet('share');
-        setBusy(true, 'Opening your share sheet…');
+        const { items, snapshot } = await prepareOutputSet('Facebook Page post');
+        setBusy(true, 'Publishing the image and caption to Facebook…');
         const caption = buildCaption(snapshot, { bookingUrl: state.options.bookingUrl });
-        const files = typeof root.File === 'function'
-          ? items.map(item => new root.File([item.blob], item.name, { type: 'image/png' }))
-          : [];
-        let canAttachEveryPage = files.length === items.length;
-        if (canAttachEveryPage && root.navigator.canShare) {
-          try { canAttachEveryPage = root.navigator.canShare({ files }); } catch (_) { canAttachEveryPage = false; }
+        const sessionResult = await root._supabase?.auth?.getSession?.();
+        const accessToken = sessionResult?.data?.session?.access_token || '';
+        if (!accessToken) throw new Error('Your dashboard session expired. Sign in again before publishing.');
+        const form = new FormData();
+        form.append('caption', caption);
+        form.append('date', snapshot.date);
+        form.append('format', state.format);
+        items.forEach(item => form.append('images', item.blob, item.name));
+        const response = await root.fetch('/api/facebook-page/publish', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}` },
+          body: form,
+        });
+        const raw = await response.text();
+        let result = null;
+        try { result = raw ? JSON.parse(raw) : null; } catch (_) { result = null; }
+        if (!response.ok || result?.ok !== true) {
+          throw new Error(result?.error || 'Facebook could not publish the availability post.');
         }
-        if (!canAttachEveryPage) {
-          notify(`This device cannot attach all ${items.length} image${items.length === 1 ? '' : 's'}. Use Download ${items.length > 1 ? 'PNGs' : 'PNG'}, then upload ${items.length > 1 ? 'the numbered pages' : 'the image'} to Facebook.`, 'notice');
-          return;
-        }
-        await root.navigator.share({ title: 'Pickle Street court availability', text: caption, files });
-        notify('Availability post shared.', 'success');
+        notify(`${items.length > 1 ? `${items.length} graphics and the caption were` : 'The graphic and caption were'} posted to the Pickle Street Facebook Page.`, 'success');
       } catch (error) {
         const message = shareErrorMessage(error);
-        if (message) notify(message, error?.name === 'NotAllowedError' ? 'notice' : 'error');
+        if (message) notify(message, 'error');
       }
     });
   }

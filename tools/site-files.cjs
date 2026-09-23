@@ -7,6 +7,7 @@ module.exports = Object.freeze([
   'admin-group-reschedule.js', 'admin-group-reschedule.css',
   'payment-method-brand.js', 'payment-method-brand.css', 'payment-settings.js', 'payment-settings.css',
   'payment-source-ui.js',
+  'weather-credit.js', 'weather-credit.css',
   'assets/payment-methods/gcash.png', 'assets/payment-methods/bdo-pay.png',
   'assets/payment-methods/maya.png', 'assets/payment-methods/bpi.png',
   'assets/payment-methods/gotyme.png', 'assets/payment-methods/maribank.png',

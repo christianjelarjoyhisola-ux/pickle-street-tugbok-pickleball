@@ -27,6 +27,8 @@
 <link rel="stylesheet" href="payment-method-brand.css?v=20260908-source-methods" />
 <script src="payment-method-brand.js?v=20260908-source-methods"></script>
 <script src="payment-source-ui.js?v=20260917-maya-reference-policy"></script>
+<link rel="stylesheet" href="weather-credit.css?v=20260923-v1" />
+<script src="weather-credit.js?v=20260923-v1"></script>
 <script src="booking-balance.js?v=20260907-pickle-street"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;family=League+Spartan:wght@600;700;800&amp;display=swap" rel="stylesheet" />
 <link href="open-play.css?v=20260801-openplay-fee-settings" rel="stylesheet" />
@@ -4071,6 +4073,15 @@ body.dark #splashScreen {
           </div>
 
           <!-- Selected digital payment destination -->
+          <details class="weather-credit-guest">
+            <summary>Have a weather credit?</summary>
+            <p>Use the email that received your code. Credit covers replacement time on your original court(s), including its booking fee. Extra time is payable separately.</p>
+            <label for="weatherCreditCode">Weather credit code</label>
+            <input id="weatherCreditCode" maxlength="32" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="PS-RAIN-…" />
+            <button id="weatherCreditApply" type="button" class="btn btn-p" onclick="PBWeatherCredit.applyGuest()">Apply credit</button>
+            <p>If credit covers the full booking, applying it confirms your court time immediately.</p>
+            <p id="weatherCreditGuestStatus" role="status" aria-live="polite"></p>
+          </details>
           <div class="gcash bpay-card" id="gcashBox">
             <div class="gc-header">
               <span class="gc-header-icon">📲</span>
@@ -9738,9 +9749,10 @@ function updatePriceLegacy() {
 function updatePrice() {
   const items = uniqueBookingSelections(activeBookingItems());
   const hrs = bookingItemsDuration(items);
-  const courtTotal = bookingItemsCourtFee(items);
-  const svcFee = bookingItemsServiceFee(items);
-  const total = bookingItemsTotal(items);
+  const saved = window.PB_PLATFORM_V1 ? _platformBookingAccess?.booking : null;
+  const courtTotal = Number(saved?.subtotalAmount ?? bookingItemsCourtFee(items));
+  const svcFee = Number(saved?.serviceFeeAmount ?? bookingItemsServiceFee(items));
+  const total = Number(saved?.totalAmount ?? bookingItemsTotal(items));
   const dpAmt = downpaymentAmount(total, courtTotal, svcFee);
   const payAmt = payFull ? total : dpAmt;
 
@@ -10296,6 +10308,7 @@ async function submitBookingLegacy(e) {
 }
 
 async function submitPlatformBooking() {
+  if (window.PBWeatherCreditBusy) return;
   const submitBtn = $('wizNextBtn');
   if (submitBtn?.disabled) return;
   const access = _platformBookingAccess;
@@ -10347,8 +10360,8 @@ async function submitPlatformBooking() {
       duration: activeBookingItems().length > 1 ? bookingItemsDuration() : item.duration,
       bookingItems: activeBookingItems().map(session=>({...session})),
       bookingType: server.bookingType || item.bookingType || bookingMode,
-      total: Number(server.totalAmount || item.total || 0),
-      downpayment: Number(server.totalAmount || item.total || 0),
+      total: Number(server.totalAmount ?? item.total ?? 0),
+      downpayment: Number(server.totalAmount ?? item.total ?? 0),
       paymentMethod: payMethod,
       gcashRef: paymentReference,
       paymentStatus: paymentRejected ? 'rejected' : automaticallyApproved ? 'paid' : 'for_verification',
@@ -12105,6 +12118,29 @@ function platformPolicyContextStillCurrent(consent) {
 function platformPolicyChangedError() {
   const error = new Error('The policy changed. Review the current policy from Payment Method before continuing.');
   error.code='POLICY_CHANGED';return error;
+}
+
+async function applyGuestWeatherCredit(code) {
+  const access = _platformBookingAccess;
+  if (!access?.reference || !access?.bookingToken || platformAccessIsPreliminary(access)) throw new Error('Save your booking details before applying credit.');
+  if (_receiptFile) throw new Error('Apply weather credit before paying or choosing a receipt. If you already paid, contact staff.');
+  const result = await DB.weatherCredit('apply', {bookingReference:access.reference,bookingToken:access.bookingToken,code});
+  if (_platformBookingAccess !== access) throw new Error('Credit was processed for the original booking. Open its status to check the result.');
+  access.booking = {...access.booking,...result};
+  savePlatformRecovery(access);
+  updatePrice();
+  const status = $('weatherCreditGuestStatus');
+  if (status) status.textContent = `${result.minutesUsed} minutes applied, including ${fmt(result.feeCredit)} booking fee credit. ${result.remainingMinutes} minutes remain on your code. Amount to pay: ${fmt(result.totalAmount)}.`;
+  if (result.status === 'confirmed' && result.paymentStatus === 'paid') {
+    savePlatformStatusAccess(access);
+    stopSlotCountdown();
+    closeBookModal();
+    renderPublicBookingStatus(access.reference,access.booking);
+    resetForm({platformSuccess:true});
+    toast(result.emailSent === false ? 'Booking confirmed with weather credit. Email is pending; keep your booking reference.' : 'Booking confirmed with weather credit.');
+    await renderCourts().catch(()=>{});
+  }
+  return result;
 }
 
 async function completePlatformBookingHold(consent = null) {

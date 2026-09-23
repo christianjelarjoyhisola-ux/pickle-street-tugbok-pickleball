@@ -1,0 +1,139 @@
+{
+  "at": "2026-09-23T12:31:28.748Z",
+  "hash": "13b12b8f099a1d3b03cb1d087ce4dbacf15be4a6d9278e473aecd9f1bf4e1a6b",
+  "rolledBack": true,
+  "result": [
+    {
+      "checks": [
+        {
+          "name": "Future confirmation: schedule, customer, prices, audit and retry preserved",
+          "passed": true
+        },
+        {
+          "name": "Underway confirmation: schedule, customer, prices, audit and retry preserved",
+          "passed": true
+        },
+        {
+          "name": "Past confirmation: schedule, customer, prices, audit and retry preserved",
+          "passed": true
+        },
+        {
+          "name": "Expired past confirmation with free original slot: schedule, customer, prices, audit and retry preserved",
+          "passed": true
+        },
+        {
+          "name": "Another reservation blocks late confirmation without changing payment or audit",
+          "passed": true
+        },
+        {
+          "name": "Unauthorized reviewer rejected",
+          "passed": true
+        },
+        {
+          "name": "Stale receipt attempt rejected",
+          "passed": true
+        },
+        {
+          "name": "Guest and direct authenticated access remain denied",
+          "passed": true
+        },
+        {
+          "name": "Group hold: One owner/reference/total; simultaneous courts and nonadjacent hours; one original deadline",
+          "passed": true
+        },
+        {
+          "name": "Group hold: Idempotent retry keeps same reference and deadline",
+          "passed": true
+        },
+        {
+          "name": "Group hold: Changed selection rejected",
+          "passed": true
+        },
+        {
+          "name": "Group hold: Unavailable session rolls back every newly requested slot",
+          "passed": true
+        },
+        {
+          "name": "Group hold: One real customer and policy complete all sessions with same capability",
+          "passed": true
+        },
+        {
+          "name": "Group hold: Other venue origin cannot create a group",
+          "passed": true
+        },
+        {
+          "name": "Group payment: Manual confirmation: one payer/reference/payment, all court sessions confirmed",
+          "passed": true
+        },
+        {
+          "name": "Group payment: Expired grouped hold restores all free sessions atomically on manual confirmation",
+          "passed": true
+        },
+        {
+          "name": "Group payment: Automatic verification: one receipt covers aggregate total and confirms every session",
+          "passed": true
+        },
+        {
+          "name": "Group reschedule: All sessions preserve durations, one reference and payment evidence; retry creates one event",
+          "passed": true
+        },
+        {
+          "name": "Group reschedule: Stale schedule and changed idempotency payload are rejected",
+          "passed": true
+        },
+        {
+          "name": "Group reschedule: Partial reschedule keeps unselected sessions and stable session identities",
+          "passed": true
+        },
+        {
+          "name": "Group reschedule: One email lease for current grouped schedule; older superseded events do not enter the queue",
+          "passed": true
+        },
+        {
+          "name": "Group reschedule: No-op, unauthenticated, unauthorized actor and out-of-tenant booking rejected",
+          "passed": true
+        },
+        {
+          "name": "Group reschedule: Direct edits and internal settlement RPC cannot bypass the protected group request",
+          "passed": true
+        },
+        {
+          "name": "Group reschedule: Same-court session swap reuses existing occupancies atomically",
+          "passed": true
+        },
+        {
+          "name": "Group reschedule: Final preview rejects overlaps between proposed sessions",
+          "passed": true
+        },
+        {
+          "name": "Group reschedule: Stale pricing blocked; promo-aware extra amount; rain preserves paid hours; 15-minute new-slot hold retains all originals",
+          "passed": true
+        },
+        {
+          "name": "Group reschedule: Uncertain additional receipt stays pending; staff confirmation atomically applies all sessions",
+          "passed": true
+        },
+        {
+          "name": "Group reschedule: Unpaid adjustment expiry releases only new holds and preserves original booking",
+          "passed": true
+        },
+        {
+          "name": "Group reschedule: Automatic verified additional payment commits every grouped session and preserves original payment evidence",
+          "passed": true
+        },
+        {
+          "name": "Group reschedule: Cheaper replacement retains original paid amount and clearly quotes no refund",
+          "passed": true
+        },
+        {
+          "name": "Group reschedule: A target claimed after preview rolls back the whole move without releasing original sessions",
+          "passed": true
+        },
+        {
+          "name": "Group reschedule: Weather claim during payment blocks automatic and staff middle-session changes despite unchanged outer dates",
+          "passed": true
+        }
+      ]
+    }
+  ]
+}
