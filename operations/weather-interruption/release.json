@@ -1,0 +1,10 @@
+{
+  "at": "2026-09-23T13:54:12.940Z",
+  "hash": "c4bbd960a6db137dc6eb1a172179ab83f71660d7e6717c1eed04d0515dc6c141",
+  "rolledBack": false,
+  "result": [
+    {
+      "existing_bookings_and_functions_preserved": true
+    }
+  ]
+}

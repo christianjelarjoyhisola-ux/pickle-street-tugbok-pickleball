@@ -27,8 +27,8 @@
 <link rel="stylesheet" href="payment-method-brand.css?v=20260908-source-methods" />
 <script src="payment-method-brand.js?v=20260908-source-methods"></script>
 <script src="payment-source-ui.js?v=20260917-maya-reference-policy"></script>
-<link rel="stylesheet" href="weather-credit.css?v=20260923-v1" />
-<script src="weather-credit.js?v=20260923-v1"></script>
+<link rel="stylesheet" href="weather-credit.css?v=20260923-v2" />
+<script src="weather-credit.js?v=20260923-v2"></script>
 <script src="booking-balance.js?v=20260907-pickle-street"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;family=League+Spartan:wght@600;700;800&amp;display=swap" rel="stylesheet" />
 <link href="open-play.css?v=20260801-openplay-fee-settings" rel="stylesheet" />
@@ -12130,7 +12130,7 @@ async function applyGuestWeatherCredit(code) {
   savePlatformRecovery(access);
   updatePrice();
   const status = $('weatherCreditGuestStatus');
-  if (status) status.textContent = `${result.minutesUsed} minutes applied, including ${fmt(result.feeCredit)} booking fee credit. ${result.remainingMinutes} minutes remain on your code. Amount to pay: ${fmt(result.totalAmount)}.`;
+  if (status) status.textContent = `${Number((result.minutesUsed/60).toFixed(2))} hours applied, including ${fmt(result.feeCredit)} booking fee credit. ${Number((result.remainingMinutes/60).toFixed(2))} hours remain on your code. Amount to pay: ${fmt(result.totalAmount)}.`;
   if (result.status === 'confirmed' && result.paymentStatus === 'paid') {
     savePlatformStatusAccess(access);
     stopSlotCountdown();

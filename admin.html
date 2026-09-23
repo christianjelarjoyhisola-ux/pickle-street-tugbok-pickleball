@@ -2679,8 +2679,9 @@ tr:hover td { background: var(--bg2); }
 <meta name="robots" content="noindex,nofollow">
 <link rel="stylesheet" href="payment-method-brand.css?v=20260908-routes2" />
 <link rel="stylesheet" href="payment-settings.css?v=20260908-routes2" />
-<link rel="stylesheet" href="weather-credit.css?v=20260923-v1" />
-<script src="weather-credit.js?v=20260923-v1"></script>
+<link rel="stylesheet" href="weather-credit.css?v=20260923-v2" />
+<script src="weather-credit.js?v=20260923-v2"></script>
+<script src="weather-interruption.js?v=20260923-v2"></script>
 </head>
 <body class="admin-booting" data-theme="light">
 <div id="adminBootScreen" role="status" aria-live="polite" aria-label="Loading secure dashboard">
@@ -2877,6 +2878,7 @@ tr:hover td { background: var(--bg2); }
           </div>
           <button class="btn btn-g btn-sm booking-export-btn" data-perm="export" onclick="exportCSV()">Export</button>
           <button class="btn btn-sm availability-post-launch" type="button" data-perm="export" onclick="openAvailabilityGraphic()"><span aria-hidden="true">&#10022;</span><span>Availability Post</span></button>
+          <button class="btn btn-sm" type="button" id="weatherInterruptionLaunch" hidden onclick="PBWeatherInterruption.open()">☂ Weather Interruption</button>
           <button class="btn btn-p btn-sm" onclick="openNewBookingModal()">+ New</button>
         </div>
       </div>
@@ -8302,6 +8304,7 @@ async function renderBookings(){
   if (body) body.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:28px">${_bookingStage === 'rain-history' ? 'Loading permanent refund history...' : 'Loading bookings...'}</td></tr>`;
   let bks;
   const reviewWeatherRefunds = canReviewWeatherRefund();
+  if ($('weatherInterruptionLaunch')) $('weatherInterruptionLaunch').hidden = !reviewWeatherRefunds;
   const loadActionablePlayerClaims = reviewWeatherRefunds && _bookingStage !== 'rain-history';
   const weatherRefundPromise = window.PB_PLATFORM_V1 && reviewWeatherRefunds
     ? (typeof DB.listAllWeatherRefunds === 'function'

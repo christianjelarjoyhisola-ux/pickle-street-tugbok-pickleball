@@ -22,7 +22,8 @@ export async function handleRequest(request:Request):Promise<Response>{
   const body=await readJsonObject(request);
   if(body.tenantSlug!==SLUG)throw new RequestError(403,'TENANT_DENIED','This venue is not allowed.');
   const reference=String(body.bookingReference||'').trim().toUpperCase();
-  if(!/^[A-Z0-9][A-Z0-9-]{5,39}$/.test(reference))throw new RequestError(400,'REFERENCE_INVALID','Enter a valid booking reference.');
+  const batch=['preview-batch','issue-batch'].includes(String(body.action));
+  if(!batch&&!/^[A-Z0-9][A-Z0-9-]{5,39}$/.test(reference))throw new RequestError(400,'REFERENCE_INVALID','Enter a valid booking reference.');
   if(body.action==='apply'){
    const token=String(body.bookingToken||'');const code=String(body.code||'').trim().toUpperCase();
    if(!/^[A-Za-z0-9_-]{43}$/.test(token)||!/^PS-RAIN-[A-F0-9]{24}$/.test(code))throw new RequestError(400,'CREDIT_INVALID','Check your private booking link and weather credit code.');
@@ -37,10 +38,20 @@ export async function handleRequest(request:Request):Promise<Response>{
    }
    return jsonResponse(result,200,origin);
   }
-  if(!['get','issue','email'].includes(String(body.action)))throw new RequestError(400,'ACTION_INVALID','Choose a valid credit action.');
+  if(!['get','issue','email','preview-batch','issue-batch'].includes(String(body.action)))throw new RequestError(400,'ACTION_INVALID','Choose a valid credit action.');
   const token=/^Bearer (\S+)$/.exec(request.headers.get('authorization')||'')?.[1];
   if(!token)throw new RequestError(401,'SIGN_IN_REQUIRED','Sign in to manage weather credits.');
   const auth=await db.auth.getUser(token);if(auth.error||!auth.data.user)throw new RequestError(401,'SIGN_IN_REQUIRED','Sign in to manage weather credits.');
+  if(batch){
+   if(!Array.isArray(body.windows)||body.windows.length<1||body.windows.length>48)throw new RequestError(400,'RANGES_INVALID','Select affected court times.');
+   const issue=body.action==='issue-batch';
+   if(issue&&(!/^[a-f0-9-]{36}$/i.test(String(body.batchId))||!Array.isArray(body.references)||body.references.length<1||body.references.length>50||typeof body.snapshot!=='string'))throw new RequestError(400,'BATCH_INVALID','Preview and select up to 50 bookings.');
+   const result=await db.rpc(issue?'issue_picklestreet_weather_interruption':'preview_picklestreet_weather_interruption',{
+    p_actor:auth.data.user.id,p_windows:body.windows,...(issue?{p_id:body.batchId,p_references:body.references,p_snapshot:body.snapshot,p_reason:body.reason}:{})
+   });
+   if(result.error)throw new RequestError(result.error.code==='42501'?403:409,'BATCH_UNAVAILABLE',result.error.message);
+   return jsonResponse(result.data,200,origin);
+  }
   if(body.action==='issue'&&(!Number.isInteger(body.minutes)||Number(body.minutes)<=0))throw new RequestError(400,'MINUTES_INVALID','Enter the unused playing time in whole minutes.');
   const record=await db.rpc('manage_picklestreet_weather_credit',{p_reference:reference,p_actor:auth.data.user.id,p_minutes:body.action==='issue'?body.minutes:null,p_reason:body.reason||'rain'});
   if(record.error)throw new RequestError(record.error.code==='42501'?403:409,'CREDIT_UNAVAILABLE',record.error.message);
@@ -52,11 +63,12 @@ export async function handleRequest(request:Request):Promise<Response>{
    if(claimed.error||!claimed.data?.length)throw Error('Email pending');
    const tenant=await db.from('tenants').select('reply_to_email,contact_email').eq('id',TENANT).single();
    if(tenant.error)throw Error('Email settings unavailable');
-   const code=result.credit.code;const minutes=result.credit.balanceMinutes;
-   const text=`Your Pickle Street weather credit is ready: ${minutes} minutes of replacement court time. Code: ${code}. Book at https://picklestreetcourt.com using ${result.email}, then apply your code before payment. It covers replacement time on your original court(s), including its booking fee. Extra time is payable separately. Unused minutes remain on the code. No account needed. Keep your code private.`;
+   const code=result.credit.code;const hours=Number((result.credit.balanceMinutes/60).toFixed(2));
+   const duration=`${hours} ${hours===1?'hour':'hours'}`;
+   const text=`Your Pickle Street weather credit is ready: ${duration} of replacement court time. Code: ${code}. Book at https://picklestreetcourt.com using ${result.email}, then apply your code before payment. It covers replacement time on your original court(s), including its booking fee. Extra time is payable separately. Unused hours remain on the code. No account needed. Keep your code private.`;
    await sendMailerooEmail({apiKey:env('PICKLESTREET_MAILEROO_API_KEY'),fromAddress:env('PICKLESTREET_MAILEROO_FROM_EMAIL'),fromName:'Pickle Street Tugbok',replyTo:tenant.data.reply_to_email||tenant.data.contact_email,
      to:result.email,subject:'Your Pickle Street weather credit is ready',plainText:text,
-     html:`<div style="font-family:Arial,sans-serif;max-width:540px;margin:auto;padding:28px;color:#173c42"><h1>Another day on court</h1><p>Your weather credit is ready.</p><h2>${minutes} minutes</h2><p style="font-family:monospace;word-break:break-all">${escape(code)}</p><p>${escape(text)}</p><a href="https://picklestreetcourt.com">Choose your replacement time</a></div>`});
+     html:`<div style="font-family:Arial,sans-serif;max-width:540px;margin:auto;padding:28px;color:#173c42"><h1>Another day on court</h1><p>Your weather credit is ready.</p><h2>${duration}</h2><p style="font-family:monospace;word-break:break-all">${escape(code)}</p><p>${escape(text)}</p><a href="https://picklestreetcourt.com">Choose your replacement time</a></div>`});
    const saved=await db.from('picklestreet_weather_credits').update({email_sent_at:new Date().toISOString()}).eq('tenant_id',TENANT).eq('id',result.credit.id);
    if(saved.error)throw Error('Email status unavailable');result.credit.emailSent=true;
   }catch{result.emailPending=true;}
