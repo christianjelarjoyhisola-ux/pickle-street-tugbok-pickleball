@@ -4,7 +4,7 @@
   const hours=m=>`${Number((Number(m)/60).toFixed(2))} ${Number(m)===60?'hour':'hours'}`;
   const clock=v=>new Date(v).toLocaleTimeString('en-PH',{timeZone:'Asia/Manila',hour:'numeric',minute:'2-digit'});
   const today=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-  let el,courts=[],ranges=[],preview=null,request=null,issued=null,busy=false,sequence=0,focus=null;
+  let dayBookings=[],dayKnown=false,el,courts=[],ranges=[],preview=null,request=null,issued=null,busy=false,sequence=0,focus=null;
   const find=s=>el.querySelector(s);
   function message(s){find('[data-wi-message]').textContent=s;}
   function lock(value){busy=value;el.querySelectorAll('button,input,select').forEach(n=>n.disabled=value);if(!value)sync();}
@@ -16,19 +16,19 @@
     el.addEventListener('cancel',e=>{if(busy)e.preventDefault();});
     el.addEventListener('close',()=>{sequence++;focus?.focus?.();if(issued)window.PBWeatherInterruption.renderPage();});document.body.append(el);
   }
-  function rangeLabel(r){return `${esc(courts.find(c=>c.id===r.courtId)?.name||'Court')} · ${esc(r.start.slice(0,10))} · ${esc(clock(r.start))}–${esc(clock(r.end))}`;}
+  function rangeLabel(r){return `${esc(courts.find(c=>c.id===r.courtId)?.name||'Court')} · ${esc(new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(r.start)))} · ${esc(clock(r.start))}–${esc(clock(r.end))}`;}
   function renderForm(){
     find('[data-wi-body]').innerHTML=`<div class="wi-steps"><span class="active">1 · Affected time</span><span>2 · Review bookings</span><span>3 · Issue credits</span></div>
-      <section class="wi-section" data-wi-setup><h3>Where did play stop?</h3><p class="weather-credit-muted">Select courts and time ranges in Philippine time. Only the affected hours are credited.</p>
-      <div class="wi-fields"><label>Date<input type="date" data-wi-date value="${today()}" required></label><label>From<input type="time" data-wi-start value="14:00" step="900" required></label><label>Until<select data-wi-end>${Array.from({length:96},(_,i)=>{const n=i+1,h=Math.floor(n/4),m=n%4*15,v=String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');return `<option value="${v}" ${v==='16:00'?'selected':''}>${h===24?'12:00 AM (next day)':`${h%12||12}:${String(m).padStart(2,'0')} ${h<12?'AM':'PM'}`}</option>`;}).join('')}</select></label></div>
-      <fieldset class="wi-courts"><legend>Affected courts</legend>${courts.map(c=>`<label><input type="checkbox" data-wi-court value="${esc(c.id)}"><span>${esc(c.name)}</span></label>`).join('')}</fieldset>
-      <button type="button" class="wi-secondary" data-wi-add>+ Add time range</button><div class="wi-ranges" data-wi-ranges></div></section>
+      <section class="wi-section" data-wi-setup><h3>Where did play stop?</h3><p class="weather-credit-muted">Select affected court slots in Philippine time. Only booked time lost to weather is credited.</p>
+      <div class="wi-day"><label>Date<input type="date" data-wi-date value="${today()}" required></label><p class="weather-credit-muted">Tap the affected slots. Use “All courts” to select an entire hour.</p></div><div data-wi-grid></div><div class="wi-summary" data-wi-selection role="status"></div>
+      <details class="wi-exact"><summary>Adjust exact time</summary><p class="weather-credit-muted">For part of an hour, remove that selected slot and add the exact affected time below.</p><div class="wi-fields"><label>From<input type="time" data-wi-start value="14:00" step="900" required></label><label>Until<select data-wi-end>${Array.from({length:96},(_,i)=>{const n=i+1,h=Math.floor(n/4),m=n%4*15,v=String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');return `<option value="${v}" ${v==='16:00'?'selected':''}>${h===24?'12:00 AM (next day)':`${h%12||12}:${String(m).padStart(2,'0')} ${h<12?'AM':'PM'}`}</option>`;}).join('')}</select></label></div><fieldset class="wi-courts"><legend>Affected courts</legend>${courts.map(c=>`<label><input type="checkbox" data-wi-court value="${esc(c.id)}"><span>${esc(c.name)}</span></label>`).join('')}</fieldset><button type="button" class="wi-secondary" data-wi-add>+ Add exact time</button></details><details class="wi-exact"><summary>Selected time ranges</summary><div class="wi-ranges" data-wi-ranges></div></details></section>
       <section class="wi-section" data-wi-setup><label class="wi-condition">Weather condition<select data-wi-reason><option value="rain">Rain</option><option value="wet_court">Wet court</option><option value="unsafe_weather">Unsafe weather</option></select></label></section>
       <div data-wi-preview></div><footer class="wi-footer"><p>Original bookings and payments stay on record. Court closures are managed separately under Blocked Dates.</p><button type="button" class="wi-primary" data-wi-preview-button>Preview affected bookings</button></footer>`;
+    find('[data-wi-date]').onchange=()=>{if(find('[data-wi-date]').reportValidity())loadDay();};
     find('[data-wi-add]').onclick=addRange;
     find('[data-wi-preview-button]').onclick=loadPreview;
     find('[data-wi-reason]').onchange=()=>{request=null;};
-    renderRanges();
+    renderRanges();return loadDay();
   }
   function invalidate(){preview=null;request=null;find('[data-wi-preview]').innerHTML='';el.querySelectorAll('[data-wi-setup],.wi-footer').forEach(n=>n.hidden=false);el.querySelectorAll('.wi-steps span').forEach((n,i)=>n.classList.toggle('active',i===0));message('');}
   function addRange(){
@@ -43,8 +43,35 @@
   }
   function renderRanges(){
     find('[data-wi-ranges]').innerHTML=ranges.length?ranges.map((r,i)=>`<div class="wi-range"><span>${rangeLabel(r)}</span><button type="button" data-wi-remove="${i}" aria-label="Remove ${esc(courts.find(c=>c.id===r.courtId)?.name)} time range">×</button></div>`).join(''):'<p class="wi-empty">Add the times affected by this interruption.</p>';
-    el.querySelectorAll('[data-wi-remove]').forEach(n=>n.onclick=()=>{ranges.splice(Number(n.dataset.wiRemove),1);invalidate();renderRanges();});sync();
+    el.querySelectorAll('[data-wi-remove]').forEach(n=>n.onclick=()=>{ranges.splice(Number(n.dataset.wiRemove),1);invalidate();renderRanges();});renderGrid();sync();
   }
+
+  const at=(date,h)=>new Date(new Date(date+'T00:00:00+08:00').getTime()+h*3600000).toISOString();
+  const overlap=(a,b)=>new Date(a.start)<new Date(b.end)&&new Date(a.end)>new Date(b.start);
+  function toggleSlot(existing,slot,remove=false){
+    let next=existing.flatMap(r=>{if(r.courtId!==slot.courtId||!overlap(r,slot))return [r];const pieces=[];if(new Date(r.start)<new Date(slot.start))pieces.push({...r,end:slot.start});if(new Date(r.end)>new Date(slot.end))pieces.push({...r,start:slot.end});return pieces;});
+    if(!remove)next.push(slot);
+    next.sort((a,b)=>a.courtId.localeCompare(b.courtId)||new Date(a.start)-new Date(b.start));
+    const merged=[];for(const r of next){const last=merged[merged.length-1];if(last&&last.courtId===r.courtId&&new Date(last.end)>=new Date(r.start)&&(Math.max(new Date(last.end),new Date(r.end))-new Date(last.start))<=86400000)last.end=new Date(last.end)>new Date(r.end)?last.end:r.end;else merged.push({...r});}return merged;
+  }
+  function selected(slot){return ranges.some(r=>r.courtId===slot.courtId&&new Date(r.start)<=new Date(slot.start)&&new Date(r.end)>=new Date(slot.end));}
+  function affected(slot){const name=courts.find(c=>c.id===slot.courtId)?.name;return dayBookings.filter(b=>b.sessions.some(s=>s.court===name&&overlap(s,slot)));}
+  function renderGrid(){
+    const container=find('[data-wi-grid]');if(!container)return;const date=find('[data-wi-date]').value;if(!date)return;
+    const label=h=>h===24?'12 AM':(h%12||12)+' '+(h<12?'AM':'PM');
+    container.innerHTML='<div class="wi-slot-scroll"><table class="wi-slot-table"><thead><tr><th scope="col">Time</th>'+courts.map(c=>'<th scope="col">'+esc(c.name)+'</th>').join('')+'<th scope="col">All courts</th></tr></thead><tbody>'+Array.from({length:24},(_,h)=>'<tr><th scope="row">'+label(h)+'–'+label(h+1)+'</th>'+courts.map((c,i)=>{const slot={courtId:c.id,start:at(date,h),end:at(date,h+1)},on=selected(slot),partial=!on&&ranges.some(r=>r.courtId===c.id&&overlap(r,slot)),count=affected(slot).length;return '<td><button type="button" class="wi-slot" data-wi-slot="'+i+','+h+'" aria-pressed="'+on+'" aria-label="'+esc(c.name)+' '+label(h)+' to '+label(h+1)+(partial?', partly selected':'')+'"><strong>'+(on?'✓ Selected':partial?'Part selected':'Select')+'</strong><small>'+(dayKnown?(count?count+' booking'+(count===1?'':'s'):'No bookings'):'Count unavailable')+'</small></button></td>';}).join('')+'<td><button type="button" class="wi-hour" data-wi-hour="'+h+'">'+(courts.every(c=>selected({courtId:c.id,start:at(date,h),end:at(date,h+1)}))?'Clear':'Select all')+'</button></td></tr>').join('')+'</tbody></table></div><p class="weather-credit-muted">Booking counts are a snapshot. Final eligibility and credited hours are checked at review.</p>';
+    function change(slots){const remove=slots.every(selected);let next=ranges;for(const slot of slots)next=toggleSlot(next,slot,remove);if(next.length>48){message('Use up to 48 separate court time ranges.');return;}if(next.length&&(Math.max(...next.map(r=>new Date(r.end)))-Math.min(...next.map(r=>new Date(r.start))))>172800000){message('Select times within one two-day interruption.');return;}ranges=next;const active=document.activeElement,focusSlot=active?.dataset.wiSlot,focusHour=active?.dataset.wiHour;const scroll=container.querySelector('.wi-slot-scroll').scrollTop;invalidate();renderRanges();container.querySelector('.wi-slot-scroll').scrollTop=scroll;const button=focusSlot!==undefined?container.querySelector('[data-wi-slot="'+focusSlot+'"]'):container.querySelector('[data-wi-hour="'+focusHour+'"]');button?.focus({preventScroll:true});}
+    container.querySelectorAll('[data-wi-slot]').forEach(b=>b.onclick=()=>{const [i,h]=b.dataset.wiSlot.split(',').map(Number);change([{courtId:courts[i].id,start:at(date,h),end:at(date,h+1)}]);});
+    container.querySelectorAll('[data-wi-hour]').forEach(b=>b.onclick=()=>{const h=Number(b.dataset.wiHour);change(courts.map(c=>({courtId:c.id,start:at(date,h),end:at(date,h+1)})));});
+    const minutes=ranges.reduce((sum,r)=>sum+(new Date(r.end)-new Date(r.start))/60000,0),refs=new Set(ranges.flatMap(affected).map(b=>b.reference));
+    find('[data-wi-selection]').textContent=hours(minutes)+' of court time selected'+(dayKnown?' · '+refs.size+' booking'+(refs.size===1?'':'s')+' affected on this date':'');
+  }
+  async function loadDay(){
+    const date=find('[data-wi-date]').value,seq=sequence;dayKnown=false;dayBookings=[];renderGrid();lock(true);message('Loading booked slots…');
+    try{const result=await window.DB.weatherCredit('preview-batch',{windows:courts.map(c=>({courtId:c.id,start:at(date,0),end:at(date,24)}))});if(seq!==sequence)return;dayBookings=result.bookings;dayKnown=true;renderGrid();message('Select the slots affected by weather.');const scroller=find('.wi-slot-scroll');if(scroller)scroller.scrollTop=6*66;}
+    catch(e){message('Booking counts are unavailable. You can select times and retry at review.');}finally{lock(false);}
+  }
+  window.PBWeatherSlots={toggleSlot,at};
   function sync(){
     if(busy)return;
     const p=find('[data-wi-preview-button]');if(p)p.disabled=!ranges.length;
@@ -81,7 +108,7 @@
     }
     lock(true);message('Issuing selected credits. Please keep this window open…');
     try{const r=await window.DB.weatherCredit('issue-batch',request);issued=r.bookings.map(b=>({...b,delivery:b.credit.emailSent?'sent':'pending'}));renderResult();await deliver();}
-    catch(e){find('[data-wi-body]').innerHTML=`<section class="wi-section"><h3>Check this batch before continuing</h3><p>${esc(e.message||'The response was interrupted.')}</p><p>Retry checks the same request and will not issue duplicate credits.</p><button type="button" class="wi-primary" data-wi-retry>Check / retry batch</button> <button type="button" class="wi-secondary" data-wi-refresh>Refresh preview</button></section>`;find('[data-wi-retry]').onclick=issue;find('[data-wi-refresh]').onclick=()=>{request=null;renderForm();loadPreview();};message('No new batch will be created by retrying.');}
+    catch(e){find('[data-wi-body]').innerHTML=`<section class="wi-section"><h3>Check this batch before continuing</h3><p>${esc(e.message||'The response was interrupted.')}</p><p>Retry checks the same request and will not issue duplicate credits.</p><button type="button" class="wi-primary" data-wi-retry>Check / retry batch</button> <button type="button" class="wi-secondary" data-wi-refresh>Refresh preview</button></section>`;find('[data-wi-retry]').onclick=issue;find('[data-wi-refresh]').onclick=async()=>{request=null;await renderForm();loadPreview();};message('No new batch will be created by retrying.');}
     finally{lock(false);}
   }
   function renderResult(){
