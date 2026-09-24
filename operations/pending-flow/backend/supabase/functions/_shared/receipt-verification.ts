@@ -1,3 +1,4 @@
+import { googleVisionLayoutText } from "./receipt-layout.ts";
 import { RequestError } from "./http.ts";
 import { normalizeTenantSlug } from "./tenant.ts";
 import { Temporal } from "@js-temporal/polyfill";
@@ -44,6 +45,7 @@ export type InspectedReceiptImage = {
 
 export type VisionTextResult = {
   text: string;
+  layoutText?: string;
   confidence: number | null;
 };
 
@@ -470,7 +472,8 @@ export async function detectReceiptText(options: {
     : "";
   // OCR text stays in memory only and is bounded before any parsing.
   const text = textValue.slice(0, 100_000);
-  return { text, confidence: averageVisionConfidence(fullText) };
+  const layoutText = googleVisionLayoutText(fullText);
+  return { text, layoutText: layoutText && layoutText !== text ? layoutText.slice(0, 100_000) : undefined, confidence: averageVisionConfidence(fullText) };
 }
 
 function extractAmounts(text: string): number[] {

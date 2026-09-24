@@ -1,3 +1,4 @@
+import { recoverReceiptReading } from "./ocr-recovery.ts";
 import {duplicateRejectionReason,sendDuplicateRejectionEmail} from './duplicate-rejection.ts';
 import { createClient } from "@supabase/supabase-js";
 import { errorResponse,jsonResponse,readJsonObject,RequestError } from "../_shared/http.ts";
@@ -172,22 +173,11 @@ async function analyzeReceipt(db:DB,job:Obj,bytes:Uint8Array,type:string):Promis
       payment:{paymentMethod:job.paymentMethod,submittedReference:job.submittedReference,receiverName:context.receiver.account_name,receiverReference:context.receiver.account_reference,autoApprovalEnabled:context.config.bookingApprovalMode!=='manual'},
       timing:{bookingStartedAt:job.bookingStartedAt,tenantTimezone:job.tenantTimezone}};
     let result=context.route ? verifySourceRoute({...input,route:context.route}) : verifyByMethod(input);
-    // Dense GCash screenshots can occasionally lose one prominent amount in
-    // document-layout OCR. Retry with Google's independent sparse-text mode,
-    // but use it only when that complete second result passes every existing
-    // verification rule. Never merge partial evidence between OCR passes.
-    if(
-      String(job.paymentMethod||'').toLowerCase()==='gcash' &&
-      result.flags.includes('amount_confirmation_unreadable')
-    ){
-      const alternateVision=await detectReceiptText({bytes,apiKey,feature:'TEXT_DETECTION'});
-      const alternateInput={...input,vision:alternateVision};
-      const alternate=context.route ? verifySourceRoute({...alternateInput,route:context.route}) : verifyByMethod(alternateInput);
-      if(alternate.autoApprove){
-        (alternate.extractedData as Obj).ocrFallbackReason='GCash amount rows confirmed by a second text-reading pass';
-        result=alternate;
-      }
-    }
+    result=await recoverReceiptReading({
+      primary:result,vision,method:job.paymentMethod,
+      verify:(candidate)=>context.route ? verifySourceRoute({...input,vision:candidate,route:context.route}) : verifyByMethod({...input,vision:candidate}),
+      retry:()=>detectReceiptText({bytes,apiKey,feature:'TEXT_DETECTION'}),
+    });
     extracted=result.extractedData;flags=result.flags;paymentReference=result.paymentReference;confidence=result.extractedData.confidence.effective;autoApprove=result.autoApprove;
   } catch(error){errorCode=error instanceof RequestError?error.code.toLowerCase():'verifier_unavailable';flags=['verification_unavailable'];}
   return {extracted,flags,paymentReference,confidence,autoApprove,errorCode,receiverSnapshot};

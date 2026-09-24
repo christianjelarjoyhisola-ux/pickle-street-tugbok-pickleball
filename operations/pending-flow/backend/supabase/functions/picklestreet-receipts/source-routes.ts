@@ -209,12 +209,6 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
     const normalized = flag(value);
     if (!flags.includes(normalized)) flags.push(normalized);
   };
-  const remove = (...values: string[]) => {
-    for (const value of values) {
-      const index = flags.indexOf(flag(value));
-      if (index >= 0) flags.splice(index, 1);
-    }
-  };
   const source = canonicalSourceProvider(input.route?.sourceProvider);
   const paymentSource = canonicalSourceProvider(input.payment?.paymentMethod);
   const expected = Number(input.expectedAmount);
@@ -257,7 +251,8 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
   ) add("receipt_image_unverified");
   if (
     !/^9\d{9}$/.test(phone(input.payment?.receiverReference || "")) ||
-    !String(input.payment?.receiverName || "").trim()
+    !String(input.payment?.receiverName || "").trim() ||
+    /[*•●·…]|\.{2,}/.test(String(input.payment?.receiverName || ""))
   ) add("receiving_account_unconfigured");
   const alias = String(input.route?.gcashQrAlias || "").trim();
   const token = String(input.route?.gcashQrToken || "").trim();
@@ -312,7 +307,6 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
   let amountMatched = false;
   let withinWindow = false;
   let ageMinutes: number | null = null;
-  let mayaReferenceOnlyPolicy = false;
   if (source) {
     try {
       let parsed = parseProviderReceipt(source, text, {
@@ -341,7 +335,7 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
         expectedRecipientName: source === "bpi"
           ? alias
           : String(input.payment?.receiverName || ""),
-        expectedRecipientAccount: source === "bpi"
+        expectedRecipientAccount: source === "bpi" || (source === "maribank" && !!token)
           ? token
           : String(input.payment?.receiverReference || ""),
         bookingStartedAt: input.timing?.bookingStartedAt,
@@ -464,38 +458,8 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
       }
       if (!receiptAt) add("receipt_datetime_unverified");
       else if (!withinWindow) add("payment_window_expired");
-      // Maya's current native Transaction details screen omits a transaction
-      // date/time. By explicit venue policy, accept Completed or Processing
-      // only when all stable receipt identity fields match. Durable database
-      // reference claims still make the typed/OCR Reference ID single-use.
-      if (
-        parsed.provider === "maya" &&
-        parsed.receipt.indicators.nativeWalletLayout &&
-        parsed.receipt.timestamp.completeness === "missing" &&
-        !parsed.receipt.indicators.failureStatus &&
-        (parsed.receipt.indicators.completionScreen ||
-          parsed.receipt.indicators.pendingStatus) &&
-        (parsed.receipt.recipient.phoneNormalized !== null ||
-          parsed.receipt.indicators.instaPay) &&
-        route.sourceMatched && route.destinationMatched &&
-        route.recipientMatched && route.referenceMatched && amountMatched
-      ) {
-        mayaReferenceOnlyPolicy = true;
-        route.mayaReferenceOnlyPolicy = true;
-        route.mayaStatus = parsed.receipt.indicators.pendingStatus
-          ? "processing"
-          : "completed";
-        remove(
-          "date_unreadable",
-          "time_unreadable",
-          "receipt_datetime_unverified",
-          "maya_provider_confirmation_required",
-          "transaction_not_successful",
-          "transfer_pending",
-          "transfer_status_unreadable",
-          "transaction_success_unverified",
-        );
-      }
+      // Missing transaction time or a Processing screen never proves settlement.
+      // Retain provider flags and send these receipts for staff review.
       // Dedicated provider evidence above is authoritative for receipt fields.
       // In particular, GCash requires matching Amount/Total Amount Sent displays
       // and a full receiving number with a compatible visible name. A second
@@ -509,11 +473,11 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
   const evidence = [
     route.sourceMatched,
     route.destinationMatched,
-    route.successMatched || mayaReferenceOnlyPolicy,
+    route.successMatched,
     route.recipientMatched,
     route.referenceMatched,
     amountMatched,
-    withinWindow || mayaReferenceOnlyPolicy,
+    withinWindow,
   ]
     .filter(Boolean).length / 7;
   const effective = nativeConfidence === null

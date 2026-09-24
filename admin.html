@@ -13095,7 +13095,16 @@ async function savePlatformActivationSettings() {
   const savedEmail = _platformActivation?.tenant;
   const emailSettingsChanged = !savedEmail || emailEnabled !== (savedEmail.emailEnabled === true) ||
     replyToEmail.toLowerCase() !== String(savedEmail.replyToEmail || '').trim().toLowerCase();
-  const paymentMethods = collectPlatformPaymentMethods();
+  let paymentMethods;
+  try {
+    paymentMethods = collectPlatformPaymentMethods();
+  } catch (error) {
+    const message = error?.message || 'Check the receiving account details.';
+    setSaveStatus(message);
+    toast(message, 'err');
+    document.querySelector('[data-code="gcash"] .platform-method-account-name')?.focus();
+    return;
+  }
   if (emailSettingsChanged && emailEnabled && !replyToEmail) {
     setSaveStatus('Enter the court Reply-To email before enabling booking emails.');
     toast('Enter the court Reply-To email before enabling booking emails.', 'err');

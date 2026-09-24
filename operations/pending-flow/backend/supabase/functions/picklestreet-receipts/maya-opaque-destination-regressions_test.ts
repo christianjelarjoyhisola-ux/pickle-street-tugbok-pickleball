@@ -60,10 +60,11 @@ function fixture(status: "Processing" | "Completed" = "Processing"): SourceRoute
 }
 
 for (const status of ["Processing", "Completed"] as const) {
-  Deno.test(`Maya ${status} accepts a masked recipient and opaque destination account`, () => {
+  Deno.test(`Maya ${status} retains recipient evidence but needs completed dated proof`, () => {
     const result = verifySourceRoute(fixture(status));
-    assert.equal(result.autoApprove, true, JSON.stringify(result.flags));
-    assert.deepEqual(result.flags, ["auto_approval_eligible"]);
+    assert.equal(result.autoApprove, false, JSON.stringify(result.flags));
+    assert.ok(result.flags.includes("receipt_datetime_unverified"));
+    if (status === "Processing") assert.ok(result.flags.includes("transaction_not_successful"));
     assert.equal(result.paymentReference, "D3D1BB09FEE9");
     assert.equal(result.extractedData.comparison.amountMatched, true);
     assert.equal(result.extractedData.detected.route.recipientMatched, true);
@@ -73,7 +74,7 @@ for (const status of ["Processing", "Completed"] as const) {
     );
     assert.equal(
       result.extractedData.detected.route.mayaStatus,
-      status.toLowerCase(),
+      undefined,
     );
   });
 }
@@ -82,7 +83,7 @@ Deno.test("Maya transaction fee is not treated as the booking principal", () => 
   const input = fixture();
   input.vision.text = receipt("Processing", "999.00");
   const result = verifySourceRoute(input);
-  assert.equal(result.autoApprove, true, JSON.stringify(result.flags));
+  assert.equal(result.autoApprove, false, JSON.stringify(result.flags));
   assert.deepEqual(result.extractedData.detected.amounts, [1270]);
   assert.equal(result.extractedData.comparison.amountMatched, true);
 });

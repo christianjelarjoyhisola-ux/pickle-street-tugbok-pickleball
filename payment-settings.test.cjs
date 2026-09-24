@@ -2,6 +2,12 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const context={};context.window=context;vm.createContext(context);vm.runInContext(fs.readFileSync('payment-settings.js','utf8'),context);
 const api=context.PBPaymentSettings;
+test('masked expected recipient names are rejected before saving',()=>{
+  for (const accountName of ['MA****A S. C.','MA••••A S. C.','MA....A S. C.']) {
+    assert.throws(()=>api.collect(api.methods([]),form(['gcash'],{accountName,accountReference:'09171234567'})),/full receiving account name/);
+  }
+  assert.doesNotThrow(()=>api.collect(api.methods([]),form(['gcash'],{accountName:'MARIANA SANTOS CRUZ',accountReference:'09171234567'})));
+});
 function form(selected,shared,pnb={},maya={}) {
   const row=(code,data)=>({dataset:{code},querySelector(selector){const keys={'.platform-method-account-name':'accountName','.platform-method-account-reference':'accountReference','.platform-method-qr-url':'qrImageUrl','.platform-method-instructions':'instructions'};return {value:data[keys[selector]]||''};}});
   const rows=[row('gcash',shared),row('pnb',pnb),row('maya',maya)];

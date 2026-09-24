@@ -533,9 +533,9 @@ function validRecipientAccount(value: string): boolean {
     /\d/.test(value);
 }
 
-function parseRecipient(lines: string[]): BankReceiptRecipient {
+function parseRecipient(lines: string[], strictDestination = false): BankReceiptRecipient {
   const anchor =
-    /^(?:recipient|receiver|beneficiary|sent\s+to|to|destination)(?:\s+(?:name|account))?\s*[:\-–—]?\s*(.*)$/i;
+    /^(?:recipient|receiver|beneficiary|sent\s+to|to|destination)\b(?:\s+(?:name|account))?\s*[:\-–—]?\s*(.*)$/i;
   let lineIndex: number | null = null;
   let inline = "";
   for (let index = 0; index < lines.length; index++) {
@@ -546,14 +546,14 @@ function parseRecipient(lines: string[]): BankReceiptRecipient {
     break;
   }
   const start = lineIndex ?? 0;
-  const block = lines.slice(start, Math.min(lines.length, start + 5));
+  const block = strictDestination && lineIndex === null ? [] : lines.slice(start, Math.min(lines.length, start + 5));
   // Vision sometimes reads GoTyme's two-column labels first and their values
   // afterward. The destination block still keeps the recipient name and
   // masked mobile beside GCash, so use it as a bounded fallback.
   const destinationIndex = lines.findIndex((line) =>
     /\bgcash\b|\bg-?xchange\b|\bgxi\b/i.test(line)
   );
-  const destinationBlock = destinationIndex >= 0
+  const destinationBlock = !strictDestination && destinationIndex >= 0
     ? lines.slice(Math.max(0, destinationIndex - 5), destinationIndex + 1)
     : [];
   const evidenceLines = [...new Set([...block, ...destinationBlock])];
@@ -598,15 +598,16 @@ function parseRecipient(lines: string[]): BankReceiptRecipient {
       /[•●·.*xX]{2,}.*\d{4}\b/.test(line)
     ) || expandedMaskedPhone?.raw || fullPhone || null;
   let accountTokenRaw: string | null = null;
-  for (let index = 0; index < lines.length; index++) {
-    const match = lines[index].match(
+  const accountLines = strictDestination ? evidenceLines : lines;
+  for (let index = 0; index < accountLines.length; index++) {
+    const match = accountLines[index].match(
       /^(?:acct|account)\s*(?:number|no\.?|#)\s*[:\-–—]?\s*(.*)$/i,
     );
     if (!match) continue;
     const inlineAccount = String(match[1] || "").trim();
     const candidates = inlineAccount
       ? [inlineAccount]
-      : [lines[index + 1] || ""];
+      : [accountLines[index + 1] || ""];
     for (const candidate of candidates) {
       const normalized = normalizeRecipientAccount(candidate);
       if (
@@ -641,7 +642,7 @@ function parseRecipient(lines: string[]): BankReceiptRecipient {
       value.length >= 2 &&
       value !== expandedMaskedPhone?.raw.trim() &&
       !structuralLine.test(value) &&
-      !/\b(?:gcash|g-?xchange|insta\s*pay|account|mobile|number|successful|amount|php|₱)\b/i
+      !/\b(?:gcash|g-?xchange|insta\s*pay|account|acct|mobile|number|successful|amount|fee|reference|processing|realtime|php|₱)\b/i
         .test(value) &&
       !/\d{4}/.test(value)
     );
@@ -787,7 +788,7 @@ export function parseBankToGcashReceipt(
     }
   }
   const timestamp = parseTimestamp(lines);
-  const recipient = parseRecipient(lines);
+  const recipient = parseRecipient(lines, config.provider === "maribank");
   const issues: string[] = [];
   if (primary.ambiguous) issues.push("AMBIGUOUS_REFERENCE");
   if (!primary.field.value) issues.push("REFERENCE_MISSING");

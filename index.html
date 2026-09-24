@@ -3957,6 +3957,7 @@ body.dark #splashScreen {
             <span class="bpay-title-amount"><span>Amount to pay</span><strong id="bStepPayAmtMethod">--</strong></span>
           </div>
           <div class="fg bpay-method-block" id="payMethodBlock">
+            <p class="bpay-note">Choose the app you sent money from, even when the recipient is GCash. Upload completed transaction details showing the recipient, amount, reference, and payment date and time.</p>
             <div class="pay-opts pay-opts-4 bpay-methods">
               <div class="pay-opt" id="payOptGcash" data-m="gcash" onclick="pickPay('gcash')">
                 <div class="pay-ic">📲</div>
@@ -11769,7 +11770,7 @@ function renderBalancePayment(balance) {
     ${active ? `
       <div class="balance-pay-section">
         <h3 class="balance-pay-step"><span class="balance-step-number">1</span><span>${correction ? 'Choose the method used for your payment' : `Send the exact ${adjustment?'additional':'remaining'} amount`}</span></h3>
-        <label class="fl" for="balancePayMethod">Payment method</label>
+        <label class="fl" for="balancePayMethod">App you sent money from</label>
         <select class="fi" id="balancePayMethod" onchange="updateBalancePaymentMethod()">
           ${methods.map(method => `<option value="${esc(method.code)}">${esc(window.PaymentSourceUI.label(method.code,method.displayName))}</option>`).join('')}
         </select>

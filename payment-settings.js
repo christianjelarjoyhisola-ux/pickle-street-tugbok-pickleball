@@ -16,7 +16,7 @@
   const defaults = {
     gcash:'Send the full booking amount to the GCash recipient shown. Upload your completed receipt and its reference number.',
     bdo_pay:'Pay from BDO Pay to the GCash recipient shown. Upload the completed receipt and enter its reference number.',
-    maya:'In Maya, use Bank Transfer to GCash. Enter the Reference ID and upload the full Transaction details screen. Completed or Processing can auto-verify when the recipient, amount, and Reference ID match. Each Reference ID can be used only once.',
+    maya:'In Maya, use Bank Transfer to GCash. Enter the Reference ID and upload the full Transaction details screen. Processing receipts stay pending. Use completed transaction details showing the recipient, amount, reference, and transaction date and time. Each Reference ID can be used only once.',
     bpi:'Pay from BPI to the GCash recipient shown. Upload the completed receipt and enter its confirmation reference.',
     gotyme:'Send from GoTyme to the GCash recipient shown. Upload the completed receipt and enter its GoTyme reference.',
     maribank:'Send from MariBank to the GCash recipient shown. Upload the completed receipt and enter its transaction reference.',
@@ -54,7 +54,7 @@
     const prefix = 'payment-account-'+method.code;
     return `<div class="ps-payment-fields">
       <div class="fg"><label class="fl" for="${prefix}-number">${esc(name)} ${method.code==='gcash'?'number':'account number'}</label><input class="fi platform-method-account-reference" id="${prefix}-number" maxlength="120" value="${esc(method.accountReference)}" autocomplete="off" placeholder="${method.code==='gcash'?'09XX XXX XXXX':'Receiving account number'}" /></div>
-      <div class="fg"><label class="fl" for="${prefix}-name">Account name</label><input class="fi platform-method-account-name" id="${prefix}-name" maxlength="120" value="${esc(method.accountName)}" autocomplete="off" placeholder="Exact receiving account name" /></div>
+      <div class="fg"><label class="fl" for="${prefix}-name">Account name</label><input class="fi platform-method-account-name" id="${prefix}-name" maxlength="120" value="${esc(method.accountName)}" autocomplete="off" placeholder="Full receiving account name, without masking" /></div>
       </div>${qr(method,name)}`;
   }
   function render(items, receipt = {}) {
@@ -81,6 +81,7 @@
       accountReference:row?.querySelector('.platform-method-account-reference')?.value.trim() || '',
       qrImageUrl:row?.querySelector('.platform-method-qr-url')?.value.trim() || ''});
     const shared = rowValues(form.querySelector('[data-code="gcash"].platform-payment-method'));
+    if (/[*•●·…]|\.{2,}/.test(shared.accountName)) throw new Error('Enter the full receiving account name, without stars or masking dots.');
     const selected = new Map([...form.querySelectorAll('.platform-method-active')].map(input=>[input.dataset.code,input.checked]));
     return items.filter(method=>method.code!=='cash').map((method,index)=>{
       const row = [...form.querySelectorAll('.platform-payment-method')].find(r=>r.dataset.code===method.code);

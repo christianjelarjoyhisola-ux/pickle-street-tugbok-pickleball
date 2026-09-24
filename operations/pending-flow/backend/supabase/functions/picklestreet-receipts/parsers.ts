@@ -41,6 +41,9 @@ export function verifyByMethod(input:Input):Result {
 }
 export function publicPendingReason(flags:string[],errorCode=''):string {
   const all=[...flags,errorCode].join(' ').toLowerCase();
+  if(/transaction_not_successful|transfer_pending/.test(all)) return 'Pending — this transfer is still processing or was not completed. Upload the completed transaction details when available.';
+  if(/payment_source_mismatch|payment_source_unverified/.test(all)) return 'Pending — choose the app you sent money from, even if you paid a GCash recipient, and upload that app’s completed receipt.';
+  if(/receiving_account_unconfigured/.test(all)) return 'Pending — the venue needs to check its receiving account settings. Your receipt is saved.';
   if(/maya_provider_confirmation_required/.test(all)) return 'Pending — Maya does not show a transaction date and time on this receipt screen, so staff must confirm it.';
   if(/duplicate|reference_used|already_used/.test(all)) return 'Pending — this receipt or transaction reference may already be in use. Contact the venue to resolve it.';
   if(/slot|hold|availability|court|booking_not_eligible/.test(all)) return 'Pending — the court time needs an availability check before confirmation. Contact the venue if your original time is unavailable.';

@@ -574,7 +574,7 @@ Deno.test("Maya requires the GCash destination, account and both receipt referen
  }
 });
 
-Deno.test("current native Maya completed screen uses the venue reference-only policy", () => {
+Deno.test("native Maya completed screen without transaction time requires review", () => {
   const f = fixture("maya");
   f.expectedAmount = 2130;
   f.payment.receiverName = "DANIELO JR A.";
@@ -601,8 +601,8 @@ Reference ID
 AB6140BDAIFF
 maya`;
   const r = verifySourceRoute(f);
-  assert.equal(r.autoApprove, true, JSON.stringify(r.flags));
-  assert.deepEqual(r.flags, ["auto_approval_eligible"]);
+  assert.equal(r.autoApprove, false, JSON.stringify(r.flags));
+  assert.ok(r.flags.includes("receipt_datetime_unverified"));
   assert.equal(r.paymentReference, "AB6140BDAIFF");
   assert.equal(r.extractedData.comparison.amountMatched, true);
   assert.equal(r.extractedData.detected.route.sourceMatched, true);
@@ -615,14 +615,14 @@ maya`;
   assert.equal(r.extractedData.detected.route.recipientMatched, true);
   assert.equal(r.extractedData.detected.route.referenceMatched, true);
   assert.equal(r.extractedData.detected.route.successMatched, true);
-  assert.equal(r.extractedData.detected.route.mayaReferenceOnlyPolicy, true);
-  assert.equal(r.extractedData.detected.route.mayaStatus, "completed");
+  assert.equal(r.extractedData.detected.route.mayaReferenceOnlyPolicy, undefined);
+  assert.equal(r.extractedData.detected.route.mayaStatus, undefined);
   assert.deepEqual(r.extractedData.detected.route.secondaryReferences, []);
   assert.equal(r.extractedData.timing.receiptDateTime, null);
   assert.equal(r.extractedData.timing.withinWindow, false);
 });
 
-Deno.test("current native Maya Processing screen auto-verifies matching single-use reference evidence", () => {
+Deno.test("native Maya Processing screen stays pending despite matching reference", () => {
   const f = fixture("maya");
   f.expectedAmount = 1270;
   f.payment.receiverName = "Renielo Vhal Apari";
@@ -653,11 +653,11 @@ Reference ID
 769cd5aa7d92
 maya`;
   const r = verifySourceRoute(f);
-  assert.equal(r.autoApprove, true, JSON.stringify(r.flags));
-  assert.deepEqual(r.flags, ["auto_approval_eligible"]);
+  assert.equal(r.autoApprove, false, JSON.stringify(r.flags));
+  assert.ok(r.flags.includes("receipt_datetime_unverified"));
   assert.equal(r.paymentReference, "769CD5AA7D92");
-  assert.equal(r.extractedData.detected.route.mayaReferenceOnlyPolicy, true);
-  assert.equal(r.extractedData.detected.route.mayaStatus, "processing");
+  assert.equal(r.extractedData.detected.route.mayaReferenceOnlyPolicy, undefined);
+  assert.equal(r.extractedData.detected.route.mayaStatus, undefined);
   assert.equal(r.extractedData.detected.route.successMatched, false);
   assert.equal(r.extractedData.detected.route.recipientMatched, true);
   assert.equal(r.extractedData.detected.route.referenceMatched, true);
