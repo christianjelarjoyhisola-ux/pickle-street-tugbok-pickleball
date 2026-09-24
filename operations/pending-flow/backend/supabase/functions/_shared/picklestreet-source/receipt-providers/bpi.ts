@@ -1,3 +1,4 @@
+import { normalizeGcashMobile } from "../gcash-receipt.ts";
 import {
   extractReceiptAmount,
   type ReceiptAmountExtraction,
@@ -29,6 +30,7 @@ export type BpiRecipientField = {
   labelNormalized: string | null;
   accountRaw: string | null;
   accountSuffix: string | null;
+  fullPhone: string | null;
   lineIndex: number | null;
 };
 
@@ -48,6 +50,7 @@ export type BpiReceiptParse = {
     destinationGcash: boolean;
     instaPay: boolean;
     qrCodeRecipient: boolean;
+    directTransfer: boolean;
     gmtPlus8: boolean;
   };
   issues: string[];
@@ -179,7 +182,7 @@ function validDateParts(year: number, month: number, day: number): boolean {
 
 function parseTimestamp(lines: string[]): BankReceiptTimestamp {
   const pattern =
-    /\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)?\s*,?\s*(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2}),?\s+(\d{4})\s*,?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)\b/i;
+    /\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)?\s*,?\s*(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2}),?\s+(\d{4})\s*[,;]?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)\b/i;
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
     const match = lines[lineIndex].match(pattern);
     if (!match) continue;
@@ -255,6 +258,7 @@ function parseRecipient(lines: string[]): BpiRecipientField {
       labelNormalized: null,
       accountRaw: null,
       accountSuffix: null,
+      fullPhone: null,
       lineIndex: null,
     };
   }
@@ -268,13 +272,16 @@ function parseRecipient(lines: string[]): BpiRecipientField {
     block.slice(labelIndex + 1).find((line) =>
       /(?:[*xX]{3,}|X{3,})[A-Z0-9]{2,6}$/i.test(line.replace(/\s/g, ""))
     ) || null;
+  const phoneLine = block.slice(labelIndex + 1).find(line => /^(?:0|\+?63)[ -]*9(?:[ -]*\d){9}$/.test(line.trim()));
+  const fullPhone = phoneLine ? normalizeGcashMobile(phoneLine) : null;
   const compactAccount = accountRaw?.replace(/\s/g, "") || "";
   const suffix = compactAccount.replace(/^[*xX]+/, "").toUpperCase() || null;
   return {
     labelRaw,
     labelNormalized: labelRaw ? normalizeBpiRecipientLabel(labelRaw) : null,
-    accountRaw,
+    accountRaw: fullPhone ? phoneLine! : accountRaw,
     accountSuffix: suffix,
+    fullPhone,
     lineIndex: labelRaw ? transferIndex + 1 + labelIndex : null,
   };
 }
@@ -398,6 +405,7 @@ export function parseBpiToGcashReceipt(
       transferSuccess: /\btransfer\s+successful!?\b/i.test(text),
       destinationGcash: /\bgcash\s*\/\s*g-?xchange\b/i.test(text),
       instaPay: /\binsta\s*pay\b/i.test(text),
+      directTransfer: !!recipient.fullPhone && !/\(\s*qr\s*code\s*\)/i.test(text),
       qrCodeRecipient: /\(\s*qr\s*code\s*\)/i.test(text),
       gmtPlus8: /\(\s*gmt\s*\+\s*8(?::?00)?\s*\)/i.test(text),
     },
@@ -414,7 +422,10 @@ export function verifyBpiToGcashReceipt(
     parsed.recipient.labelNormalized,
     context.expectedRecipientLabel || context.expectedRecipientName || "",
   );
-  const recipientAccountComparison = compareRecipientAccount(
+  const recipientAccountComparison: BpiRecipientAccountComparison = parsed.indicators.directTransfer
+    ? !normalizeGcashMobile(context.expectedRecipientNumber || '') ? 'not_configured'
+      : parsed.recipient.fullPhone === normalizeGcashMobile(context.expectedRecipientNumber || '') ? 'exact' : 'mismatch'
+    : compareRecipientAccount(
     parsed.recipient.accountSuffix,
     context.expectedRecipientAccount || "",
   );
@@ -428,8 +439,8 @@ export function verifyBpiToGcashReceipt(
   if (!parsed.indicators.destinationGcash) {
     addUnique(flags, "GXI_DESTINATION_UNREADABLE");
   }
-  if (!parsed.indicators.instaPay) addUnique(flags, "INSTAPAY_QRPH_UNREADABLE");
-  if (!parsed.indicators.qrCodeRecipient) {
+  if (!parsed.indicators.directTransfer && !parsed.indicators.instaPay) addUnique(flags, "INSTAPAY_QRPH_UNREADABLE");
+  if (!parsed.indicators.directTransfer && !parsed.indicators.qrCodeRecipient) {
     addUnique(flags, "RECEIVER_NAME_UNREADABLE");
   }
   if (!parsed.indicators.gmtPlus8) addUnique(flags, "TIMEZONE_UNREADABLE");

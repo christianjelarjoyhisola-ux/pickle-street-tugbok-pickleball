@@ -256,13 +256,7 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
   ) add("receiving_account_unconfigured");
   const alias = String(input.route?.gcashQrAlias || "").trim();
   const token = String(input.route?.gcashQrToken || "").trim();
-  if (source === "bpi") {
-    if (
-      alias.length < 2 ||
-      !/^[A-Z0-9]{10,40}$/i.test(normalizedReference(token)) ||
-      !/[A-Z]/i.test(token) || !/[0-9]/.test(token)
-    ) add("qr_receipt_identity_unconfigured");
-  }
+
   if (
     /\b(?:failed|unsuccessful|reversed|refunded|cancelled|canceled)\b/i.test(
       text,
@@ -325,6 +319,8 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
           ? String(observedReference)
           : "");
       if (!typed && comparedReference) parsed = parseProviderReceipt(source,text,{typedReference:comparedReference});
+      const directBpi = parsed.provider === 'bpi' && parsed.receipt.indicators.directTransfer;
+      if (source === 'bpi' && !directBpi && (alias.length < 2 || !/^[A-Z0-9]{10,40}$/i.test(normalizedReference(token)) || !/[A-Z]/i.test(token) || !/[0-9]/.test(token))) add('qr_receipt_identity_unconfigured');
       const context = {
         ignoreMayaAccountType: source === "maya",
         typedReference: comparedReference,
@@ -332,10 +328,10 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
         pricingAvailable: Number.isFinite(expected) && expected > 0,
         amountTolerance: 0.001,
         expectedRecipientNumber: String(input.payment?.receiverReference || ""),
-        expectedRecipientName: source === "bpi"
+        expectedRecipientName: source === "bpi" && !directBpi
           ? alias
           : String(input.payment?.receiverName || ""),
-        expectedRecipientAccount: source === "bpi" || (source === "maribank" && !!token)
+        expectedRecipientAccount: (source === "bpi" && !directBpi) || (source === "maribank" && !!token)
           ? token
           : String(input.payment?.receiverReference || ""),
         bookingStartedAt: input.timing?.bookingStartedAt,
