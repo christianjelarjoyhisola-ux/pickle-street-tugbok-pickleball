@@ -4507,13 +4507,13 @@ window.DB = {
   },
 
   async weatherCredit(action, payload) {
-    if (!PB_PLATFORM_V1 || PB_TENANT_SLUG !== 'pickle-street-tugbok' || !['get','issue','email','apply','preview-batch','issue-batch'].includes(action)) throw new Error('Weather credit is unavailable.');
+    if (!PB_PLATFORM_V1 || PB_TENANT_SLUG !== 'pickle-street-tugbok' || !['get','issue','email','apply','preview-batch','issue-batch','history'].includes(action)) throw new Error('Weather credit is unavailable.');
     if (action !== 'apply' && PB_PAGE_DATA_SCOPE !== 'manager') throw new Error('Sign in to manage weather credits.');
     const result = await _invokeEdgeFunction(`picklestreet-weather-credit?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`, {
       ...payload, tenantSlug:PB_TENANT_SLUG, action,
     }, {preferDirect:true});
     if (!result?.ok) throw new Error(result?.message || 'Weather credit could not be saved.');
-    _pbClearFastCache(['bookings','platformAvailability']);
+    if (action !== 'history') _pbClearFastCache(['bookings','platformAvailability']);
     return result;
   },
 

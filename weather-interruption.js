@@ -14,7 +14,7 @@
     el.innerHTML='<header class="wi-header"><div><span class="wi-eyebrow">COURT CARE</span><h2 id="wi-title">Weather interruption</h2><p>One interruption. Every affected booking.</p></div><button type="button" class="wi-close" data-wi-close aria-label="Close weather interruption">×</button></header><div data-wi-body></div><p class="wi-message" data-wi-message role="status" aria-live="polite"></p>';
     find('[data-wi-close]').onclick=()=>{if(!busy)el.close();};
     el.addEventListener('cancel',e=>{if(busy)e.preventDefault();});
-    el.addEventListener('close',()=>{sequence++;focus?.focus?.();});document.body.append(el);
+    el.addEventListener('close',()=>{sequence++;focus?.focus?.();if(issued)window.PBWeatherInterruption.renderPage();});document.body.append(el);
   }
   function rangeLabel(r){return `${esc(courts.find(c=>c.id===r.courtId)?.name||'Court')} · ${esc(r.start.slice(0,10))} · ${esc(clock(r.start))}–${esc(clock(r.end))}`;}
   function renderForm(){
@@ -97,7 +97,18 @@
     await Promise.all([worker(),worker()]);
     renderResult();message(issued.every(b=>b.delivery==='sent')?'All credits saved and emails sent.':'All credits saved. Some emails are pending; retry delivery or copy a code.');
   }
-  window.PBWeatherInterruption={async open(){
+  let historySequence=0;
+  async function renderPage(offset=0){
+    const target=document.getElementById('weatherCreditHistory');if(!target)return;
+    const seq=++historySequence;target.textContent='Loading credit history…';
+    try{
+      const result=await window.DB.weatherCredit('history',{offset});if(seq!==historySequence)return;
+      target.innerHTML=result.credits.length?'<div class="wc-history-scroll"><table class="wc-history-table"><thead><tr><th>Issued / booking</th><th>Customer</th><th>Issued time</th><th>Available</th><th>Email</th><th></th></tr></thead><tbody>'+result.credits.map(c=>'<tr><td>'+esc(new Date(c.createdAt).toLocaleDateString('en-PH',{timeZone:'Asia/Manila'}))+'<small>'+esc(c.reference)+'</small></td><td>'+esc(c.name||c.email)+'</td><td>'+hours(c.minutes)+'</td><td>'+hours(c.balanceMinutes)+'</td><td>'+esc(c.emailSent?'Sent':'Pending')+'</td><td><button class="btn btn-g btn-sm" type="button" data-wc-reference="'+esc(c.reference)+'">View credit</button></td></tr>').join('')+'</tbody></table></div>':'<div class="wi-empty"><strong>No weather credits issued yet</strong><p>Start a weather interruption to preview affected bookings before issuing credits.</p></div>';
+      target.querySelectorAll('[data-wc-reference]').forEach(button=>button.onclick=()=>window.PBWeatherCredit.openManager(button.dataset.wcReference));
+      if(offset||result.hasMore){const pager=document.createElement('div');pager.className='wc-history-pager';for(const [label,next,disabled] of [['Previous',offset-50,!offset],['Next',offset+50,!result.hasMore]]){const button=document.createElement('button');button.type='button';button.className='btn btn-g btn-sm';button.textContent=label;button.disabled=disabled;button.onclick=()=>renderPage(next);pager.append(button);}target.append(pager);}
+    }catch(e){if(seq===historySequence)target.textContent=e.message||'Credit history could not be loaded. Use Refresh to try again.';}
+  }
+  window.PBWeatherInterruption={renderPage,async open(){
     if(busy)return;shell();focus=document.activeElement;ranges=[];preview=null;request=null;issued=null;const seq=++sequence;find('[data-wi-body]').textContent='Loading courts…';message('');el.showModal();
     try{courts=await window.DB.getCourts();if(seq!==sequence)return;if(!courts.length)throw Error('No courts available. Reload the dashboard and try again.');renderForm();}
     catch(e){message(e.message||'Could not load courts.');}

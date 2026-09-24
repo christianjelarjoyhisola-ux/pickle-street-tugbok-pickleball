@@ -3,6 +3,7 @@ import {resolveTenantForRequest} from '../_shared/tenant.ts';
 import {errorResponse,jsonResponse,readJsonObject,RequestError} from '../_shared/http.ts';
 import {receiptPreflightResponse} from '../picklestreet-receipts/cors.ts';
 import {sendMailerooEmail} from '../_shared/maileroo.ts';
+import {creditHistory} from './history.ts';
 
 const TENANT='f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a';
 const SLUG='pickle-street-tugbok';
@@ -23,7 +24,7 @@ export async function handleRequest(request:Request):Promise<Response>{
   if(body.tenantSlug!==SLUG)throw new RequestError(403,'TENANT_DENIED','This venue is not allowed.');
   const reference=String(body.bookingReference||'').trim().toUpperCase();
   const batch=['preview-batch','issue-batch'].includes(String(body.action));
-  if(!batch&&!/^[A-Z0-9][A-Z0-9-]{5,39}$/.test(reference))throw new RequestError(400,'REFERENCE_INVALID','Enter a valid booking reference.');
+  if(!batch&&body.action!=='history'&&!/^[A-Z0-9][A-Z0-9-]{5,39}$/.test(reference))throw new RequestError(400,'REFERENCE_INVALID','Enter a valid booking reference.');
   if(body.action==='apply'){
    const token=String(body.bookingToken||'');const code=String(body.code||'').trim().toUpperCase();
    if(!/^[A-Za-z0-9_-]{43}$/.test(token)||!/^PS-RAIN-[A-F0-9]{24}$/.test(code))throw new RequestError(400,'CREDIT_INVALID','Check your private booking link and weather credit code.');
@@ -38,10 +39,11 @@ export async function handleRequest(request:Request):Promise<Response>{
    }
    return jsonResponse(result,200,origin);
   }
-  if(!['get','issue','email','preview-batch','issue-batch'].includes(String(body.action)))throw new RequestError(400,'ACTION_INVALID','Choose a valid credit action.');
+  if(!['get','issue','email','preview-batch','issue-batch','history'].includes(String(body.action)))throw new RequestError(400,'ACTION_INVALID','Choose a valid credit action.');
   const token=/^Bearer (\S+)$/.exec(request.headers.get('authorization')||'')?.[1];
   if(!token)throw new RequestError(401,'SIGN_IN_REQUIRED','Sign in to manage weather credits.');
   const auth=await db.auth.getUser(token);if(auth.error||!auth.data.user)throw new RequestError(401,'SIGN_IN_REQUIRED','Sign in to manage weather credits.');
+  if(body.action==='history')return jsonResponse(await creditHistory(db,TENANT,auth.data.user.id,body.offset),200,origin);
   if(batch){
    if(!Array.isArray(body.windows)||body.windows.length<1||body.windows.length>48)throw new RequestError(400,'RANGES_INVALID','Select affected court times.');
    const issue=body.action==='issue-batch';

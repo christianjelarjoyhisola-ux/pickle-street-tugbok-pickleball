@@ -2679,9 +2679,9 @@ tr:hover td { background: var(--bg2); }
 <meta name="robots" content="noindex,nofollow">
 <link rel="stylesheet" href="payment-method-brand.css?v=20260908-routes2" />
 <link rel="stylesheet" href="payment-settings.css?v=20260908-routes2" />
-<link rel="stylesheet" href="weather-credit.css?v=20260923-v2" />
-<script src="weather-credit.js?v=20260923-v2"></script>
-<script src="weather-interruption.js?v=20260923-v2"></script>
+<link rel="stylesheet" href="weather-credit.css?v=20260924-nav" />
+<script src="weather-credit.js?v=20260924-nav"></script>
+<script src="weather-interruption.js?v=20260924-nav"></script>
 </head>
 <body class="admin-booting" data-theme="light">
 <div id="adminBootScreen" role="status" aria-live="polite" aria-label="Loading secure dashboard">
@@ -2726,6 +2726,7 @@ tr:hover td { background: var(--bg2); }
     </div>
     <div class="sb-section">
       <div class="nav-grp">Management</div>
+      <div class="nav-item" data-s="weather" data-weather-nav hidden onclick="goto('weather')"><span>☂</span> Weather &amp; Credits</div>
       <div class="nav-item" data-s="courts" data-perm="courts" onclick="goto('courts')"><span>&#127967;</span> Courts</div>
       <div class="nav-item" data-s="business" data-perm="settings" onclick="goto('business')"><span>&#9881;</span> Business &amp; Brand</div>
       <div class="nav-item" data-s="blocked" data-blocked-date-nav onclick="goto('blocked')"><span>&#128683;</span> Blocked Dates</div>
@@ -2878,7 +2879,6 @@ tr:hover td { background: var(--bg2); }
           </div>
           <button class="btn btn-g btn-sm booking-export-btn" data-perm="export" onclick="exportCSV()">Export</button>
           <button class="btn btn-sm availability-post-launch" type="button" data-perm="export" onclick="openAvailabilityGraphic()"><span aria-hidden="true">&#10022;</span><span>Availability Post</span></button>
-          <button class="btn btn-sm" type="button" id="weatherInterruptionLaunch" hidden onclick="PBWeatherInterruption.open()">☂ Weather Interruption</button>
           <button class="btn btn-p btn-sm" onclick="openNewBookingModal()">+ New</button>
         </div>
       </div>
@@ -3165,6 +3165,10 @@ tr:hover td { background: var(--bg2); }
     </div>
 
     <!-- COURTS -->
+    <div id="sec-weather" class="adm-sec" aria-labelledby="weatherPageTitle">
+      <div class="wc-page-hero"><div><span class="wi-eyebrow">COURT CARE</span><h2 id="weatherPageTitle">Weather &amp; Credits</h2><p>Select affected courts and times, review bookings, and issue replacement playing time in hours.</p></div><button class="btn btn-p" type="button" onclick="PBWeatherInterruption.open()">☂ New weather interruption</button></div>
+      <div class="wc-history"><div class="wc-history-heading"><div><h3>Credit history</h3><p class="weather-credit-muted">Issued time, remaining hours, and email delivery.</p></div><button class="btn btn-g btn-sm" type="button" onclick="PBWeatherInterruption.renderPage()">Refresh</button></div><div id="weatherCreditHistory" aria-live="polite"></div></div>
+    </div>
     <div id="sec-courts" class="adm-sec" aria-labelledby="courtsTitle">
       <div class="toolbar">
         <h2 id="courtsTitle">🏟️ COURT MANAGEMENT</h2>
@@ -7424,12 +7428,13 @@ let sess;
 /* ==============================================
    NAVIGATION
    ============================================== */
-const titles={dash:'Dashboard',bookings:'Bookings',archive:'Booking Archive',payreview:'Payment Review',reports:'Reports',courts:'Courts',business:'Business & Brand',remittances:'Remittances',blocked:'Blocked Dates',payments:'Payments',accounts:'Accounts'};
+const titles={weather:'Weather & Credits',dash:'Dashboard',bookings:'Bookings',archive:'Booking Archive',payreview:'Payment Review',reports:'Reports',courts:'Courts',business:'Business & Brand',remittances:'Remittances',blocked:'Blocked Dates',payments:'Payments',accounts:'Accounts'};
 const SECTION_PERM={dash:'dashboard',bookings:'bookings',archive:'owner_only',payreview:'payment_review',reports:'reports',courts:'courts',business:'settings',remittances:'remittances',payments:'payments',accounts:'accounts'};
-const SECTION_LOADERS={dash:renderDash,bookings:renderBookings,archive:renderBookingArchive,payreview:renderPaymentReview,reports:renderReport,courts:renderCourts,business:renderBusinessSettings,remittances:renderRemittances,blocked:renderBlocked,payments:renderPaymentSettings,accounts:renderAccounts};
+const SECTION_LOADERS={weather:()=>PBWeatherInterruption.renderPage(),dash:renderDash,bookings:renderBookings,archive:renderBookingArchive,payreview:renderPaymentReview,reports:renderReport,courts:renderCourts,business:renderBusinessSettings,remittances:renderRemittances,blocked:renderBlocked,payments:renderPaymentSettings,accounts:renderAccounts};
 let _curSection=null;
 async function goto(s){
   if (!SECTION_LOADERS[s] || !$('sec-'+s)) { toast('That dashboard section is unavailable.', 'err'); return; }
+  if (s === 'weather' && !canReviewWeatherRefund()) { toast('Owner or administrator access is required.', 'err'); return; }
   if (s === 'blocked') {
     await refreshBlockedDateAccess({ quiet: true });
     if (!canManageBlockedDates()) {
@@ -8304,7 +8309,7 @@ async function renderBookings(){
   if (body) body.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:28px">${_bookingStage === 'rain-history' ? 'Loading permanent refund history...' : 'Loading bookings...'}</td></tr>`;
   let bks;
   const reviewWeatherRefunds = canReviewWeatherRefund();
-  if ($('weatherInterruptionLaunch')) $('weatherInterruptionLaunch').hidden = !reviewWeatherRefunds;
+
   const loadActionablePlayerClaims = reviewWeatherRefunds && _bookingStage !== 'rain-history';
   const weatherRefundPromise = window.PB_PLATFORM_V1 && reviewWeatherRefunds
     ? (typeof DB.listAllWeatherRefunds === 'function'
@@ -14831,6 +14836,7 @@ async function cleanupAbandonedHolds() {
    ============================================== */
 function applyRoleVisibility(role) {
   const allowed = Auth.permissionsFor(role);
+  document.querySelectorAll('[data-weather-nav]').forEach(el => { el.hidden = !canReviewWeatherRefund(); el.style.display = el.hidden ? 'none' : ''; });
   document.querySelectorAll('[data-perm]').forEach(el => {
     el.style.display = allowed.includes(el.dataset.perm) ? '' : 'none';
   });
