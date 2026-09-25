@@ -1,10 +1,10 @@
 import {sendMailerooEmail} from '../_shared/maileroo.ts';
 const TENANT='f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a';
-export const duplicateRejectionReason='Booking cancelled — this payment reference has already been used for another booking. Please contact Pickle Street Tugbok if you believe this is a mistake.';
+export const duplicateRejectionReason='Your booking was rejected. Please book again.';
 export function rejectionEmail(reference:string,name:string){
- const plainText='Hi '+(name||'Player')+',\n\nYour Pickle Street Tugbok booking '+reference+' was cancelled because the payment reference on your receipt has already been used for another booking. All court slots in this booking have been released.\n\nIf you believe this is a mistake, reply to this email with your booking reference and original receipt so our team can review it. Please do not send another payment until you have checked with us.\n\nPickle Street Tugbok';
+ const plainText='Hi '+(name||'Player')+',\n\nYour Pickle Street Tugbok booking '+reference+' was rejected. Please book again.\n\nBook here: https://picklestreetcourt.com\n\nPickle Street Tugbok';
  const escape=(v:string)=>v.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
- return {subject:'Pickle Street Tugbok — booking cancelled ('+reference+')',plainText,html:'<div style="font-family:Arial,sans-serif;line-height:1.65;color:#183d49;max-width:560px;margin:auto;padding:24px"><h2>Booking cancelled</h2><p>'+escape(plainText).replace(/\n\n/g,'</p><p>').replace(/\n/g,'<br>')+'</p></div>'};
+ return {subject:'Pickle Street Tugbok — booking rejected ('+reference+')',plainText,html:'<div style="font-family:Arial,sans-serif;line-height:1.65;color:#183d49;max-width:560px;margin:auto;padding:24px"><h2>Booking rejected</h2><p>'+escape(plainText).replace(/\n\n/g,'</p><p>').replace(/\n/g,'<br>')+'</p></div>'};
 }
 export async function sendDuplicateRejectionEmail(db:any,bookingId:string):Promise<string>{
  let claimed=false;

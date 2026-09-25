@@ -5,7 +5,8 @@ Deno.test('a duplicate upload replay reports the saved cancellation without a tr
   const result=receiptSubmissionResult({claimed:false,idempotent:true,status:'rejected',bookingStatus:'cancelled',paymentStatus:'rejected',flags:['duplicate_payment_reference']});
   assert.equal(result.rejected,true);
   assert.equal(result.status,'rejected');
-  assert.match(result.publicReason,/cancelled.*already been used/);
+  assert.match(result.publicReason,/rejected.*Please book again/);
+  assert.doesNotMatch(result.publicReason,/duplicate|already been used|payment reference/i);
   assert.doesNotMatch(result.publicReason,/pending|processing/i);
 });
 
@@ -48,7 +49,7 @@ Deno.test('replaying saved OCR attempts retries the duplicate decision before re
   assert.deepEqual(calls,[{name:'reject_picklestreet_duplicate',args:{p_attempt_id:'saved-attempt'}}]);
   assert.equal(result.rejected,true);
   assert.equal(result.bookingStatus,'cancelled');
-  assert.match(result.publicReason,/already been used/);
+  assert.match(result.publicReason,/rejected.*Please book again/);
 });
 
 Deno.test('a superseded or ineligible replay retains the database decision when rejection RPC declines it',async()=>{

@@ -1,0 +1,17 @@
+{
+  "at": "2026-09-25T11:51:19.113Z",
+  "hash": "9c19f905d27ce21fcd652abc5a3191f5064eede004d3b9281db4cb7f9070a2cf",
+  "rolledBack": true,
+  "checks": [
+    "GoTyme v1 and v2 supported",
+    "unrecognized versions rejected",
+    "recipient, reference, status, source and confidence checks preserved",
+    "stale settings rejected",
+    "unrelated functions preserved"
+  ],
+  "result": [
+    {
+      "passed": true
+    }
+  ]
+}

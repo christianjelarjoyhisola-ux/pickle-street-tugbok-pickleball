@@ -51,7 +51,7 @@ export function publicPendingReason(flags:string[],errorCode=''):string {
   if(/not_successful/.test(all)) return 'Pending — the receipt does not show a completed transfer. Upload the completed transaction receipt when available.';
   if(/receiver/.test(all)) return 'Pending — the receiving account details could not be fully verified. Upload a clearer receipt showing the recipient and account.';
   if(/amount|principal|currency/.test(all)) return 'Pending — the payment amount or currency could not be matched to this booking. Check the receipt and contact the venue if needed.';
-  if(/reference/.test(all)) return 'Pending — the transaction reference could not be matched. Check the reference and upload clearer proof.';
+  if(/reference|ref_unreadable/.test(all)) return 'Pending — the transaction reference could not be verified. Upload the complete receipt showing the recipient, amount, full transaction reference, and date/time. Include the bottom of the receipt; use a scrolling screenshot if needed.';
   if(/timing|time_|date/.test(all)) return 'Pending — the payment date or time could not be verified. Upload a receipt showing the full transaction date and time.';
   if(/vision|timeout|unavailable|failed|processing/.test(all)) return 'Pending — automatic verification could not finish. Your receipt is saved and can be checked again.';
   return 'Pending — some receipt details could not be verified. Upload clearer proof or ask the venue to retry verification.';

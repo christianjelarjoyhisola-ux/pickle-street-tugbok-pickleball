@@ -1,0 +1,174 @@
+begin;
+CREATE OR REPLACE FUNCTION public.guard_picklestreet_receipt_reference_claims()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+ SET row_security TO 'off'
+AS $function$
+declare t constant uuid:='f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a';source text;session_ref text;route jsonb;refs jsonb:='[]';item jsonb;claim record;
+ existing public.picklestreet_receipt_reference_claims%rowtype;keyvalue text;keyhash text;
+begin
+ if new.tenant_id<>t or new.status not in('approved','auto_approved') then return new;end if;
+ if tg_op='UPDATE' and old.status in('approved','auto_approved') then return new;end if;
+ select public.picklestreet_source_provider(provider_payload->>'paymentMethod'),provider_payload->>'submittedReference' into source,session_ref from public.payment_sessions
+   where tenant_id=t and booking_id=new.booking_id and id=new.payment_session_id;
+ if source is null or source not in('gcash','bdopay','maya','bpi','gotyme','maribank','pnb') then return new;end if;
+ keyvalue:=regexp_replace(upper(coalesce(nullif(new.payment_reference,''),session_ref,'')),'[^A-Z0-9]','','g');
+ route:=new.extracted_data#>'{detected,route}';
+ if route is not null then
+   if jsonb_typeof(route) is distinct from 'object' or route->>'sourceProvider' is distinct from source
+     or jsonb_typeof(route->'secondaryReferences') is distinct from 'array' or jsonb_array_length(route->'secondaryReferences')>8 then
+     raise exception 'RECEIPT_ROUTE_REFERENCES_INVALID' using errcode='22023';end if;
+   for item in select value from jsonb_array_elements(route->'secondaryReferences') loop
+     if jsonb_typeof(item) is distinct from 'object' or not(item ?& array['kind','value']) or item->>'kind' not in('instapay','maya_instapay','bdopay_invoice','bpi_transaction')
+       or jsonb_typeof(item->'value') is distinct from 'string' or item->>'value' !~ '^[A-Z0-9]{3,64}$'
+       or exists(select 1 from jsonb_object_keys(item) k where k not in('kind','value')) then
+       raise exception 'RECEIPT_ROUTE_REFERENCES_INVALID' using errcode='22023';end if;
+     -- GoTyme Trace IDs are scoped to their full transaction reference.
+     -- Missing/cropped references remain manual review; do not claim OCR amounts.
+     if source='gotyme' and route->>'parserVersion'='gotyme_to_gcash_v2' and item->>'kind'='instapay' then
+       if keyvalue ~ '^(ITO[0-9]{12,20}|GTY[A-Z0-9]{12,24})$' and item->>'value' ~ '^[0-9]{4,12}$' then
+         refs:=refs||jsonb_build_array(jsonb_build_object('namespace','instapay','value','gotyme:'||keyvalue||':'||(item->>'value')));
+       end if;
+     else
+     refs:=refs||jsonb_build_array(jsonb_build_object('namespace',case when item->>'kind'='maya_instapay' then 'instapay' else item->>'kind' end,'value',item->>'value'));
+     end if;
+   end loop;
+ end if;
+
+ if char_length(keyvalue)>=6 then refs:=refs||jsonb_build_array(jsonb_build_object('namespace',source||'.primary','value',keyvalue));end if;
+ -- Sorted namespaces/hashes acquire one deterministic lock order across providers.
+ for claim in select distinct value->>'namespace' as namespace,encode(extensions.digest(value->>'value','sha256'),'hex') as hash
+   from jsonb_array_elements(refs) order by 1,2 loop
+   perform pg_advisory_xact_lock(hashtextextended('picklestreet-route-reference:'||claim.namespace||':'||claim.hash,0));
+   select * into existing from public.picklestreet_receipt_reference_claims where tenant_id=t and namespace=claim.namespace and reference_hash=claim.hash;
+   if found and existing.verification_id<>new.id then raise exception 'duplicate_payment_route_reference' using errcode='23505';end if;
+   insert into public.picklestreet_receipt_reference_claims(tenant_id,namespace,reference_hash,verification_id,booking_id,balance_request_id)
+     values(t,claim.namespace,claim.hash,new.id,new.booking_id,new.balance_request_id) on conflict do nothing;
+ end loop;
+ return new;
+end;$function$
+;
+CREATE OR REPLACE FUNCTION public.reject_picklestreet_duplicate(p_attempt_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare
+ t constant uuid:='f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a';
+ a public.picklestreet_receipt_attempts%rowtype;
+ b public.bookings%rowtype;
+ r public.receipt_verifications%rowtype;
+ ref text; source text; route jsonb; item jsonb; refs jsonb:='[]'; claim record;
+ duplicate_found boolean:=false; expected_kind text; evidence jsonb;
+begin
+ if auth.role() is distinct from 'service_role' then raise exception 'SERVICE_ROLE_REQUIRED' using errcode='42501';end if;
+ select * into a from public.picklestreet_receipt_attempts where tenant_id=t and id=p_attempt_id;
+ if not found then return jsonb_build_object('rejected',false);end if;
+ select * into b from public.bookings where tenant_id=t and id=a.booking_id for update;
+ if not found then return jsonb_build_object('rejected',false);end if;
+ if b.metadata->>'duplicateReferenceRejected'='true' then
+   return jsonb_build_object('rejected',true,'bookingReference',b.reference,'bookingId',b.id,'status','rejected','bookingStatus','cancelled','paymentStatus','rejected');
+ end if;
+ if b.status not in ('payment_review','pending_payment','expired') or b.payment_status<>'pending'
+   or a.completed_at is null or a.outcome<>'pending' then return jsonb_build_object('rejected',false);end if;
+ perform 1 from public.picklestreet_receipt_jobs where tenant_id=t and booking_id=b.id and current_attempt_id=a.id for update;
+ if not found then return jsonb_build_object('rejected',false);end if;
+ select * into r from public.receipt_verifications where tenant_id=t and booking_id=b.id and id=a.receipt_id for update;
+ if not found or r.balance_request_id is not null or r.status not in ('pending','manual_review') then return jsonb_build_object('rejected',false);end if;
+
+ -- A parsed value is not reliable when its dedicated parser explicitly says
+ -- the reference/invoice is unreadable or ambiguous (notably Maya InstaPay).
+ if (a.error_code is not null and a.error_code not in('duplicate_payment_route_reference','duplicate_payment_reference'))
+   or exists(select 1 from unnest(coalesce(a.flags,'{}'::text[])) flag
+     where (upper(flag) ~ '(REF|REFERENCE|INVOICE)' and upper(flag) ~ '(AMBIGUOUS|UNREADABLE|UNVERIFIED|MISMATCH|INVALID|MISSING|UNAVAILABLE)')
+       or lower(flag) in('receipt_parser_unavailable','verification_unavailable','tenant_context_invalid','native_ocr_confidence_missing'))
+ then return jsonb_build_object('rejected',false);end if;
+
+ source:=public.picklestreet_source_provider(a.payment_method);
+ ref:=regexp_replace(upper(coalesce(a.payment_reference,'')),'[^A-Z0-9]','','g');
+ evidence:=a.extracted_data;
+ route:=evidence#>'{detected,route}';
+ -- Reference identity requires reliable OCR and a matching source namespace.
+ -- Unreadable recipient details, amount and timing failures do not undo an
+ -- exact reference claim belonging to a previously accepted, paid transaction.
+ if source is null or source not in('gcash','bdopay','maya','bpi','gotyme','maribank')
+   or length(ref) not between 6 and 64
+   or (source in('maya','bdopay') and nullif(btrim(a.submitted_reference),'') is null)
+   or (nullif(btrim(a.submitted_reference),'') is not null and ref is distinct from regexp_replace(upper(a.submitted_reference),'[^A-Z0-9]','','g'))
+   or ref is distinct from regexp_replace(upper(coalesce(evidence#>>'{detected,paymentReference}','')),'[^A-Z0-9]','','g')
+   or evidence->>'provider' is distinct from 'google_vision'
+   or jsonb_typeof(evidence#>'{confidence,vision}') is distinct from 'number'
+   or (case when jsonb_typeof(evidence#>'{confidence,vision}')='number' then (evidence#>>'{confidence,vision}')::numeric not between 0.9 and 1 else true end)
+   or jsonb_typeof(route) is distinct from 'object'
+   or route->>'schemaVersion' is distinct from '1'
+   or route->>'sourceProvider' is distinct from source
+   or route->>'routeId' is distinct from (source||'_to_gcash')
+   or route->>'destinationProvider' is distinct from 'gcash'
+   or route->>'destinationMethodCode' is distinct from 'gcash'
+   or (case when source='gotyme' then route->>'parserVersion' not in('gotyme_to_gcash_v1','gotyme_to_gcash_v2') or route->>'parserVersion' is null else route->>'parserVersion' is distinct from (case when source='gcash' then 'gcash_v1' else source||'_to_gcash_v1' end) end)
+   or route->'sourceMatched' is distinct from 'true'::jsonb
+   or route->'destinationMatched' is distinct from 'true'::jsonb
+   or route->'referenceMatched' is distinct from 'true'::jsonb
+   or route->'successMatched' is distinct from 'true'::jsonb
+ then return jsonb_build_object('rejected',false);end if;
+ if not exists(select 1 from public.payment_sessions ps where ps.tenant_id=t and ps.booking_id=b.id and ps.id=r.payment_session_id
+   and public.picklestreet_source_provider(ps.provider_payload->>'paymentMethod')=source
+   and (nullif(btrim(ps.provider_payload->>'submittedReference'),'') is null or regexp_replace(upper(ps.provider_payload->>'submittedReference'),'[^A-Z0-9]','','g')=ref))
+ then return jsonb_build_object('rejected',false);end if;
+ if jsonb_typeof(route->'secondaryReferences') is distinct from 'array' then return jsonb_build_object('rejected',false);end if;
+ if (source='gcash' and jsonb_array_length(route->'secondaryReferences')<>0)
+   or (source='maya' and jsonb_array_length(route->'secondaryReferences') not between 0 and 1)
+   or (source not in('gcash','maya') and jsonb_array_length(route->'secondaryReferences')<>1)
+ then return jsonb_build_object('rejected',false);end if;
+ expected_kind:=case source when 'bdopay' then 'bdopay_invoice' when 'bpi' then 'bpi_transaction'
+   when 'maya' then 'maya_instapay' else 'instapay' end;
+ for item in select value from jsonb_array_elements(route->'secondaryReferences') loop
+   if jsonb_typeof(item) is distinct from 'object' or item->>'kind' is distinct from expected_kind
+     or jsonb_typeof(item->'value') is distinct from 'string' or item->>'value' !~ '^[A-Z0-9]{3,64}$'
+     or exists(select 1 from jsonb_object_keys(item) k where k not in('kind','value'))
+   then return jsonb_build_object('rejected',false);end if;
+   if source='gotyme' and route->>'parserVersion'='gotyme_to_gcash_v2' and item->>'kind'='instapay' then
+     refs:=refs||jsonb_build_array(jsonb_build_object('namespace','instapay','value','gotyme:'||ref||':'||(item->>'value')));
+   else
+   refs:=refs||jsonb_build_array(jsonb_build_object('namespace',case when expected_kind='maya_instapay' then 'instapay' else expected_kind end,'value',item->>'value'));
+   end if;
+ end loop;
+ refs:=refs||jsonb_build_array(jsonb_build_object('namespace',source||'.primary','value',ref));
+ -- The same deterministic namespace/hash locks as accepted-reference claims.
+ for claim in select distinct value->>'namespace' as namespace,encode(extensions.digest(value->>'value','sha256'),'hex') as hash
+   from jsonb_array_elements(refs) order by 1,2 loop
+   perform pg_advisory_xact_lock(hashtextextended('picklestreet-route-reference:'||claim.namespace||':'||claim.hash,0));
+   if exists(select 1 from public.picklestreet_receipt_reference_claims c
+     join public.receipt_verifications prior on prior.tenant_id=t and prior.id=c.verification_id and prior.booking_id=c.booking_id
+     join public.payment_sessions ps on ps.tenant_id=t and ps.id=prior.payment_session_id and ps.booking_id=prior.booking_id
+     where c.tenant_id=t and c.namespace=claim.namespace and c.reference_hash=claim.hash
+       and c.booking_id<>b.id and prior.status in('approved','auto_approved') and ps.status='paid')
+   then duplicate_found:=true;end if;
+ end loop;
+ if not duplicate_found then return jsonb_build_object('rejected',false);end if;
+
+ perform set_config('app.picklestreet_duplicate_reject',r.id::text,true);
+ update public.receipt_verifications set status='rejected',flags=array['duplicate_payment_reference'],reviewed_at=now(),
+   extracted_data=extracted_data||jsonb_build_object('automaticRejection','duplicate_payment_reference') where tenant_id=t and id=r.id;
+ update public.payment_sessions set status='failed' where tenant_id=t and id=r.payment_session_id and status<>'paid';
+ update public.booking_slots set status='cancelled',hold_expires_at=null where tenant_id=t and booking_id=b.id and status in ('held','expired');
+ update public.bookings set status='cancelled',payment_status='rejected',cancelled_at=now(),expires_at=null,
+   metadata=metadata||jsonb_build_object('duplicateReferenceRejected',true,'paymentRejectionReason','This payment reference has already been used for another booking.') where tenant_id=t and id=b.id;
+ update public.picklestreet_receipt_jobs set lease_token=null,lease_until=null where tenant_id=t and booking_id=b.id;
+ insert into public.picklestreet_rejection_emails(tenant_id,booking_id,receipt_id) values(t,b.id,r.id) on conflict do nothing;
+ return jsonb_build_object('rejected',true,'bookingReference',b.reference,'bookingId',b.id,'status','rejected','bookingStatus','cancelled','paymentStatus','rejected','flags',jsonb_build_array('duplicate_payment_reference'));
+end;$function$
+;
+
+-- Preserve historical claims with their complete transaction identity.
+update public.picklestreet_receipt_reference_claims c
+set namespace='instapay',reference_hash=encode(extensions.digest('gotyme:'||regexp_replace(upper(r.payment_reference),'[^A-Z0-9]','','g')||':'||(item->>'value'),'sha256'),'hex')
+from public.receipt_verifications r cross join lateral jsonb_array_elements(r.extracted_data#>'{detected,route,secondaryReferences}') item
+where c.tenant_id='f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a' and r.tenant_id=c.tenant_id and c.verification_id=r.id and c.namespace='instapay'
+and r.extracted_data#>>'{detected,route,sourceProvider}'='gotyme' and r.extracted_data#>>'{detected,route,parserVersion}'='gotyme_to_gcash_v2'
+and item->>'kind'='instapay' and c.reference_hash=encode(extensions.digest(item->>'value','sha256'),'hex')
+and regexp_replace(upper(r.payment_reference),'[^A-Z0-9]','','g') ~ '^(ITO[0-9]{12,20}|GTY[A-Z0-9]{12,24})$';
+commit;

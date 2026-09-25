@@ -1,0 +1,20 @@
+{
+  "at": "2026-09-24T10:45:07.917Z",
+  "hash": "e2ac319b2369f6b633655ed8127aa2b3688f651ff9606c2a6152102bae182e05",
+  "rolledBack": true,
+  "checks": [
+    "uncertain identity remains pending",
+    "unauthorized rejection blocked",
+    "verified duplicate rejects despite unreadable recipient",
+    "idempotent rejection",
+    "slots released",
+    "unrelated functions and bookings unchanged"
+  ],
+  "result": [
+    {
+      "reference": "PB-FB970F555170",
+      "status": "cancelled",
+      "payment_status": "rejected"
+    }
+  ]
+}

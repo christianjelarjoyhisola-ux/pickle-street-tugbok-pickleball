@@ -1,0 +1,16 @@
+{
+  "at": "2026-09-25T11:27:50.304Z",
+  "hash": "df39b35ff6905c924c73cad2cf037214e49762f36ab213e6dcbe3a0351c0c58c",
+  "rolledBack": false,
+  "checks": [
+    "both requested bookings can be manually confirmed",
+    "reused primary reference still blocked",
+    "no booking changes persisted",
+    "unrelated functions and other tenant claims unchanged"
+  ],
+  "result": [
+    {
+      "passed": true
+    }
+  ]
+}

@@ -9929,6 +9929,8 @@ function syncBookingRefUi(method = $('bPay')?.value || 'gcash') {
     ? 'Enter the Reference ID exactly as Maya shows it. We compare it with the uploaded receipt.'
     : bdoOnly
     ? 'Enter the BDO Pay Reference no. exactly as shown. Do not enter the invoice number; both values are checked for duplicate use.'
+    : method === 'gotyme'
+    ? 'Upload the complete GoTyme transaction details showing the recipient, amount, Reference No., and date/time. Include the bottom of the receipt; use a scrolling screenshot if needed.'
     : 'Upload your complete receipt. We read the payment reference automatically.';
   const input = $('bGcashRef');
   if (input) {

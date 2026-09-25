@@ -1,7 +1,7 @@
 import {rejectionEmail} from './duplicate-rejection.ts';
-Deno.test('Cancellation email clearly explains duplicate reference without alleging fraud or promising a refund',()=>{
+Deno.test('Rejection email asks the customer to book again without disclosing the internal reason',()=>{
  const m=rejectionEmail('PB-TEST','<Player>');
- for(const text of ['PB-TEST','already been used','All court slots','reply to this email','do not send another payment'])if(!m.plainText.includes(text))throw Error(text);
+ for(const text of ['PB-TEST','was rejected','Please book again','https://picklestreetcourt.com'])if(!m.plainText.includes(text))throw Error(text);
  if(m.html.includes('<Player>')||!m.html.includes('&lt;Player&gt;'))throw Error('HTML escaping');
- if(/fraud|refund issued/i.test(m.plainText))throw Error('Incorrect claim');
+ if(/duplicate|already been used|payment reference|fraud|refund issued/i.test(m.subject+m.plainText+m.html))throw Error('Internal reason or incorrect claim');
 });
