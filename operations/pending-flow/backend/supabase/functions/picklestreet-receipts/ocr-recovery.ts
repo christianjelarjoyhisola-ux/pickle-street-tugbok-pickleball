@@ -29,7 +29,7 @@ export async function recoverReceiptReading<T extends Reading>(options: {
   );
   if (gotymeConflict(primary)) return primary;
   const readings: T[] = [primary];
-  const accept = (candidate: VisionTextResult, reason: string): T | null => {
+  const accept = (candidate: VisionTextResult): T | null => {
     const result = verify(candidate);
     const conflict = readings.some(previous =>
       (previous.paymentReference && result.paymentReference && previous.paymentReference !== result.paymentReference) ||
@@ -38,19 +38,20 @@ export async function recoverReceiptReading<T extends Reading>(options: {
     );
     readings.push(result);
     if (!result.autoApprove || conflict) return null;
-    result.extractedData.ocrFallbackReason = reason;
+    // Preserve the exact safe-extraction schema. The database finish RPCs
+    // reject additional root keys, even on an otherwise eligible recovery.
     return result;
   };
   if (vision.layoutText) {
-    const result = accept({...vision, text: vision.layoutText}, 'Complete receipt read in visual row order');
+    const result = accept({...vision, text: vision.layoutText});
     if (result) return result;
   }
   try {
     const alternate = await options.retry();
-    const result = accept(alternate, 'Complete receipt verified by independent text-mode reading');
+    const result = accept(alternate);
     if (result) return result;
     if (alternate.layoutText) {
-      const layout = accept({...alternate, text: alternate.layoutText}, 'Complete text-mode receipt read in visual row order');
+      const layout = accept({...alternate, text: alternate.layoutText});
       if (layout) return layout;
     }
   } catch {

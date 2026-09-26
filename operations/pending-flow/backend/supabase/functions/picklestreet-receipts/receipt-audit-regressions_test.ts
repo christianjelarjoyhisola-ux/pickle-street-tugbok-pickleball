@@ -27,7 +27,9 @@ Deno.test('independent OCR can recover lost masks and missing second amount with
   assert.equal((await recover(broken,broken,receipt())).autoApprove,true);
 });
 Deno.test('partial OCR readings cannot be combined into approval',async()=>{
-  assert.equal((await recover(receipt('MAA S. C.'),receipt().replace('P320.00',''))).autoApprove,false);
+  // MAA now correctly matches the compact GCash mask; MAZ still contradicts
+  // the configured name, so neither complete reading is approval eligible.
+  assert.equal((await recover(receipt('MAZ S. C.'),receipt().replace('P320.00',''))).autoApprove,false);
 });
 Deno.test('OCR recovery cannot hide pending status, wrong amount, or conflicting references',async()=>{
   for(const text of [receipt()+'\nProcessing',receipt(undefined,200),receipt('MAA S. C.').replace('3045300000123','3045300000999')]) {
@@ -41,7 +43,7 @@ Deno.test('masked phone, wrong recipient, masked settings and low confidence sta
   for(const f of samples) assert.equal(verifySourceRoute(f).autoApprove,false);
 });
 Deno.test('failed optional OCR retains original diagnostics',async()=>{
-  const f=input(receipt('MAA S. C.')),primary=verifySourceRoute(f);
+  const f=input(receipt('MAA S. C.').replace('P320.00','')),primary=verifySourceRoute(f);
   assert.strictEqual(await recoverReceiptReading({primary,vision:f.vision,method:'gcash',verify:vision=>verifySourceRoute({...f,vision}),retry:async()=>{throw Error('timeout');}}),primary);
 });
 function mari(status='') {

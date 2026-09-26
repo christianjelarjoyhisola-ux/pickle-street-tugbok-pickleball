@@ -798,9 +798,26 @@ export function compareGcashRecipient(
   receiver: GcashReceiver,
   expected: ExpectedGcashRecipient,
 ): GcashRecipientComparison {
-  const name = compareGcashMaskedName(receiver.name.raw, expected.name);
+  const phone = comparePhone(receiver.phone, expected.phone);
+  let name = compareGcashMaskedName(receiver.name.raw, expected.name);
+  // GCash renders a first-name prefix/suffix followed by two initials, e.g.
+  // DA••••O J• A. Vision sometimes drops the dots: DAO J. A. Accept only
+  // this bounded compact-mask shape, backed by the FULL exact mobile number.
+  // Never apply subsequence/fuzzy matching to arbitrary recipient names.
+  const compact = /^([A-Z]{2})([A-Z])\s+([A-Z])\.\s+([A-Z])\.$/i.exec(
+    String(receiver.name.raw || "").trim(),
+  );
+  const expectedTokens = normalizedExpectedNameTokens(String(expected.name || ""));
+  if (name === "mismatch" && phone === "exact" && compact &&
+    expectedTokens.length === 3 && expectedTokens[0].length >= 5 &&
+    expectedTokens[0].startsWith(compact[1].toUpperCase()) &&
+    expectedTokens[0].endsWith(compact[2].toUpperCase()) &&
+    expectedTokens[1].startsWith(compact[3].toUpperCase()) &&
+    expectedTokens[2].startsWith(compact[4].toUpperCase())) {
+    name = "masked_compatible";
+  }
   return {
-    phone: comparePhone(receiver.phone, expected.phone),
+    phone,
     name,
     nameSupportingOnly: name === "masked_compatible" ||
       name === "inconclusive",

@@ -52,7 +52,8 @@ Deno.test('GoTyme full receipt auto-verifies without an extra OCR request',async
 Deno.test('GoTyme recovers a missing recipient mask from one complete independent reading',async()=>{
  const {result,primary,calls}=await recover(missingPhone);
  assert.equal(primary.autoApprove,false);assert.equal(result.autoApprove,true,JSON.stringify(result.flags));assert.equal(calls,1);
- assert.equal(result.paymentReference,'ITO260925101519001');assert.match(String((result.extractedData as {ocrFallbackReason?:string}).ocrFallbackReason),/independent text-mode/);
+ assert.equal(result.paymentReference,'ITO260925101519001');
+ assert.deepEqual(Object.keys(result.extractedData).sort(),Object.keys(primary.extractedData).sort(),'Recovery must preserve the database-safe extraction schema');
 });
 Deno.test('GoTyme visual-row recovery avoids a second Vision call',async()=>{
  const {result,calls}=await recover(missingPhone,missingPhone,complete);assert.equal(result.autoApprove,true);assert.equal(calls,0);

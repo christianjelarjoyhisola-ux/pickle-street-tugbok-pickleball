@@ -1,0 +1,44 @@
+{
+  "verifiedAt": "2026-09-26T09:21:16.365Z",
+  "changes": [
+    "Bounded GCash compact-mask recognition requires exact full receiving mobile and compatible visible name letters.",
+    "OCR recovery preserves the exact nine-field database evidence schema."
+  ],
+  "validation": {
+    "receiptTestsPassed": 197,
+    "receiptTestsFailed": 0,
+    "typescriptChecked": true,
+    "deployedSourceFilesMatched": 31,
+    "changedFunctions": [
+      {
+        "slug": "picklestreet-receipts",
+        "version": 40,
+        "status": "ACTIVE"
+      }
+    ]
+  },
+  "liveResults": [
+    {
+      "reference": "PB-71196DC1AF1A",
+      "status": "confirmed",
+      "payment_status": "paid",
+      "receipt_status": "auto_approved",
+      "flags": [
+        "auto_approval_eligible"
+      ],
+      "verifier_version": "picklestreet_sources_20260926_1"
+    },
+    {
+      "reference": "PB-B995846A5EFC",
+      "status": "confirmed",
+      "payment_status": "paid",
+      "receipt_status": "auto_approved",
+      "flags": [
+        "auto_approval_eligible"
+      ],
+      "verifier_version": "picklestreet_sources_20260926_1"
+    }
+  ],
+  "manualApprovalUsed": false,
+  "databaseMigrationsApplied": false
+}
