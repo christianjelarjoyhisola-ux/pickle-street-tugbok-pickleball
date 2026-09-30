@@ -13483,7 +13483,7 @@ function rmStatusKey(record) {
   if (['cancelled','canceled','void'].includes(raw)) return 'cancelled';
   if (['submitted','under-review','payment-submitted','proof-submitted','verifying','pending-review','awaiting-review'].includes(raw)) return 'under-review';
   if ([true, 1, '1', 'true', 't'].includes(rmPick(record, 'is_overdue', 'isOverdue'))) return 'overdue';
-  if (['prepared','sent','ready','awaiting-payment','pending-payment','open','partially-settled'].includes(raw)) return 'awaiting-payment';
+  if (['due','prepared','sent','ready','awaiting-payment','pending-payment','open','partially-settled'].includes(raw)) return 'awaiting-payment';
   if (['overdue','past-due'].includes(raw)) return 'overdue';
   return 'accumulating';
 }

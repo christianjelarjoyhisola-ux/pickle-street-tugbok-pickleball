@@ -1,0 +1,16 @@
+{
+  "verifiedAt": "2026-09-30T07:21:07.208Z",
+  "deployment": "https://ed988dbf.picklestreet.pages.dev",
+  "records": [
+    {
+      "reference": "REM-20260930-4DF3B233",
+      "status": "due",
+      "booking_fee_amount": "2666.00",
+      "paid_amount": "0.00",
+      "cutoff_at": "2026-09-30 07:19:52.300331+00",
+      "live_balance": "0"
+    }
+  ],
+  "frontendTests": 290,
+  "additionalStatusTest": true
+}
