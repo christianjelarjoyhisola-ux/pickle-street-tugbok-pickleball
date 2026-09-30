@@ -416,7 +416,7 @@ h1, h2, h3, h4 { font-family: 'Bebas Neue', sans-serif; letter-spacing: 1px; }
   .rm-detail-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
 @media(max-width:520px) {
-  #rmPrepareModal.overlay, #rmPayModal.overlay, #rmReviewModal.overlay, #rmDetailModal.overlay, #rmCancelModal.overlay { align-items:flex-end; padding:0; overflow:hidden; }
+  #rmCutoffModal.overlay, #rmPrepareModal.overlay, #rmPayModal.overlay, #rmReviewModal.overlay, #rmDetailModal.overlay, #rmCancelModal.overlay { align-items:flex-end; padding:0; overflow:hidden; }
   .rm-modal, .rm-modal.wide { width:100%; max-width:none; max-height:94dvh; border-radius:20px 20px 0 0; border-bottom:0; }
   .rm-modal .m-hd { padding:12px 14px; }
   .rm-modal .m-body { padding:13px 14px 18px; }
@@ -3330,6 +3330,7 @@ tr:hover td { background: var(--bg2); }
           <p id="rmPageCopy">Track the running booking-fee balance, exact payment cutoffs, submitted proof, and permanent settlement history.</p>
         </div>
         <div class="rm-head-actions">
+          <button class="btn btn-p" id="rmCutoffBtn" type="button" onclick="openRemittanceCutoff()">Cutoff Remittance</button>
           <button class="btn btn-g" id="rmRefreshBtn" type="button" onclick="renderRemittances({announce:true})">&#8635; Refresh</button>
         </div>
       </div>
@@ -4152,6 +4153,19 @@ tr:hover td { background: var(--bg2); }
       <button class="btn btn-g" type="button" onclick="closeRescheduleModal()">Keep Current Booking</button>
       <span id="rsSaveHelp" class="reschedule-date-help" aria-live="polite"></span><button class="btn btn-p" type="button" id="rsSaveBtn" onclick="saveReschedule()" disabled>Confirm Reschedule</button>
     </div>
+  </div>
+</div>
+
+<div class="overlay" id="rmCutoffModal" aria-hidden="true">
+  <div class="modal rm-modal" role="dialog" aria-modal="true" aria-labelledby="rmCutoffTitle" tabindex="-1" onkeydown="remittanceModalKeydown(event)">
+    <div class="m-hd"><h2 id="rmCutoffTitle">CUTOFF REMITTANCE</h2><button class="m-x" type="button" aria-label="Close cutoff" onclick="closeRemittanceModal('rmCutoffModal')">&#10005;</button></div>
+    <div class="m-body">
+      <div class="rm-hero"><div class="rm-hero-label">Current booking fees to cut off today</div><div class="rm-hero-amount" id="rmCutoffAmount"></div></div>
+      <p>Save the current fees as an unpaid remittance. The running balance resets to &#8369;0, and new fees start accumulating separately.</p>
+      <p>The saved record will show the amount and today's cutoff time for your screenshot. Payment remains due until verified.</p>
+      <p id="rmCutoffStatus" role="status" aria-live="polite"></p>
+    </div>
+    <div class="m-foot"><button class="btn btn-g" type="button" onclick="closeRemittanceModal('rmCutoffModal')">Cancel</button><button class="btn btn-p" id="rmCutoffGenerate" type="button" onclick="generateRemittanceCutoff()">Cut Off Now</button></div>
   </div>
 </div>
 
@@ -13733,6 +13747,7 @@ async function renderRemittances({ announce = false } = {}) {
     _rmState.records = new Map([...active, ...history].map(record => [rmRecordId(record), record]).filter(([id]) => id));
 
     const role = rmDashboardRole();
+    $('rmCutoffBtn').style.display = role === 'owner' ? '' : 'none';
     const live = rmPick(dashboard, 'live', 'current', 'accumulated', 'live_balance', 'liveBalance') || {};
     const liveAmount = rmAmountDue(live);
     const liveBookings = rmBookingCount(live);
@@ -13791,7 +13806,7 @@ async function renderRemittances({ announce = false } = {}) {
           ? 'Upcoming remittance schedule'
           : 'Remittance schedule not configured';
     $('rmCycleCopy').textContent = role === 'owner'
-      ? 'Court owners freeze the exact balance when they prepare payment. You verify the submitted proof before it becomes settled.'
+      ? 'Use Cutoff Remittance to save the current fees and restart the running balance. Verify payment separately when the court owner pays.'
       : 'Your balance keeps accumulating until you prepare payment. The database freezes the exact cutoff at that moment.';
 
     const prepareBtn = $('rmPrepareBtn');
@@ -13848,6 +13863,39 @@ function remittanceModalKeydown(event) {
   const first = focusable[0], last = focusable[focusable.length - 1];
   if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
   else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+}
+
+let _rmCutoffKey = null;
+let _rmCutoffBusy = false;
+function openRemittanceCutoff() {
+  if (rmDashboardRole() !== 'owner') return;
+  const live = rmPick(_rmState.dashboard, 'live', 'current', 'accumulated', 'live_balance', 'liveBalance') || {};
+  const amount = rmAmountDue(live);
+  if (amount <= 0) { toast('There are no new booking fees to cut off.', 'inf'); return; }
+  if (!_rmCutoffKey) _rmCutoffKey = crypto.randomUUID();
+  $('rmCutoffAmount').textContent = fmt(amount);
+  $('rmCutoffStatus').textContent = '';
+  openRemittanceModal('rmCutoffModal', '#rmCutoffGenerate');
+}
+async function generateRemittanceCutoff() {
+  if (_rmCutoffBusy || rmDashboardRole() !== 'owner' || !_rmCutoffKey) return;
+  _rmCutoffBusy = true;
+  rmSetBusy($('rmCutoffGenerate'), true, 'Saving cutoff...');
+  try {
+    const result = await DB.cutoffRemittance(_rmCutoffKey);
+    _rmCutoffKey = null;
+    const record = result?.remittance || result?.data?.remittance || result?.data || result;
+    closeRemittanceModal('rmCutoffModal');
+    await renderRemittances();
+    toast('Cutoff saved. New fees now accumulate separately.');
+    const id = rmRecordId(record);
+    if (id) await openRemittanceDetails(id);
+  } catch (error) {
+    $('rmCutoffStatus').textContent = error.message || 'Could not save cutoff. Please retry.';
+  } finally {
+    _rmCutoffBusy = false;
+    rmSetBusy($('rmCutoffGenerate'), false);
+  }
 }
 
 function openRemittancePrepare() {
@@ -14796,7 +14844,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if(ov.id==='bookingDetailsModal') closeBookingDetails();
     else if(ov.id==='verifyModal') closeVerifyModal();
     else if(ov.id==='rescheduleModal') closeRescheduleModal();
-    else if(['rmPrepareModal','rmPayModal','rmReviewModal','rmDetailModal','rmCancelModal'].includes(ov.id)) closeRemittanceModal(ov.id);
+    else if(['rmCutoffModal','rmPrepareModal','rmPayModal','rmReviewModal','rmDetailModal','rmCancelModal'].includes(ov.id)) closeRemittanceModal(ov.id);
     else if(ov.id==='courtModal') closeModal('courtModal');
     else ov.classList.remove('show');
   }));
@@ -15271,7 +15319,8 @@ async function checkAgreementGate(session) {
 
 <script src="supabase.min.js"></script>
 <script src="tenant-config.js?v=20260909-owner-actions"></script>
-<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260917-expired-hold-cleanup"></script><script src="payment-source-ui.js?v=20260917-maya-reference-policy"></script>
+<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260930-actual-cutoff"></script><script src="payment-source-ui.js?v=20260917-maya-reference-policy"></script>
+
 <script src="receipt-pending.js?v=20260908-routes2"></script>
 <script src="payment-method-brand.js?v=20260908-routes2"></script>
 <script src="payment-settings.js?v=20260917-maya-reference-policy"></script>

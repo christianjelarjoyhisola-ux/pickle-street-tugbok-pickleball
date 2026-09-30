@@ -4941,6 +4941,14 @@ window.DB = {
     };
   },
 
+  async cutoffRemittance(idempotencyKey) {
+    const {data,error} = await _sb.rpc('cutoff_picklestreet_remittance', {
+      p_tenant_slug: PB_TENANT_SLUG, p_hostname: _pbTenantHostname(), p_idempotency_key: idempotencyKey,
+    });
+    if (error) throw new Error(_extractFnError(error, 'Could not save remittance cutoff'));
+    return data;
+  },
+
   async sendHostBalanceNotice(bookingRef, eventType = 'reminder_1d', options = {}) {
     return _invokeEdgeFunction('process-host-balance-deadlines', {
       action: 'manual', bookingRef, eventType,
