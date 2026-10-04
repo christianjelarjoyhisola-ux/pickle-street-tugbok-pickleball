@@ -3055,7 +3055,7 @@ window.DB = {
       throw error;
     }
     const result = await _invokeEdgeFunction(
-      `reschedule-booking?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      `picklestreet-court-reschedule?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
       {
         action: 'preview',
         tenantSlug: PB_TENANT_SLUG,
@@ -3087,7 +3087,7 @@ window.DB = {
       throw error;
     }
     const result = await _invokeEdgeFunction(
-      `reschedule-booking?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      `picklestreet-court-reschedule?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
       {
         action: 'reschedule',
         tenantSlug: PB_TENANT_SLUG,
@@ -3144,7 +3144,7 @@ window.DB = {
       throw error;
     }
     const result = await _invokeEdgeFunction(
-      `reschedule-booking?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
+      `picklestreet-court-reschedule?tenantSlug=${encodeURIComponent(PB_TENANT_SLUG)}`,
       {
         action: 'resend',
         tenantSlug: PB_TENANT_SLUG,

@@ -16,5 +16,11 @@
     "version": 43,
     "status": "ACTIVE",
     "sourceHash": "1ed6e636f389bc13d74499d4e3c403e90b711f97af5bb4f839ad3aca820d4398"
+  },
+  "rescheduleEndpoint": {
+    "slug": "picklestreet-court-reschedule",
+    "preflightStatus": 204,
+    "unauthenticatedStatus": 401,
+    "tenantScoped": true
   }
 }
