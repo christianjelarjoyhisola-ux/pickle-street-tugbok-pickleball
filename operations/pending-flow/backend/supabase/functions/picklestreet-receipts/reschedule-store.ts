@@ -255,7 +255,7 @@ export function createSupabaseRescheduleBookingStore(options: {
         origin: previewOptions.origin,
       });
       const result = await userDb.rpc(
-        "preview_tenant_booking_reschedule_priced",
+        previewOptions.includeCourts ? "preview_picklestreet_court_reschedule" : "preview_tenant_booking_reschedule_priced",
         {
           p_booking_id: previewOptions.bookingId,
           p_local_date: previewOptions.bookingDate,
@@ -281,7 +281,7 @@ export function createSupabaseRescheduleBookingStore(options: {
         balanceRequestId,
       });
       const result = await userDb.rpc(
-        "prepare_owner_repeatable_booking_reschedule",
+        rescheduleOptions.newCourtId ? "prepare_picklestreet_court_reschedule" : "prepare_owner_repeatable_booking_reschedule",
         {
           p_booking_id: rescheduleOptions.bookingId,
           p_local_date: rescheduleOptions.newDate,
@@ -294,6 +294,7 @@ export function createSupabaseRescheduleBookingStore(options: {
           p_balance_request_id: balanceRequestId,
           p_access_token_hash: await bookingAccessTokenHash(balanceToken),
           p_deadline_at: rescheduleOptions.deadlineAt,
+          ...(rescheduleOptions.newCourtId ? {p_court_id: rescheduleOptions.newCourtId} : {}),
         },
       );
       if (result.error || !result.data) throw mapRpcError(result.error);

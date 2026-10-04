@@ -1,0 +1,20 @@
+{
+  "appliedAt": "2026-10-04T08:17:35.217Z",
+  "migrationHash": "9ee9718e8dbad12c739c0c73bf0d0b6ab4a921665c757af1b532c3f6ef3da39e",
+  "tenant": "pickle-street-tugbok",
+  "syntheticRollbackTestsPassed": true,
+  "frontendTestsPassed": 292,
+  "edgeTestsPassed": 205,
+  "uiVerifiedWidths": [
+    1440,
+    1024,
+    703,
+    390
+  ],
+  "liveCustomerBookingsChanged": 0,
+  "edgeFunction": {
+    "version": 43,
+    "status": "ACTIVE",
+    "sourceHash": "1ed6e636f389bc13d74499d4e3c403e90b711f97af5bb4f839ad3aca820d4398"
+  }
+}

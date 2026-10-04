@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {createRescheduleBookingHandler,type RescheduleBookingStore} from '../_shared/reschedule-booking.ts';
+const court='11111111-1111-4111-8111-111111111111';
+function setup(){const calls:Record<string,unknown>[]=[];const store={
+ resolveTenant:async()=>({tenantId:'tenant',tenantSlug:'pickle-street-tugbok',origin:'https://picklestreetcourt.com'}),authenticate:async()=> 'owner',authorize:async()=>({membershipRole:'owner',isSystemOwner:false}),findBookingId:async()=> 'booking',
+ preview:async(options:Record<string,unknown>)=>{calls.push(options);return {booking:{id:'booking'},options:[],...(options.includeCourts?{courts:[{id:court,name:'Court 1'}]}:{})};},
+ reschedule:async(options:Record<string,unknown>)=>{calls.push(options);return {booking:{id:'booking'},paymentRequired:true};},
+} as unknown as RescheduleBookingStore;
+ const handler=createRescheduleBookingHandler(store,{send:async()=>({referenceId:null})});
+ return {calls,send:(body:Record<string,unknown>)=>handler(new Request('https://example.invalid/reschedule',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer synthetic-test-access-token','Origin':'https://picklestreetcourt.com'},body:JSON.stringify({tenantSlug:'pickle-street-tugbok',bookingReference:'PB-123456789012',...body})}))};}
+Deno.test('court preview is opt-in so older pages retain same-court availability',async()=>{const f=setup();for(const includeCourts of [undefined,true]){const response=await f.send({action:'preview',bookingDate:'2026-10-20',...(includeCourts?{includeCourts}:{})});assert.equal(response.status,200);const data=await response.json();assert.equal(data.policies.sameCourtOnly,!includeCourts);assert.equal(data.courts.length,includeCourts?1:0);}assert.equal(f.calls[0].includeCourts,false);assert.equal(f.calls[1].includeCourts,true);});
+Deno.test('selected court reaches the protected save operation',async()=>{const f=setup();const response=await f.send({action:'reschedule',newCourtId:court,newDate:'2026-10-20',newStartTime:'08:00',reasonCode:'customer_request',publicReason:'Requested court change',notifyCustomer:false,idempotencyKey:court});assert.equal(response.status,200);assert.equal(f.calls[0].newCourtId,court);});
+Deno.test('invalid court identifiers are rejected before save',async()=>{const f=setup();const response=await f.send({action:'reschedule',newCourtId:'wrong',newDate:'2026-10-20',newStartTime:'08:00',reasonCode:'customer_request',publicReason:'Requested court change',notifyCustomer:false,idempotencyKey:court});assert.equal(response.status,400);assert.equal(f.calls.length,0);});

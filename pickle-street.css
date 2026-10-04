@@ -343,3 +343,13 @@ html.ps-entry-policy-open{overflow:hidden}
 @media(max-width:580px){.ps-entry-policy{width:calc(100vw - 24px);max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);border-radius:16px}.ps-entry-policy-shell{max-height:calc(100dvh - 26px)}.ps-entry-policy-header{padding:14px 16px 12px}.ps-entry-policy-content{padding:14px 16px}.ps-entry-policy-footer{padding:10px 16px max(12px,env(safe-area-inset-bottom))}.ps-entry-policy p{font-size:13px}.ps-entry-policy .ps-entry-policy-brand{font-size:11px}}
 @media(max-height:650px){.ps-entry-policy-header{padding-top:13px;padding-bottom:12px}.ps-entry-policy h2{font-size:18px}.ps-entry-policy-footer{padding-top:10px;padding-bottom:12px}}
 @media(prefers-reduced-motion:reduce){.ps-entry-policy[open]{animation:none}}
+/* Reschedule uses its own width and scroll container, independent of generic dialogs. */
+#rescheduleModal .reschedule-modal{width:min(1120px,calc(100vw - 32px));max-width:1120px;max-height:calc(100dvh - 32px);display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden}
+#rescheduleModal .reschedule-body{min-height:0;max-height:none;overflow-y:auto;overscroll-behavior:contain}
+#rescheduleModal .m-hd,#rescheduleModal .m-foot{position:static;flex-shrink:0}
+#rescheduleModal .reschedule-panel,#rescheduleModal .reschedule-option{min-width:0;overflow-wrap:break-word}
+#rescheduleModal .reschedule-notify span{min-width:0;overflow-wrap:anywhere}
+#rescheduleModal .reschedule-option strong{line-height:1.4}
+#rescheduleModal .reschedule-option-slots{display:flex;flex-wrap:wrap;gap:4px}
+@media(max-width:900px){#rescheduleModal .reschedule-grid,#rescheduleModal .reschedule-reason-grid{grid-template-columns:1fr}#rescheduleModal .reschedule-current{grid-template-columns:1fr}#rescheduleModal .reschedule-unchanged{text-align:left;max-width:none}}
+@media(max-width:480px){#rescheduleModal{padding:8px}#rescheduleModal .reschedule-modal{width:100%;max-height:calc(100dvh - 16px)}#rescheduleModal .m-hd,#rescheduleModal .m-foot{padding:12px}#rescheduleModal .reschedule-options{grid-template-columns:1fr}#rescheduleModal .fi{font-size:16px}}

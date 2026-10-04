@@ -24,3 +24,8 @@ test('a missing or inconsistent server price cannot be interpreted as a free sch
   assert.throws(()=>context._pbPlatformRescheduleOptionToLegacy({...price,paymentRequired:false}),/requirement/);
   assert.equal(context._pbPlatformRescheduleOptionToLegacy({available:false}).available,false);
 });
+test('reschedule options retain the selected court identity',()=>{
+ const context={};vm.runInNewContext(extract(fs.readFileSync('supabase-config.js','utf8'),'_pbPlatformRescheduleOptionToLegacy'),context);
+ const option=context._pbPlatformRescheduleOptionToLegacy({courtId:'court-3',courtName:'Court 3',available:true,courtSubtotalAmount:200,newSubtotalAmount:200,newTotalAmount:220,originalTotalAmount:220,amountPaid:220,additionalAmount:0,paymentRequired:false});
+ assert.equal(option.courtId,'court-3');assert.equal(option.courtName,'Court 3');
+});

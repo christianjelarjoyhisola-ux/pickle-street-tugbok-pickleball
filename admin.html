@@ -2673,7 +2673,7 @@ tr:hover td { background: var(--bg2); }
 
 </style>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="pickle-street.css?v=20260908-action-layout">
+<link rel="stylesheet" href="pickle-street.css?v=20261004-reschedule-courts">
 <link rel="stylesheet" href="admin-group-reschedule.css?v=20260909-shared-time-v2">
 <script src="admin-group-reschedule.js?v=20260909-shared-time-v2"></script>
 <meta name="robots" content="noindex,nofollow">
@@ -4082,16 +4082,16 @@ tr:hover td { background: var(--bg2); }
           <div class="reschedule-current-name" id="rsName">Guest</div>
           <div class="reschedule-current-meta"><span id="rsOldCourt">Court</span> · <span id="rsOldDate">Date</span> · <span id="rsOldTime">Time</span></div>
         </div>
-        <div class="reschedule-unchanged">Same court and duration. Prices are checked against the new schedule.</div>
+        <div class="reschedule-unchanged">Choose an available court and time. Your booked duration stays the same.</div>
       </div>
 
       <div class="reschedule-grid">
         <section class="reschedule-panel">
-          <div class="reschedule-section-label">1. Choose a date</div>
+          <div class="reschedule-section-label">1. Choose a date and court</div>
           <div class="fg" style="margin:10px 0 0">
             <label class="fl" for="rsNewDate">New date</label>
             <input type="date" class="fi" id="rsNewDate" onchange="loadRescheduleOptions()" />
-            <div class="reschedule-date-help" id="rsPolicyCopy">Only server-confirmed available times can be selected.</div>
+            </div><div class="fg" style="margin:12px 0 0"><label class="fl" for="rsNewCourt">Court</label><select class="fi" id="rsNewCourt" onchange="selectRescheduleCourt(this.value)" disabled><option>Loading courts…</option></select><div class="reschedule-date-help" id="rsPolicyCopy">Only server-confirmed available times can be selected.</div>
           </div>
         </section>
         <section class="reschedule-panel">
@@ -10784,8 +10784,8 @@ function updateRescheduleSummary() {
     updateRescheduleSaveState();
     return;
   }
-  $('rsSummaryBefore').textContent = `${fmtD(booking.date)} · ${booking.startTime}-${booking.endTime}`;
-  $('rsSummaryAfter').textContent = `${fmtD($('rsNewDate').value)} · ${rescheduleClockLabel(option.startTime)}-${rescheduleClockLabel(option.endTime)}`;
+  $('rsSummaryBefore').textContent = `${booking.courtName} · ${fmtD(booking.date)} · ${booking.startTime}-${booking.endTime}`;
+  $('rsSummaryAfter').textContent = `${option.courtName || booking.courtName} · ${fmtD($('rsNewDate').value)} · ${rescheduleClockLabel(option.startTime)}-${rescheduleClockLabel(option.endTime)}`;
   const additional = Math.max(0, Number(option.additionalAmount || 0));
   const originalTotal = Number(option.originalTotalAmount ?? booking.total ?? 0);
   $('rsOriginalTotal').textContent = fmt(originalTotal);
@@ -10819,8 +10819,7 @@ function renderRescheduleOptions() {
   const target = $('rsOptions');
   if (!target) return;
   const options = _rescheduleState.options;
-  const availableCount = options.filter(option => option.available !== false).length;
-  if (!options.length || !availableCount) {
+  if (!options.length) {
     target.innerHTML = '<div class="reschedule-options-state">No available times were returned for this date. Choose another date.</div>';
     updateRescheduleSummary();
     return;
@@ -10884,6 +10883,7 @@ async function loadRescheduleOptions() {
   const seq = ++_rescheduleState.previewSeq;
   _rescheduleState.options = [];
   _rescheduleState.selectedIndex = -1;
+  $('rsNewCourt').disabled = true;
   $('rsOptions').innerHTML = '<div class="reschedule-options-state">Checking live availability...</div>';
   $('rsSummary').hidden = true;
   $('rsPaymentDeadlineWrap').hidden = true;
@@ -10906,7 +10906,16 @@ async function loadRescheduleOptions() {
     }
     const durationLabel = rescheduleDurationLabel(_rescheduleState.booking);
     $('rsDurationHint').textContent = `Select one available range. Choosing it selects all ${durationLabel} automatically.`;
-    _rescheduleState.options = Array.isArray(preview.options) ? preview.options : [];
+    _rescheduleState.allOptions = Array.isArray(preview.options) ? preview.options : [];
+    _rescheduleState.courts = Array.isArray(preview.courts) && preview.courts.length ? preview.courts : [{id:_rescheduleState.booking.courtId,name:_rescheduleState.booking.courtName}];
+    if (!_rescheduleState.courts.some(court => court.id === _rescheduleState.courtId)) _rescheduleState.courtId = _rescheduleState.booking.courtId || _rescheduleState.courts[0].id;
+    $('rsNewCourt').innerHTML = _rescheduleState.courts.map(court => {
+      const count = _rescheduleState.allOptions.filter(option => (!option.courtId || option.courtId === court.id) && option.available !== false).length;
+      return '<option value="'+esc(court.id)+'">'+esc(court.name)+' — '+(count ? count+' available times' : 'No available times')+'</option>';
+    }).join('');
+    $('rsNewCourt').value = _rescheduleState.courtId;
+    $('rsNewCourt').disabled = false;
+    _rescheduleState.options = _rescheduleState.allOptions.filter(option => !option.courtId || option.courtId === _rescheduleState.courtId);
     applyReschedulePolicies(preview.policies, _rescheduleState.booking);
     renderRescheduleOptions();
   } catch (error) {
@@ -10914,6 +10923,17 @@ async function loadRescheduleOptions() {
     $('rsOptions').innerHTML = '<div class="reschedule-options-state">Available times could not be loaded.</div>';
     setRescheduleError(error?.message || 'Available reschedule times could not be loaded.');
   }
+}
+
+function selectRescheduleCourt(courtId) {
+  if (_rescheduleState.saving || !$('rsNewCourt') || $('rsNewCourt').disabled) return;
+  if (!_rescheduleState.courts.some(court => court.id === courtId)) return;
+  _rescheduleState.courtId = courtId;
+  _rescheduleState.selectedIndex = -1;
+  _rescheduleState.options = _rescheduleState.allOptions.filter(option => !option.courtId || option.courtId === courtId);
+  $('rsPaymentDeadline').value = '';
+  setRescheduleError('');
+  renderRescheduleOptions();
 }
 
 function selectRescheduleOption(index) {
@@ -10959,6 +10979,9 @@ async function openRescheduleModal(ref, { returnFocus = null } = {}) {
   const modal = $('rescheduleModal');
   _rescheduleState = {
     booking: group,
+    courtId: group.courtId,
+    courts: [],
+    allOptions: [],
     options: [],
     policies: {},
     selectedIndex: -1,
@@ -11068,7 +11091,7 @@ async function saveReschedule() {
     $('rsPaymentDeadline')?.focus();
     return;
   }
-  const change = {newDate,newStartTime,reasonCode,publicReason,internalNote,notifyCustomer,deadlineAt:additionalAmount>0?deadline.toISOString():null};
+  const change = {newDate,newStartTime,newCourtId:option.courtId || _rescheduleState.courtId,reasonCode,publicReason,internalNote,notifyCustomer,deadlineAt:additionalAmount>0?deadline.toISOString():null};
   const signature = JSON.stringify(change);
   if (_rescheduleState.requestSignature !== signature) {
     _rescheduleState.idempotencyKey = rescheduleIdempotencyKey();
@@ -15319,7 +15342,7 @@ async function checkAgreementGate(session) {
 
 <script src="supabase.min.js"></script>
 <script src="tenant-config.js?v=20260909-owner-actions"></script>
-<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20260930-actual-cutoff"></script><script src="payment-source-ui.js?v=20260917-maya-reference-policy"></script>
+<script src="court-pricing.js?v=20260908-promo-tiers"></script><script src="supabase-config.js?v=20261004-reschedule-courts"></script><script src="payment-source-ui.js?v=20260917-maya-reference-policy"></script>
 
 <script src="receipt-pending.js?v=20260908-routes2"></script>
 <script src="payment-method-brand.js?v=20260908-routes2"></script>

@@ -1,0 +1,8 @@
+'use strict';
+const fs=require('node:fs'),crypto=require('node:crypto');const {query}=require('./pending-platform.cjs');
+(async()=>{const migration=fs.readFileSync('operations/pending-flow/043-reschedule-court-selection.sql','utf8');const tests=fs.readFileSync('operations/pending-flow/reschedule-court-rollback-tests.sql','utf8');
+const manual=tests.replace("array['auto_approval_eligible'],ref,.99,true,null,snap);",`array['manual_review_required'],ref,.99,false,null,snap);
+r:=public.review_picklestreet_pending_receipt((j->>'verificationId')::uuid,(j->>'attemptId')::uuid,extensions.gen_random_uuid(),'approve','Synthetic review',(select user_id from public.platform_profiles where is_platform_owner limit 1));`);
+const results=[];for(const [mode,sql] of [['automatic',tests],['manual',manual]]){const result=await query(migration.replace(/commit;\s*$/,'')+sql+'rollback;');if(!result[0]?.court_selection_passed)throw Error(mode+' failed');results.push({mode,passed:true});}
+const report={checkedAt:new Date().toISOString(),migrationHash:crypto.createHash('sha256').update(migration).digest('hex'),rolledBack:true,results,checks:['Three selectable courts','Same time on another court','Occupied court rejected','Blocked court rejected','Peer tenant court rejected','Same-price court transfer','Court-bound idempotency','Original reservation preserved pending payment','Target court settled through automatic and staff approval']};
+fs.writeFileSync('operations/pending-flow/reschedule-court-validation.json',JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report));})().catch(e=>{console.error(e.message);process.exitCode=1});

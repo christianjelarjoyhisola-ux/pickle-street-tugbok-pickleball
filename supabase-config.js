@@ -876,6 +876,8 @@ function _pbPlatformRescheduleOptionToLegacy(option) {
   const paymentRequired = row.paymentRequired ?? row.payment_required;
   if (row.available !== false && !unavailableReason && (typeof paymentRequired !== 'boolean' || paymentRequired !== (prices.additionalAmount > 0))) throw new Error('The new schedule payment requirement could not be verified.');
   return {
+    courtId: row.courtId || row.court_id || null,
+    courtName: String(row.courtName || row.court_name || ""),
     startsAt,
     endsAt,
     startTime,
@@ -3059,6 +3061,7 @@ window.DB = {
         tenantSlug: PB_TENANT_SLUG,
         bookingReference: String(ref || '').toUpperCase(),
         bookingDate: String(bookingDate || ''),
+        includeCourts: true,
       },
       { preferDirect: true },
     );
@@ -3091,6 +3094,7 @@ window.DB = {
         bookingReference: String(ref || '').toUpperCase(),
         newDate: String(change.newDate || ''),
         newStartTime: String(change.newStartTime || ''),
+        ...(change.newCourtId ? {newCourtId: String(change.newCourtId)} : {}),
         reasonCode: String(change.reasonCode || ''),
         publicReason: String(change.publicReason || ''),
         internalNote: String(change.internalNote || ''),

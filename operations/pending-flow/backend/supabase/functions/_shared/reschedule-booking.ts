@@ -62,6 +62,7 @@ export interface RescheduleBookingStore {
     origin: string;
     bookingId: string;
     bookingDate: string;
+    includeCourts?: boolean;
   }): Promise<JsonObject>;
   reschedule(options: {
     accessToken: string;
@@ -70,6 +71,7 @@ export interface RescheduleBookingStore {
     bookingId: string;
     newDate: string;
     newStartTime: string;
+    newCourtId?: string;
     reasonCode: string;
     publicReason: string;
     internalNote: string | null;
@@ -105,11 +107,12 @@ export interface RescheduleBookingStore {
 type RescheduleAction = "preview" | "reschedule" | "resend";
 
 const COMMON_KEYS = new Set(["action", "tenantSlug", "bookingReference"]);
-const PREVIEW_KEYS = new Set([...COMMON_KEYS, "bookingDate"]);
+const PREVIEW_KEYS = new Set([...COMMON_KEYS, "bookingDate", "includeCourts"]);
 const RESCHEDULE_KEYS = new Set([
   ...COMMON_KEYS,
   "newDate",
   "newStartTime",
+  "newCourtId",
   "reasonCode",
   "publicReason",
   "internalNote",
@@ -691,6 +694,7 @@ export function createRescheduleBookingHandler(
           origin: context.origin,
           bookingId,
           bookingDate,
+          includeCourts: body.includeCourts == null ? false : parseBoolean(body.includeCourts),
         });
         const booking = objectValue(result.booking);
         const options = Array.isArray(result.options) ? result.options : [];
@@ -701,8 +705,9 @@ export function createRescheduleBookingHandler(
             ok: true,
             booking,
             options,
+            courts: Array.isArray(result.courts) ? result.courts : [],
             policies: {
-              sameCourtOnly: true,
+              sameCourtOnly: !Array.isArray(result.courts),
               sameDurationOnly: true,
               amountPolicy: "preserve_original",
               reasonCodes: RESCHEDULE_REASON_CODES,
@@ -723,6 +728,7 @@ export function createRescheduleBookingHandler(
           bookingId,
           newDate: parseDate(body.newDate, "New date"),
           newStartTime: parseStartTime(body.newStartTime),
+          newCourtId: body.newCourtId == null ? undefined : parseUuid(body.newCourtId, "RESCHEDULE_COURT_INVALID", "Choose a valid court."),
           reasonCode: parseReasonCode(body.reasonCode),
           publicReason: parseBoundedText(body.publicReason, {
             code: "RESCHEDULE_REASON_INVALID",

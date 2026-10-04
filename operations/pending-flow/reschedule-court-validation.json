@@ -1,0 +1,26 @@
+{
+  "checkedAt": "2026-10-04T08:14:56.699Z",
+  "migrationHash": "9ee9718e8dbad12c739c0c73bf0d0b6ab4a921665c757af1b532c3f6ef3da39e",
+  "rolledBack": true,
+  "results": [
+    {
+      "mode": "automatic",
+      "passed": true
+    },
+    {
+      "mode": "manual",
+      "passed": true
+    }
+  ],
+  "checks": [
+    "Three selectable courts",
+    "Same time on another court",
+    "Occupied court rejected",
+    "Blocked court rejected",
+    "Peer tenant court rejected",
+    "Same-price court transfer",
+    "Court-bound idempotency",
+    "Original reservation preserved pending payment",
+    "Target court settled through automatic and staff approval"
+  ]
+}
