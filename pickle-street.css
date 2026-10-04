@@ -353,3 +353,6 @@ html.ps-entry-policy-open{overflow:hidden}
 #rescheduleModal .reschedule-option-slots{display:flex;flex-wrap:wrap;gap:4px}
 @media(max-width:900px){#rescheduleModal .reschedule-grid,#rescheduleModal .reschedule-reason-grid{grid-template-columns:1fr}#rescheduleModal .reschedule-current{grid-template-columns:1fr}#rescheduleModal .reschedule-unchanged{text-align:left;max-width:none}}
 @media(max-width:480px){#rescheduleModal{padding:8px}#rescheduleModal .reschedule-modal{width:100%;max-height:calc(100dvh - 16px)}#rescheduleModal .m-hd,#rescheduleModal .m-foot{padding:12px}#rescheduleModal .reschedule-options{grid-template-columns:1fr}#rescheduleModal .fi{font-size:16px}}
+#rescheduleModal .reschedule-modal{grid-template-columns:minmax(0,1fr)}
+#rescheduleModal .m-foot{min-width:0;width:100%;box-sizing:border-box}
+@media(max-width:480px){#rescheduleModal .m-foot{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}#rescheduleModal #rsSaveHelp{grid-column:1/-1;grid-row:1}#rescheduleModal .m-foot>.btn{width:100%;margin:0}}
