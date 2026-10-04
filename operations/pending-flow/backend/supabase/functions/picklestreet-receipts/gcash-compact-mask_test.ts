@@ -30,10 +30,10 @@ Deno.test('Compact-mask recovery preserves all recipient and payment safeguards'
     f => {f.vision.text = f.vision.text.replace('MAA J. C.', 'MAA J. D.');},
     f => {f.vision.text = f.vision.text.replace('MAA J. C.', 'MAA JR CRUZ');},
     f => {f.vision.text = f.vision.text.replace('000 0001', '000 0002');},
-    f => {f.vision.text = f.vision.text.replace('+63 917 000 0001', '0917 *** 0001');},
+    f => {f.vision.text = f.vision.text.replace('+63 917 000 0001', '0917 *** 0002');},
     f => {f.expectedAmount = 111;},
     f => {f.vision.text = f.vision.text.replace('₱110.00', '₱111.00');},
-    f => {f.vision.text = f.vision.text.replace('₱110.00', 'unreadable');},
+    f => {f.vision.text = f.vision.text.replaceAll('110.00', 'unreadable');},
     f => {f.payment.submittedReference = '0045123456788';},
     f => {f.vision.confidence = .70;},
     f => {f.vision.text = f.vision.text.replace('3:06 PM', '4:06 PM');},
@@ -45,12 +45,11 @@ Deno.test('Compact-mask recovery preserves all recipient and payment safeguards'
   }
 });
 
-Deno.test('A complete layout retry can recover the unreadable second amount without bypassing it', async () => {
+Deno.test('One labeled amount does not require another reading', async () => {
   const f = fixture(430);
   const vision = {...f.vision, text: f.vision.text.replace('₱430.00', 'unreadable'), layoutText: f.vision.text};
   const primary = verifySourceRoute({...f, vision});
-  assert.equal(primary.autoApprove, false);
-  assert.ok(primary.flags.includes('amount_confirmation_unreadable'));
+  assert.equal(primary.autoApprove, true);
   const result = await recoverReceiptReading({primary, vision, method: 'gcash', verify: candidate => verifySourceRoute({...f, vision: candidate}), retry: async () => {throw Error('Layout should suffice');}});
   assert.equal(result.autoApprove, true);
   // Both production finish RPCs require these exact nine safe root keys.

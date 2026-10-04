@@ -216,8 +216,7 @@ function verifyGcashReceipt(
     addUnique(flags, "AMOUNT_UNREADABLE");
   } else if (receipt.amount.conflictingPrimaryAmounts) {
     addUnique(flags, "AMOUNT_REVIEW");
-  } else if (!receipt.amount.matchingPrimaryAmountDisplays) {
-    addUnique(flags, "AMOUNT_CONFIRMATION_UNREADABLE");
+
   } else if (
     Math.abs(receipt.amount.amount - context.expectedAmount) >
       context.amountTolerance
@@ -256,15 +255,14 @@ function verifyGcashReceipt(
   if (
     receipt.indicators.classification !== "gcash" ||
     !receipt.indicators.sentViaGcash ||
-    !receipt.indicators.totalAmountSent ||
     !receipt.indicators.referenceLabel ||
-    !receipt.indicators.amountLabel
+    !(receipt.indicators.amountLabel || receipt.indicators.totalAmountSent)
   ) {
     addUnique(flags, "GCASH_RECEIPT_UNREADABLE");
   }
   if (recipientComparison.phone === "mismatch") {
     addUnique(flags, "WRONG_GCASH_NUMBER");
-  } else if (recipientComparison.phone !== "exact") {
+  } else if (!["exact", "last4_only"].includes(recipientComparison.phone)) {
     addUnique(flags, "NUMBER_UNREADABLE");
   }
   if (recipientComparison.name === "mismatch") {

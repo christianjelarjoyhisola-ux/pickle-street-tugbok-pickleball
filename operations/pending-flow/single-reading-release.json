@@ -1,0 +1,57 @@
+{
+  "appliedAt": "2026-10-04T05:55:08.440Z",
+  "migrationHash": "062978e763cb9ab8a4d276f0873628f0d9ddf381711193c979f90eef9a756bee",
+  "qrSettingsRevision": 12,
+  "qrIdentitySource": "Existing configured receiving QR; no payer receipt used for configuration",
+  "receiptCount": 19,
+  "replayEligible": 16,
+  "replayManualReview": 3,
+  "duplicateReferenceConflicts": 0,
+  "regressionTestsPassed": 202,
+  "rollbackRouteChecksPassed": true,
+  "rollbackDuplicateGuardPassed": true,
+  "result": [
+    {
+      "passed": true
+    }
+  ],
+  "verifiedAt": "2026-10-04T05:55:37.121Z",
+  "edgeFunction": {
+    "slug": "picklestreet-receipts",
+    "version": 42,
+    "status": "ACTIVE",
+    "sourceHash": "aa534100fb6b094e8d19ca6ec1b3dc3f272573e9b8372330f94da490ccc127db"
+  },
+  "liveRouteChecksPassed": true,
+  "temporaryAuditEndpointRemoved": true,
+  "liveEndToEndRollbackPassed": true,
+  "liveEndToEndProviders": [
+    "GCash selection with MariBank receipt",
+    "BDO Pay receipt-only",
+    "Maya receipt-only",
+    "BPI",
+    "GoTyme",
+    "MariBank"
+  ],
+  "auditWindow": {
+    "from": "2026-10-02T00:00:00+08:00",
+    "through": "2026-10-04T05:55:37.121Z",
+    "timezone": "Asia/Manila"
+  },
+  "historicalRecordsChanged": false,
+  "automaticOcrRequestsPerAttempt": 1,
+  "remainingReplayExceptions": [
+    {
+      "bookingReference": "PB-61D75A9FAB74",
+      "reason": "Receipt amount 600 does not match required 660; recipient name also mismatches"
+    },
+    {
+      "bookingReference": "PB-EB0FF462079D",
+      "reason": "Recipient name differs from configured receiving name"
+    },
+    {
+      "bookingReference": "PB-4ED522C73BE8",
+      "reason": "Processing screen without a transaction date/time or complete receiving details"
+    }
+  ]
+}

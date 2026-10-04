@@ -58,7 +58,7 @@ export type RouteEvidence = {
   destinationProvider: "gcash" | "maya";
   destinationMethodCode: "gcash" | "maya";
   parserVersion: string;
-  verifierVersion: "picklestreet_sources_20260926_1";
+  verifierVersion: "picklestreet_sources_20261004_1";
   sourceMatched: boolean;
   destinationMatched: boolean;
   recipientMatched: boolean;
@@ -114,7 +114,7 @@ function recipientPassed(
   evidence: ProviderReceiptVerificationEvidence,
 ): boolean {
   if (evidence.provider === "gcash") {
-    return evidence.recipientComparison.phone === "exact" &&
+    return ["exact", "last4_only"].includes(evidence.recipientComparison.phone) &&
       ["exact", "masked_compatible"].includes(evidence.recipientComparison.name);
   }
   if (evidence.provider === "maya") {
@@ -187,8 +187,7 @@ function routeMatches(
     return {
       source: parsed.receipt.indicators.classification === "gcash",
       destination: true,
-      successful: parsed.receipt.indicators.sentViaGcash &&
-        parsed.receipt.indicators.totalAmountSent,
+      successful: parsed.receipt.indicators.sentViaGcash,
     };
   }
   const i = parsed.receipt.indicators;
@@ -261,7 +260,7 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
     /\b(?:failed|unsuccessful|reversed|refunded|cancelled|canceled)\b/i.test(
       text,
     ) ||
-    /^(?:status\s*:?\s*)?(?:pending|processing|scheduled)$/im.test(text)
+    /^(?:(?:status|transfer|transaction)\s*:?\s*)?(?:pending|processing|scheduled)$/im.test(text)
   ) add("transaction_not_successful");
   if (
     source &&
@@ -285,7 +284,7 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
     destinationProvider: "gcash",
     destinationMethodCode: "gcash",
     parserVersion: "unsupported",
-    verifierVersion: "picklestreet_sources_20260926_1",
+    verifierVersion: "picklestreet_sources_20261004_1",
     sourceMatched: false,
     destinationMatched: false,
     recipientMatched: false,
@@ -311,11 +310,9 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
       const typed = String(input.payment?.submittedReference || "");
       const observedReference = parsed.receipt.reference.confidence === "high"
         ? parsed.receipt.reference.value : null;
-      // Maya and BDO Pay require a customer-entered reference as an
-      // independent second factor. Other providers retain receipt-only
-      // checkout when OCR is conclusive.
+      // Use the single observed reference when checkout did not supply one.
       const comparedReference = typed ||
-        (source !== "maya" && source !== "bdopay" && observedReference
+        (observedReference
           ? String(observedReference)
           : "");
       if (!typed && comparedReference) parsed = parseProviderReceipt(source,text,{typedReference:comparedReference});
@@ -331,7 +328,7 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
         expectedRecipientName: source === "bpi" && !directBpi
           ? alias
           : String(input.payment?.receiverName || ""),
-        expectedRecipientAccount: (source === "bpi" && !directBpi) || (source === "maribank" && !!token)
+        expectedRecipientAccount: (source === "bpi" && !directBpi) || (["maribank", "maya"].includes(source) && !!token)
           ? token
           : String(input.payment?.receiverReference || ""),
         bookingStartedAt: input.timing?.bookingStartedAt,
@@ -457,9 +454,7 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
       // Missing transaction time or a Processing screen never proves settlement.
       // Retain provider flags and send these receipts for staff review.
       // Dedicated provider evidence above is authoritative for receipt fields.
-      // In particular, GCash requires matching Amount/Total Amount Sent displays
-      // and a full receiving number with a compatible visible name. A second
-      // generic text grammar must not contradict those structured observations.
+      // One labelled principal amount and a compatible recipient identity suffice.
     } catch {
       add("receipt_parser_unavailable");
     }

@@ -15,8 +15,8 @@ const GOTYME_CONFIG = {
   unreadableFlag: "GOTYME_RECEIPT_UNREADABLE",
   // Current GoTyme transfer details mark completed InstaPay transfers as
   // "Instant" instead of spelling out "Transfer successful".
-  transferSuccessPattern: /^instant$/im,
-  instaPayPattern: /^instant$/im,
+  transferSuccessPattern: /^(?:insta\s*pay\s+)?instant$/im,
+  instaPayPattern: /^(?:insta\s*pay\s+)?instant$/im,
   primaryReferencePattern: /\b(ITO\d{12,20}|GTY[A-Z0-9]{12,24})\b/i,
   railReferencePattern: /\btrace\s*id\b[\s\S]{0,260}?\n(\d{4,12})(?:\n|$)/i,
   allowOcrOnlyPrimaryReference: true,

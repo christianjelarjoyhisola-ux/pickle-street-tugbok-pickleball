@@ -64,10 +64,10 @@ Deno.test("GCash OCR repair still rejects a conflicting total", () => {
   assert.ok(result.flags.includes("amount_review"));
 });
 
-Deno.test("GCash OCR repair never promotes an unrelated O-number", () => {
+Deno.test("GCash accepts the labeled principal without promoting an unrelated O-number", () => {
   const result = verifySourceRoute(
     fixture("Amount\n320.00\nTotal Amount Sent\nReceipt code P32O.OO"),
   );
-  assert.equal(result.autoApprove, false);
-  assert.ok(result.flags.includes("amount_confirmation_unreadable"));
+  assert.equal(result.autoApprove, true);
+  assert.deepEqual(result.extractedData.detected.amounts,[320]);
 });

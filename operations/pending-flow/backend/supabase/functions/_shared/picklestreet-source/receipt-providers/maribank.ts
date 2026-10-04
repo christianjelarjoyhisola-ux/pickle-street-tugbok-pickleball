@@ -12,6 +12,7 @@ const MARIBANK_CONFIG = {
   brandPattern: /\bmari\s*bank\b|\bmaribank\b/i,
   competingBrandPattern: /\bgo\s*tyme\b|\bgotyme\b/i,
   competingProvider: "gotyme" as const,
+  transferSuccessPattern: /^Transaction Receipt$/im,
   unreadableFlag: "MARIBANK_RECEIPT_UNREADABLE",
 };
 

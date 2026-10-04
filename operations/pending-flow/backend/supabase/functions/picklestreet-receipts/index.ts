@@ -1,4 +1,4 @@
-import { recoverReceiptReading } from "./ocr-recovery.ts";
+import { receiptSourceFromText, singleReceiptText } from "./single-reading.ts";
 import {duplicateRejectionReason,sendDuplicateRejectionEmail} from './duplicate-rejection.ts';
 import { createClient } from "@supabase/supabase-js";
 import { errorResponse,jsonResponse,readJsonObject,RequestError } from "../_shared/http.ts";
@@ -164,20 +164,19 @@ export async function reconcileDuplicateRejection(db:DB,result:Obj,balanceId:str
 async function analyzeReceipt(db:DB,job:Obj,bytes:Uint8Array,type:string):Promise<Obj>{
   let extracted:unknown=null,flags:string[]=[],paymentReference:string|null=null,confidence:number|null=null,autoApprove=false,errorCode:string|null=null,receiverSnapshot:Obj|null=null;
   try {
-    const context=await paymentReceiptContext(db,job.paymentMethod);
+    let context=await paymentReceiptContext(db,job.paymentMethod);
     receiverSnapshot=context.snapshot;
     const image=inspectReceiptImage(bytes,parseReceiptObjectPath(job.storagePath),type,type);
     const apiKey=env('GOOGLE_VISION_API_KEY');
-    const vision=await detectReceiptText({bytes,apiKey});
+    const observation=await detectReceiptText({bytes,apiKey});
+    // One OCR request and one verification: use its spatial rows when available.
+    const vision={...observation,text:singleReceiptText(observation)};
+    const sourceMethod=receiptSourceFromText(vision.text,job.paymentMethod);
+    if(sourceMethod!==job.paymentMethod) context=await paymentReceiptContext(db,sourceMethod);
     const input={vision,image,expectedAmount:Number(job.expectedAmount),currency:job.currency,
-      payment:{paymentMethod:job.paymentMethod,submittedReference:job.submittedReference,receiverName:context.receiver.account_name,receiverReference:context.receiver.account_reference,autoApprovalEnabled:context.config.bookingApprovalMode!=='manual'},
+      payment:{paymentMethod:sourceMethod,submittedReference:job.submittedReference,receiverName:context.receiver.account_name,receiverReference:context.receiver.account_reference,autoApprovalEnabled:context.config.bookingApprovalMode!=='manual'},
       timing:{bookingStartedAt:job.bookingStartedAt,tenantTimezone:job.tenantTimezone}};
-    let result=context.route ? verifySourceRoute({...input,route:context.route}) : verifyByMethod(input);
-    result=await recoverReceiptReading({
-      primary:result,vision,method:job.paymentMethod,
-      verify:(candidate)=>context.route ? verifySourceRoute({...input,vision:candidate,route:context.route}) : verifyByMethod({...input,vision:candidate}),
-      retry:()=>detectReceiptText({bytes,apiKey,feature:'TEXT_DETECTION'}),
-    });
+    const result=context.route ? verifySourceRoute({...input,route:context.route}) : verifyByMethod(input);
     extracted=result.extractedData;flags=result.flags;paymentReference=result.paymentReference;confidence=result.extractedData.confidence.effective;autoApprove=result.autoApprove;
   } catch(error){errorCode=error instanceof RequestError?error.code.toLowerCase():'verifier_unavailable';flags=['verification_unavailable'];}
   return {extracted,flags,paymentReference,confidence,autoApprove,errorCode,receiverSnapshot};

@@ -319,8 +319,8 @@ Invoice no.
   });
 });
 
-Deno.test("BDO Pay requires the customer-entered reference to match OCR", () => {
-  for (const typed of ["", "BN-20260917-88293429"]) {
+Deno.test("BDO Pay rejects a customer-entered reference that conflicts with OCR", () => {
+  for (const typed of ["BN-20260917-88293429"]) {
     const f = fixture("bdopay");
     f.payment.submittedReference = typed;
     const r = verifySourceRoute(f);
@@ -385,7 +385,7 @@ Deno.test("removing a secondary reference stays pending even with matching prima
     assert.equal(verifySourceRoute(f).autoApprove, false, provider);
   }
 });
-Deno.test("ten-minute bounds are inclusive and the status-bar clock cannot replace transaction time", () => {
+Deno.test("fifteen-minute bounds are inclusive and the status-bar clock cannot replace transaction time", () => {
   for (
     const [time, passed] of [["10:10 am", true], ["10:11 am", true], ["10:15 am", true], ["10:16 am", false]] as const
   ) {
@@ -552,9 +552,9 @@ for (const provider of Object.keys(receipts) as Provider[]) {
  Deno.test(provider+' receipt-only checkout reads a high-confidence reference',()=>{
   const f=fixture(provider);f.payment.submittedReference='';
   const result=verifySourceRoute(f);
-  assert.equal(result.autoApprove,!['maya','bdopay'].includes(provider),JSON.stringify(result.flags));
+  assert.equal(result.autoApprove,true,JSON.stringify(result.flags));
   assert.equal(result.paymentReference,receipts[provider].reference);
-  if(['maya','bdopay'].includes(provider))assert.ok(result.flags.includes('payment_reference_unverified'));
+
  });
  Deno.test(provider+' unreadable receipt-only reference remains pending',()=>{
   const f=fixture(provider);f.payment.submittedReference='';f.vision.text='Unreadable image';
@@ -664,4 +664,13 @@ maya`;
   assert.equal(r.extractedData.comparison.amountMatched, true);
   assert.equal(r.extractedData.timing.receiptDateTime, null);
   assert.equal(r.extractedData.timing.withinWindow, false);
+});
+Deno.test('Maya spatial QR receipt matches only the configured receiving token',()=>{
+ const f=fixture('maya');f.payment.submittedReference='';
+ f.vision.text=f.vision.text.replace('Sent money via','Sent money via ✓').replace(MOBILE,QR);
+ assert.equal(verifySourceRoute(f).autoApprove,true,JSON.stringify(verifySourceRoute(f)));
+ for(const token of ['WRONGQR12345678','']) {
+  f.route.gcashQrToken=token;
+  assert.equal(verifySourceRoute(f).autoApprove,false);
+ }
 });

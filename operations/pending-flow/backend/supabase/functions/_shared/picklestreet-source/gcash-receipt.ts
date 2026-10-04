@@ -831,7 +831,10 @@ export function parseGcashReceipt(
   const text = normalizeText(rawText);
   const lines = receiptLines(text);
   const referenceResult = parseReference(lines, options.typedReference);
-  const baseAmount = extractReceiptAmount(text, { provider: "gcash" });
+  const referenceIndex = lines.findIndex(line => /ref(?:erence)?\s*(?:no\.?|number|#)/i.test(line));
+  const amountText = referenceIndex > 0 && /total\s+amount\s+sent/i.test(lines.slice(0, referenceIndex).join('\n'))
+    ? lines.slice(0, referenceIndex + 1).join('\n') : text;
+  const baseAmount = extractReceiptAmount(amountText, { provider: "gcash" });
   const amount = {
     ...baseAmount,
     conflictingPrimaryAmounts: conflictingPrimaryAmounts(baseAmount),

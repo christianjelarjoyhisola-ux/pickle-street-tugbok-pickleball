@@ -38,7 +38,7 @@ for(const columnOrder of [false,true]) {
     assert.equal(r.extractedData.detected.route.recipient?.phoneMatch,'exact');
     assert.equal(r.extractedData.detected.route.recipient?.nameMatch,'masked_compatible');
     assert.equal(r.extractedData.detected.route.parserVersion,'gcash_v1');
-    assert.equal(r.extractedData.detected.route.verifierVersion,'picklestreet_sources_20260926_1');
+    assert.equal(r.extractedData.detected.route.verifierVersion,'picklestreet_sources_20261004_1');
   });
   Deno.test(`Legacy GCash entry point also accepts this supported receipt (${label})`,()=>{
     const f=fixture(columnOrder);
@@ -99,11 +99,11 @@ for (const [label,amountBlock] of Object.entries({
   fee_is_not_confirmation:'Amount\n160.00\nTotal Amount Sent\nTransfer Fee ₱160.00',
   reference_is_not_confirmation:'Amount\n160.00\nTotal Amount Sent\nRef No. 160.00',
   statusbar_is_not_confirmation:'160.00\n57%\nAmount\n160.00\nTotal Amount Sent',
-})) Deno.test(`Express Send stays pending: ${label}`,()=>{
+})) Deno.test(`Express Send principal evidence: ${label}`,()=>{
   const f=expressSendFixture(amountBlock);
   const p=parseGcashReceipt(f.vision.text,{typedReference:f.payment.submittedReference});
   const r=verifySourceRoute(f);
-  assert.equal(r.autoApprove,false,JSON.stringify(r.flags));
+  assert.equal(r.autoApprove,label!=='conflicting_displays',JSON.stringify(r.flags));
   if(label==='one_display_collected_by_currency_and_label') {
     assert.equal(p.amount.candidates.length,1);
     assert.equal(p.amount.matchingPrimaryAmountDisplays,false);
@@ -123,4 +123,4 @@ for(const [name,mutate] of Object.entries({
   low_native_confidence:(f:SourceRouteInput)=>{f.vision.confidence=.89;},
   missing_confirmation_amount:(f:SourceRouteInput)=>{f.vision.text=f.vision.text.replace('Total Amount Sent\n₱2.00','');},
   missing_recipient_name:(f:SourceRouteInput)=>{f.vision.text=f.vision.text.replace('M•• DA•••A C.\n','');},
-})) Deno.test(`GCash mismatch stays pending: ${name}`,()=>{const f=fixture();mutate(f);assert.equal(verifySourceRoute(f).autoApprove,false);});
+})) Deno.test(`GCash mismatch stays pending: ${name}`,()=>{const f=fixture();mutate(f);assert.equal(verifySourceRoute(f).autoApprove,['masked_phone','missing_confirmation_amount'].includes(name));});

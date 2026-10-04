@@ -491,7 +491,7 @@ function looksLikeRecipientName(value: string): boolean {
     normalizeGcashMobile(text) ||
     /\b(?:insta\s*pay|reference|transfer\s*fee|sent\s+money|payment|share|get\s+help)\b/i
       .test(text) ||
-    MONEY_RE.test(text)
+    normalizeMayaDestinationAccount(text) || MONEY_RE.test(text)
   ) return false;
   return true;
 }
@@ -554,7 +554,7 @@ function parseRecipient(lines: string[]): {
       destinationCandidates.push({ raw: line, lineIndex });
     }
     const phone = strictGcashMobile(line);
-    if (phone && !ACCOUNT_NUMBER_LABEL_RE.test(line)) {
+    if ((phone || (ACCOUNT_NUMBER_LABEL_RE.test(lines[lineIndex - 1] || "") && normalizeMayaDestinationAccount(line))) && !ACCOUNT_NUMBER_LABEL_RE.test(line)) {
       accountCandidates.push({ raw: line, lineIndex });
     }
     if (
@@ -570,7 +570,7 @@ function parseRecipient(lines: string[]): {
   const destinations = uniqueIndexedValues(destinationCandidates);
   const accounts = [
     ...new Map(accountCandidates.map((item) => [
-      strictGcashMobile(item.raw) || `invalid:${item.raw.toUpperCase()}`,
+      strictGcashMobile(item.raw) || normalizeMayaDestinationAccount(item.raw) || `invalid:${item.raw.toUpperCase()}`,
       item,
     ])).values(),
   ];
@@ -579,7 +579,7 @@ function parseRecipient(lines: string[]): {
       DESTINATION_RE.test(destinations[0].raw)
     ? destinations[0]
     : null;
-  const account = accounts.length === 1 && strictGcashMobile(accounts[0].raw)
+  const account = accounts.length === 1 && (strictGcashMobile(accounts[0].raw) || normalizeMayaDestinationAccount(accounts[0].raw))
     ? accounts[0]
     : null;
   const name = names.length === 1 && looksLikeRecipientName(names[0].raw)
@@ -599,7 +599,7 @@ function parseRecipient(lines: string[]): {
     ambiguousAccount: accounts.length > 1,
     ambiguousName: names.length > 1,
     invalidAccount: accounts.length === 1 &&
-      !strictGcashMobile(accounts[0].raw),
+      !strictGcashMobile(accounts[0].raw) && !normalizeMayaDestinationAccount(accounts[0].raw),
     invalidName: names.length === 1 && !looksLikeRecipientName(names[0].raw),
   };
 }
@@ -908,6 +908,8 @@ export function verifyMayaToGcashReceipt(
     context.expectedRecipientName || "",
   );
 
+  const observedQr = normalizeMayaDestinationAccount(parsed.recipient.accountRaw || '');
+  if (observedQr) recipientComparison.phone = observedQr === normalizeMayaDestinationAccount(context.expectedRecipientAccount || '') ? 'exact' : 'mismatch';
   if (!parsed.indicators.providerBrand) addUnique(flags, "MAYA_UNREADABLE");
   if (parsed.indicators.competingProviderBrand) {
     addUnique(flags, "METHOD_MISMATCH");
