@@ -3,7 +3,7 @@ import { RequestError } from "../_shared/http.ts";
 import {
   MailerooDeliveryError,
   sendMailerooEmail,
-} from "../_shared/maileroo.ts";
+} from "../_shared/picklestreet-mail.ts";
 import type {
   JsonObject,
   RescheduleEmailMessage,

@@ -11,7 +11,7 @@ import { originalBalanceStatus } from "./balance-status.ts";
 import { verifyByMethod,publicPendingReason,PICKLESTREET_PAYMENT_WINDOW_MINUTES } from "./parsers.ts";
 import { canonicalSourceProvider,verifySourceRoute } from "./source-routes.ts";
 import { deliverEmail } from "../_shared/reschedule-booking.ts";
-import { sendMailerooEmail } from "../_shared/maileroo.ts";
+import { sendMailerooEmail } from "../_shared/picklestreet-mail.ts";
 import { createSupabaseRescheduleBookingStore } from "./reschedule-store.ts";
 import { createGroupEmailStore, createGroupedRescheduleEmailSender, deliverGroupedRescheduleEmail } from "../picklestreet-reschedule/email.ts";
 

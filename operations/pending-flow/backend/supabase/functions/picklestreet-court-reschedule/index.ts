@@ -1,6 +1,6 @@
 import { RequestError } from "../_shared/http.ts";
 import { createClient } from "@supabase/supabase-js";
-import { sendMailerooEmail } from "../_shared/maileroo.ts";
+import { sendMailerooEmail } from "../_shared/picklestreet-mail.ts";
 import {
   createRescheduleBookingHandler,
   type RescheduleEmailSender,

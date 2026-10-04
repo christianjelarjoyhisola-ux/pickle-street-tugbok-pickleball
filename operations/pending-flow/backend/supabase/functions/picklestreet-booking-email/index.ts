@@ -13,7 +13,7 @@ import {
 import {
   MailerooDeliveryError,
   sendMailerooEmail,
-} from "../_shared/maileroo.ts";
+} from "../_shared/picklestreet-mail.ts";
 import { requireHighEntropySecret, secretsMatch } from "../_shared/security.ts";
 import {
   normalizeTenantSlug,

@@ -13,7 +13,7 @@ export type SendMailerooOptions = {
   apiKey: string;
   fromAddress: string;
   fromName: string;
-  replyTo: string;
+  replyTo: string | string[];
   replyToName?: string;
   to: string;
   toName?: string;
@@ -71,10 +71,13 @@ export async function sendMailerooEmail(
       ? { display_name: cleanDisplayName(options.toName, "Guest") }
       : {}),
   };
-  const replyTo: MailerooAddress = {
-    address: validateEmailAddress(options.replyTo, "Tenant Reply-To email"),
-    display_name: cleanDisplayName(options.replyToName, options.fromName),
-  };
+  const replyAddresses = [...new Set((Array.isArray(options.replyTo) ? options.replyTo : [options.replyTo])
+    .map(address => validateEmailAddress(address, "Tenant Reply-To email")))];
+  if (!replyAddresses.length) throw new Error("Tenant Reply-To email is required.");
+  const replies: MailerooAddress[] = replyAddresses.map(address => ({
+    address, display_name: cleanDisplayName(options.replyToName, options.fromName),
+  }));
+  const replyTo = replies.length === 1 ? replies[0] : replies;
   const referenceId = options.referenceId?.trim().toLowerCase();
   if (referenceId && !/^[a-f0-9]{24}$/.test(referenceId)) {
     throw new Error("Maileroo reference ID is invalid.");

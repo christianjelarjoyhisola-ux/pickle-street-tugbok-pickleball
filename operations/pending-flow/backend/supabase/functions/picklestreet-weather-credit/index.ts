@@ -2,7 +2,7 @@ import {createClient} from '@supabase/supabase-js';
 import {resolveTenantForRequest} from '../_shared/tenant.ts';
 import {errorResponse,jsonResponse,readJsonObject,RequestError} from '../_shared/http.ts';
 import {receiptPreflightResponse} from '../picklestreet-receipts/cors.ts';
-import {sendMailerooEmail} from '../_shared/maileroo.ts';
+import {sendMailerooEmail} from '../_shared/picklestreet-mail.ts';
 import {creditHistory} from './history.ts';
 
 const TENANT='f19f457a-68e2-42ea-9f8e-1f6e8ac84b3a';

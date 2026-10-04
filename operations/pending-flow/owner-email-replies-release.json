@@ -1,0 +1,44 @@
+{
+  "verifiedAt": "2026-10-04T08:37:17.818Z",
+  "ownerReplyTo": "daap.perspectives@gmail.com",
+  "existingSupportReplyToRetained": true,
+  "scope": "Future Pickle Street transactional emails; historical threads unchanged",
+  "tests": {
+    "passed": 11,
+    "failed": 0,
+    "mockedDelivery": true,
+    "liveEmailSent": false
+  },
+  "functions": [
+    {
+      "name": "picklestreet-receipts",
+      "status": "ACTIVE",
+      "version": 44,
+      "updated_at": 1791102929691
+    },
+    {
+      "name": "picklestreet-booking-email",
+      "status": "ACTIVE",
+      "version": 6,
+      "updated_at": 1791102910323
+    },
+    {
+      "name": "picklestreet-reschedule",
+      "status": "ACTIVE",
+      "version": 6,
+      "updated_at": 1791102922602
+    },
+    {
+      "name": "picklestreet-weather-credit",
+      "status": "ACTIVE",
+      "version": 5,
+      "updated_at": 1791102934955
+    },
+    {
+      "name": "picklestreet-court-reschedule",
+      "status": "ACTIVE",
+      "version": 2,
+      "updated_at": 1791102916001
+    }
+  ]
+}
