@@ -1,3 +1,4 @@
+import { compareGcashMaskedName } from '../gcash-receipt.ts';
 import {
   extractReceiptAmount,
   type ReceiptAmountExtraction,
@@ -137,7 +138,7 @@ function validDateParts(year: number, month: number, day: number): boolean {
 }
 
 function validReference(value: string): boolean {
-  const normalized = normalizeBdoPayReference(value);
+  const normalized = normalizeBdoPayReference(value).replace(/^BNNB/, "BN");
   if (!/^BN\d{16}$/.test(normalized)) return false;
   const year = Number(normalized.slice(2, 6));
   const month = Number(normalized.slice(6, 8));
@@ -146,7 +147,7 @@ function validReference(value: string): boolean {
 }
 
 function referenceReceiptDate(value: string | null): string | null {
-  const normalized = normalizeBdoPayReference(value || "");
+  const normalized = normalizeBdoPayReference(value || "").replace(/^BNNB/, "BN");
   if (!validReference(normalized)) return null;
   return `${normalized.slice(2, 6)}-${normalized.slice(6, 8)}-${
     normalized.slice(8, 10)
@@ -177,7 +178,7 @@ function parseReference(
     if (!match) return;
     const nearby = [String(match[1] || ""), String(lines[lineIndex + 1] || "")];
     for (const raw of nearby) {
-      const token = raw.match(/\bBN[\s-]*\d{8}[\s-]*\d{8}\b/i)?.[0] || "";
+      const token = raw.match(/\bBN[\s-]*(?:NB[\s-]*)?\d{8}[\s-]*\d{8}\b/i)?.[0] || "";
       const value = normalizeBdoPayReference(token);
       if (validReference(value)) {
         candidates.push({ value, raw: token, lineIndex });
@@ -302,11 +303,13 @@ function parseTimestamp(lines: string[]): BankReceiptTimestamp {
 }
 
 function validDestinationAccount(value: string): boolean {
+  if (/^[A-Z0-9]{12,24}$/i.test(value.trim()) && /[A-Z]/i.test(value) && /\d/.test(value)) return true;
   const digits = String(value || "").replace(/\D/g, "");
   return /^(?:09\d{9}|639\d{9})$/.test(digits);
 }
 
 function normalizeDestinationAccount(value: string): string {
+  if (/^[A-Z0-9]{12,24}$/i.test(value.trim()) && /[A-Z]/i.test(value)) return value.trim().toUpperCase();
   return String(value || "").replace(/\D/g, "").replace(/^(?:63|0)(?=9)/, "");
 }
 
@@ -388,7 +391,7 @@ function compareRecipient(
       ? "not_configured"
       : !parsed.nameNormalized
       ? "missing"
-      : parsed.nameNormalized === expectedName
+      : (parsed.nameNormalized === expectedName || (parsed.accountNormalized === expectedAccount && compareGcashMaskedName(parsed.nameRaw, expectedNameRaw) === "masked_compatible"))
       ? "exact"
       : "mismatch",
     account: !expectedAccount
@@ -461,7 +464,7 @@ export function parseBdoPayToGcashReceipt(
         /\bsent\s+via\s+(?:gcash|bpi|maya|gotyme|go\s*tyme|maribank|mari\s*bank)\b/i
           .test(text) || /\btransfer\s+successful!?\b/i.test(text),
       transferSuccess: lines.some((line) => /^sent\s*!?$/i.test(line)),
-      sendMoney: /\bsend\s+money\b/i.test(text),
+      sendMoney: /\bsend\s+(?:via\s+)?money\b/i.test(text),
       destinationGcash: /\bg-?xchange\b/i.test(text) && /\bgcash\b/i.test(text),
       instaPay: /\binsta\s*pay\b/i.test(text),
       referenceLabel,

@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-10",
+  "audited": 109,
+  "newlyEligible": 9,
+  "baselineEligible": 28,
+  "updatedEligible": 37,
+  "regressions": 0,
+  "unreadableImage": 1,
+  "historicalPaymentWrites": 0,
+  "testsPassed": 211,
+  "sqlRollbackChecks": [
+    "all six source routes",
+    "GCash selection with detected BPI",
+    "Maya exact secondary reference",
+    "duplicate reference blocked",
+    "wrong amount blocked"
+  ],
+  "productionGateChecks": 9,
+  "temporaryAuditEndpointRemoved": true,
+  "function": {
+    "name": "picklestreet-receipts",
+    "status": "ACTIVE",
+    "version": 45,
+    "updated_at": 1791642098401
+  }
+}

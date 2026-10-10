@@ -1,4 +1,4 @@
-import { receiptSourceFromText, singleReceiptText } from "./single-reading.ts";
+import { receiptSourceFromText, singleReceiptText, readReceiptOnce } from "./single-reading.ts";
 import {duplicateRejectionReason,sendDuplicateRejectionEmail} from './duplicate-rejection.ts';
 import { createClient } from "@supabase/supabase-js";
 import { errorResponse,jsonResponse,readJsonObject,RequestError } from "../_shared/http.ts";
@@ -168,7 +168,7 @@ async function analyzeReceipt(db:DB,job:Obj,bytes:Uint8Array,type:string):Promis
     receiverSnapshot=context.snapshot;
     const image=inspectReceiptImage(bytes,parseReceiptObjectPath(job.storagePath),type,type);
     const apiKey=env('GOOGLE_VISION_API_KEY');
-    const observation=await detectReceiptText({bytes,apiKey});
+    const observation=await readReceiptOnce(async()=>await detectReceiptText({bytes,apiKey}));
     // One OCR request and one verification: use its spatial rows when available.
     const vision={...observation,text:singleReceiptText(observation)};
     const sourceMethod=receiptSourceFromText(vision.text,job.paymentMethod);

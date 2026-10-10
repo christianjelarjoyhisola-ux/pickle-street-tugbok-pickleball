@@ -546,7 +546,8 @@ function parseRecipient(lines: string[], strictDestination = false): BankReceipt
     break;
   }
   const start = lineIndex ?? 0;
-  const block = strictDestination && lineIndex === null ? [] : lines.slice(start, Math.min(lines.length, start + 5));
+  const senderIndex = lines.findIndex((line,index) => index > start && /^from(?:\s|:|$)/i.test(line));
+  const block = strictDestination && lineIndex === null ? [] : lines.slice(start, Math.min(lines.length, start + 5, senderIndex < 0 ? lines.length : senderIndex));
   // Vision sometimes reads GoTyme's two-column labels first and their values
   // afterward. The destination block still keeps the recipient name and
   // masked mobile beside GCash, so use it as a bounded fallback.

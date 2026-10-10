@@ -58,7 +58,7 @@ export type RouteEvidence = {
   destinationProvider: "gcash" | "maya";
   destinationMethodCode: "gcash" | "maya";
   parserVersion: string;
-  verifierVersion: "picklestreet_sources_20261004_1";
+  verifierVersion: "picklestreet_sources_20261010_1";
   sourceMatched: boolean;
   destinationMatched: boolean;
   recipientMatched: boolean;
@@ -284,7 +284,7 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
     destinationProvider: "gcash",
     destinationMethodCode: "gcash",
     parserVersion: "unsupported",
-    verifierVersion: "picklestreet_sources_20261004_1",
+    verifierVersion: "picklestreet_sources_20261010_1",
     sourceMatched: false,
     destinationMatched: false,
     recipientMatched: false,
@@ -311,11 +311,13 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
       const observedReference = parsed.receipt.reference.confidence === "high"
         ? parsed.receipt.reference.value : null;
       // Use the single observed reference when checkout did not supply one.
-      const comparedReference = typed ||
+      const typedIsMayaRail = !!typed && parsed.provider === 'maya' && !!observedReference &&
+        secondary(parsed).some(ref => ref.kind === 'maya_instapay' && normalizedReference(ref.value) === normalizedReference(typed));
+      const comparedReference = (typedIsMayaRail ? observedReference : typed) ||
         (observedReference
           ? String(observedReference)
           : "");
-      if (!typed && comparedReference) parsed = parseProviderReceipt(source,text,{typedReference:comparedReference});
+      if ((!typed || typedIsMayaRail) && comparedReference) parsed = parseProviderReceipt(source,text,{typedReference:comparedReference});
       const directBpi = parsed.provider === 'bpi' && parsed.receipt.indicators.directTransfer;
       if (source === 'bpi' && !directBpi && (alias.length < 2 || !/^[A-Z0-9]{10,40}$/i.test(normalizedReference(token)) || !/[A-Z]/i.test(token) || !/[0-9]/.test(token))) add('qr_receipt_identity_unconfigured');
       const context = {
@@ -328,7 +330,7 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
         expectedRecipientName: source === "bpi" && !directBpi
           ? alias
           : String(input.payment?.receiverName || ""),
-        expectedRecipientAccount: (source === "bpi" && !directBpi) || (["maribank", "maya"].includes(source) && !!token)
+        expectedRecipientAccount: (source === "bpi" && !directBpi) || ((["maribank", "maya"].includes(source) || (parsed.provider === "bdopay" && /[A-Z]/i.test(parsed.receipt.recipient.accountRaw || ""))) && !!token)
           ? token
           : String(input.payment?.receiverReference || ""),
         bookingStartedAt: input.timing?.bookingStartedAt,

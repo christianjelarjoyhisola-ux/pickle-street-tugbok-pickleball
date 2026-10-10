@@ -38,7 +38,7 @@ for(const columnOrder of [false,true]) {
     assert.equal(r.extractedData.detected.route.recipient?.phoneMatch,'exact');
     assert.equal(r.extractedData.detected.route.recipient?.nameMatch,'masked_compatible');
     assert.equal(r.extractedData.detected.route.parserVersion,'gcash_v1');
-    assert.equal(r.extractedData.detected.route.verifierVersion,'picklestreet_sources_20261004_1');
+    assert.equal(r.extractedData.detected.route.verifierVersion,'picklestreet_sources_20261010_1');
   });
   Deno.test(`Legacy GCash entry point also accepts this supported receipt (${label})`,()=>{
     const f=fixture(columnOrder);

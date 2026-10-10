@@ -418,7 +418,7 @@ export function verifyBpiToGcashReceipt(
   context: BpiVerificationContext,
 ): BpiReceiptVerificationEvidence {
   const flags: string[] = [];
-  const recipientComparison = compareRecipientLabel(
+  let recipientComparison = compareRecipientLabel(
     parsed.recipient.labelNormalized,
     context.expectedRecipientLabel || context.expectedRecipientName || "",
   );
@@ -429,6 +429,14 @@ export function verifyBpiToGcashReceipt(
     parsed.recipient.accountSuffix,
     context.expectedRecipientAccount || "",
   );
+  // Direct transfers may omit a generational suffix; require the full account
+  // and every remaining name token to match, without fuzzy spelling matches.
+  if (recipientComparison === 'mismatch' && parsed.indicators.directTransfer && recipientAccountComparison === 'exact') {
+    const withoutSuffix = (s: string) => s.normalize('NFKD').replace(/\p{M}/gu, '').toUpperCase().replace(/[^A-Z ]/g, '').trim().split(/\s+/).filter(t => !['JR','SR','II','III','IV'].includes(t)).join(' ');
+    const observed = withoutSuffix(parsed.recipient.labelRaw || '');
+    const expected = withoutSuffix(context.expectedRecipientName || '');
+    if (observed.split(' ').length >= 2 && observed === expected) recipientComparison = 'exact';
+  }
   if (!parsed.indicators.providerBrand) addUnique(flags, "BPI_UNREADABLE");
   if (parsed.indicators.competingProviderBrand) {
     addUnique(flags, "METHOD_MISMATCH");

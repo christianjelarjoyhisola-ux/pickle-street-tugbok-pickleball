@@ -461,7 +461,7 @@ function parsePhoneLine(
   }
 
   const masked = line.match(MASKED_MOBILE_RE);
-  if (masked && NAME_MASK_RE.test(masked[0])) {
+  if (masked && /[•‣●⚫◦∙·*xX#._]/.test(masked[0])) {
     const raw = masked[0].trim();
     const visibleDigits = digitsOnly(raw);
     return {
@@ -802,13 +802,13 @@ export function compareGcashRecipient(
   let name = compareGcashMaskedName(receiver.name.raw, expected.name);
   // GCash renders a first-name prefix/suffix followed by two initials, e.g.
   // DA••••O J• A. Vision sometimes drops the dots: DAO J. A. Accept only
-  // this bounded compact-mask shape, backed by the FULL exact mobile number.
+  // this bounded compact-mask shape, backed by the exact mobile or masked suffix.
   // Never apply subsequence/fuzzy matching to arbitrary recipient names.
   const compact = /^([A-Z]{2})([A-Z])\s+([A-Z])\.\s+([A-Z])\.$/i.exec(
     String(receiver.name.raw || "").trim(),
   );
   const expectedTokens = normalizedExpectedNameTokens(String(expected.name || ""));
-  if (name === "mismatch" && phone === "exact" && compact &&
+  if (name === "mismatch" && ["exact", "last4_only"].includes(phone) && compact &&
     expectedTokens.length === 3 && expectedTokens[0].length >= 5 &&
     expectedTokens[0].startsWith(compact[1].toUpperCase()) &&
     expectedTokens[0].endsWith(compact[2].toUpperCase()) &&
