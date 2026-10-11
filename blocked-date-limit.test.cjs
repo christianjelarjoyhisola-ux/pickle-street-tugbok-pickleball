@@ -10,18 +10,10 @@ const migration = fs.readFileSync(
   'utf8'
 );
 
-test('blocked-date form clearly limits one reservation to six dates', () => {
-  assert.match(admin, /prevent accidental oversized requests/);
-  assert.match(admin, /Maximum: 6 dates per reservation\./);
-  assert.match(admin, /rangeDays > 6/);
-  assert.match(admin, /maximum\.setDate\(maximum\.getDate\(\) \+ 5\)/);
-  assert.doesNotMatch(admin, /date range of 90 days or less/);
-});
-
-test('blocked-date form has no active or upcoming closure cap', () => {
-  assert.match(admin, /Active and upcoming closures are unlimited\./);
-  assert.doesNotMatch(admin, /MAX_LIVE_BLOCKED_DATES/);
-  assert.doesNotMatch(admin, /The 6-closure limit has been reached/);
+test('slot blocking replaces the old date-range form', () => {
+  assert.doesNotMatch(admin, /id="newBlkCourt"|id="newBlkEnd"|id="newBlkCoverage"|id="newBlkStart"/);
+  assert.match(admin, /Block Selected Slots/);
+  assert.match(admin, /startDate:date,endDate:date,courtId:range.courtId/);
 });
 
 test('protected backend rejects Pickle Street batches larger than six dates', () => {

@@ -381,3 +381,9 @@ html.ps-entry-policy-open{overflow:hidden}
 [data-theme="dark"] .blk-slot.blocked,[data-theme="dark"] .blk-board-legend .blocked{color:#ffd084}
 [data-theme="dark"] .blk-slot.booked,[data-theme="dark"] .blk-board-legend .booked{color:#ffabb5}
 @media(max-width:540px){.blk-slot-table th,.blk-slot-table td{padding:5px 3px}.blk-slot-table th:first-child{width:71px}.blk-slot-table thead th{font-size:.78rem}.blk-slot-table tbody th{font-size:.69rem}.blk-slot{font-size:.7rem;padding:5px 2px;min-height:52px}.blk-slot small{font-size:.63rem}}
+.blk-selection-actions{margin:18px 0;padding:16px;border:1px solid var(--border);border-radius:12px}
+#blockedSelectionSummary{font-size:.85rem;line-height:1.6;margin-bottom:14px;overflow-wrap:anywhere}
+.blk-selection-actions>.btn{margin:4px 6px 4px 0}
+.blk-existing{margin-top:20px}
+.blk-existing>summary{cursor:pointer;color:var(--muted);padding:12px 0}
+.blk-slot.free.selected,body[data-theme="dark"] .blk-slot.free.selected{background:var(--court-selected);color:var(--court-selected-text);border-color:var(--court-selected);box-shadow:inset 0 0 0 2px var(--court-selected-text)}

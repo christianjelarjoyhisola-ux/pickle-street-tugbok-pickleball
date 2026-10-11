@@ -3471,7 +3471,7 @@ tr:hover td { background: var(--bg2); }
       <!-- ADVANCE RESERVED / BLOCKED DATES -->
       <div class="panel" id="blockedDatesManagerPanel" style="max-width:1120px">
         <h4>📅 Court Time Slots</h4>
-        <p class="blk-board-help">See all courts together. Select an available slot to block it, then review the court and hours below. Booked slots include active payment holds.</p>
+        <p class="blk-board-help">Select one or more available slots across any court, choose a label, then block them. Tap a selected slot again to remove it. Booked slots include active payment holds.</p>
         <div class="blk-board-toolbar">
           <div><label class="fl" for="blockedBoardDate">View date</label><input class="fi" type="date" id="blockedBoardDate" onchange="loadBlockedSlotBoard(true)"/></div>
           <button class="btn btn-g" type="button" onclick="loadBlockedSlotBoard(true)">Refresh slots</button>
@@ -3479,57 +3479,16 @@ tr:hover td { background: var(--bg2); }
         <div class="blk-board-legend"><span class="free">Available</span><span class="blocked">Blocked</span><span class="booked">Booked</span><span>Past / closed</span></div>
         <p id="blockedBoardStatus" role="status" aria-live="polite" class="blk-board-help"></p>
         <div id="blockedSlotBoard" class="blk-board-scroll" aria-busy="false"></div>
-        <h4 style="margin-top:24px">Block selected time</h4>
-        <p style="color:var(--muted);font-size:.84rem;margin:8px 0 16px">Reserve a whole day or choose exact hours. To prevent accidental oversized requests, you can reserve a maximum of 6 calendar dates at a time. There is no limit on how many active or upcoming closures can remain scheduled.</p>
-        <div class="blk-safety-note">Confirmed and active customer bookings are protected. The system will refuse a new reservation if its hours overlap an existing booking.</div>
-        <div class="blk-form-grid">
-          <div style="grid-column:1/-1">
-            <label class="fl" for="newBlkCourt">Court coverage</label>
-            <select class="fi" id="newBlkCourt" onchange="syncBlockedCourt()">
-              <option value="">All courts</option>
-            </select>
+        <div class="blk-selection-actions">
+          <p id="blockedSelectionSummary" role="status" aria-live="polite">No slots selected.</p>
+          <div class="blk-form-grid">
+            <div><label class="fl" for="newBlkType">Label</label><select class="fi" id="newBlkType"><option value="Reserved">Reserved</option><option value="Private Event">Private Event</option><option value="Maintenance">Maintenance</option><option value="Closed">Closed / Holiday</option></select></div>
+            <div><label class="fl" for="newBlkReason">Reason <span style="font-weight:400">(optional, staff only)</span></label><input class="fi" id="newBlkReason" maxlength="200" placeholder="Example: Court repair"/></div>
           </div>
-          <div>
-            <label class="fl">Start Date</label>
-            <input type="date" class="fi" id="newBlk" onchange="syncBlockedEndDate()" aria-describedby="blockedDateLimitNote"/>
-          </div>
-          <div>
-            <label class="fl">End Date <span style="font-weight:500;color:var(--muted)">(optional)</span></label>
-            <input type="date" class="fi" id="newBlkEnd" onchange="syncBlockedLiveLimit()" aria-describedby="blockedDateLimitNote"/>
-          </div>
-          <div>
-            <label class="fl">Time Coverage</label>
-            <select class="fi" id="newBlkCoverage" onchange="syncBlockedTimeMode()">
-              <option value="whole_day">Whole Day</option>
-              <option value="specific_hours">Specific Hours</option>
-            </select>
-          </div>
-          <div>
-            <label class="fl">Availability Label</label>
-            <select class="fi" id="newBlkType">
-              <option value="Reserved">Reserved</option>
-              <option value="Private Event">Private Event</option>
-              <option value="Maintenance">Maintenance</option>
-              <option value="Closed">Closed / Holiday</option>
-            </select>
-          </div>
-          <div id="newBlkStartWrap" hidden>
-            <label class="fl">Start Time</label>
-            <select class="fi" id="newBlkStart" onchange="syncBlockedTimeRange()"></select>
-          </div>
-          <div id="newBlkEndWrap" hidden>
-            <label class="fl">End Time</label>
-            <select class="fi" id="newBlkEndTime"></select>
-          </div>
-          <div style="grid-column:1/-1">
-            <label class="fl">Private Note <span style="font-weight:500;color:var(--muted)">(optional)</span></label>
-            <input type="text" class="fi" id="newBlkReason" maxlength="200" placeholder="Example: Owner reservation"/>
-          </div>
+          <button class="btn btn-d" id="newBlkBtn" type="button" onclick="addBlocked()" disabled>Block Selected Slots</button>
+          <button class="btn btn-g" id="clearBlockedSelectionBtn" type="button" onclick="clearBlockedSlotSelection()" disabled>Clear selection</button>
         </div>
-        <p id="blockedDateLimitNote" style="color:var(--muted);font-size:.8rem;margin:0 0 12px" role="status" aria-live="polite">Maximum: 6 dates per reservation. Active/upcoming closures: 0 of 6.</p>
-        <button class="btn btn-d" id="newBlkBtn" onclick="addBlocked()">Reserve Selected Date(s)</button>
-        <div style="height:18px"></div>
-        <div id="blkList"><p style="color:var(--muted);font-style:italic">No blocked dates.</p></div>
+        <details class="blk-existing"><summary>Existing blocks · unblock slots</summary><div id="blkList"></div></details>
       </div>
     </div>
 
@@ -14531,12 +14490,15 @@ function blockedTodayDate(){
 let _blockedCourtOptions = [];
 let _blockedBoardSequence = 0;
 let _blockedBoardCourts = [];
+let _blockedSelectedSlots = new Map();
+let _blockedSaving = false;
 
 async function loadBlockedSlotBoard(refresh = false){
   const host = $('blockedSlotBoard');
   const date = $('blockedBoardDate')?.value;
-  if (!host || !canManageBlockedDates()) return;
+  if (!host || !canManageBlockedDates() || _blockedSaving) return;
   const sequence = ++_blockedBoardSequence;
+  clearBlockedSlotSelection();
   _blockedBoardCourts = [];
   host.innerHTML = '';
   host.setAttribute('aria-busy', 'true');
@@ -14562,9 +14524,9 @@ async function loadBlockedSlotBoard(refresh = false){
       const label = {free:'Available',blocked:'Blocked',booked:'Booked',past:'Past / in progress',closed:'Closed'}[state];
       const detail = state==='blocked' && slot.label ? `<small>${esc(slot.label)}</small>` : '';
       const accessible = `${court.name}, ${blockedHourLabel(hour)} to ${blockedHourLabel(hour+1)}: ${label}`;
-      return `<td><button type="button" class="blk-slot ${state}" ${state!=='free'?'disabled':''} aria-label="${esc(accessible)}" onclick="selectBlockedSlot(${index},${hour})">${label}${detail}</button></td>`;
+      return `<td><button type="button" class="blk-slot ${state}" data-court-index="${index}" data-hour="${hour}" aria-pressed="false" ${state!=='free'?'disabled':''} aria-label="${esc(accessible)}" onclick="selectBlockedSlot(${index},${hour})">${label}${detail}</button></td>`;
     }).join('')}</tr>`).join('')}</tbody></table>`;
-    $('blockedBoardStatus').textContent = `${_blockedBoardCourts.length} courts shown · ${date}. Select an available slot. To unblock a closure, use Make Available in the list below.`;
+    $('blockedBoardStatus').textContent = `${_blockedBoardCourts.length} courts shown · ${date}. Select available slots to block. Open Existing blocks below to unblock.`;
   } catch(error) {
     if (sequence !== _blockedBoardSequence) return;
     _blockedBoardCourts = [];
@@ -14575,147 +14537,52 @@ async function loadBlockedSlotBoard(refresh = false){
   }
 }
 
+function blockedHourLabel(hour){
+  if (hour === 24) return '12:00 AM';
+  return (hour % 12 || 12)+':00 '+(hour >= 12 ? 'PM' : 'AM');
+}
 function selectBlockedSlot(courtIndex, hour){
-  if (!requireBlockedDateManagement()) return;
+  if (!requireBlockedDateManagement() || _blockedSaving) return;
   const court = _blockedBoardCourts[courtIndex];
   const slot = court?.slots.find(item=>item.startHour===hour);
   const date = $('blockedBoardDate')?.value;
   if (!slot || slot.state !== 'free' || date < blockedTodayDate()) return;
-  $('newBlk').value = date;
-  $('newBlkEnd').value = date;
-  $('newBlkCourt').value = court.id;
-  syncBlockedCourt();
-  $('newBlkCoverage').value = 'specific_hours';
-  $('newBlkStart').value = `${String(slot.startHour).padStart(2,'0')}:00:00`;
-  syncBlockedTimeMode();
-  $('newBlkEndTime').value = slot.endHour===24 ? '23:59:59' : `${String(slot.endHour).padStart(2,'0')}:00:00`;
-  syncBlockedEndDate();
-  $('blockedBoardStatus').textContent = `Selected ${court.name}, ${date}, ${slot.startLabel}–${slot.endLabel}. Review below, then reserve the selected time.`;
-  $('newBlkBtn').scrollIntoView({behavior:'smooth',block:'center'});
-  $('newBlkBtn').focus({preventScroll:true});
+  const key = court.id + ':' + hour;
+  if (_blockedSelectedSlots.has(key)) _blockedSelectedSlots.delete(key);
+  else _blockedSelectedSlots.set(key,{courtId:court.id,courtName:court.name,startHour:slot.startHour,endHour:slot.endHour,date});
+  updateBlockedSlotSelection();
 }
-
-function selectedBlockedRangeDays(){
-  const start = $('newBlk')?.value || '';
-  const end = $('newBlkEnd')?.value || start;
-  if (!start || !end || end < start) return 0;
-  return Math.round((new Date(end + 'T00:00:00') - new Date(start + 'T00:00:00')) / 86400000) + 1;
+function clearBlockedSlotSelection(){
+  if (_blockedSaving) return;
+  _blockedSelectedSlots.clear();
+  updateBlockedSlotSelection();
 }
-
-function syncBlockedLiveLimit(){
-  const requested = selectedBlockedRangeDays();
-  const requestTooLarge = requested > 6;
-  const note = $('blockedDateLimitNote');
-  const button = $('newBlkBtn');
-  if (note) {
-    note.textContent = 'Maximum: 6 dates per reservation. Active and upcoming closures are unlimited.';
+function blockedSelectedRanges(){
+  const slots = [..._blockedSelectedSlots.values()].sort((a,b)=>a.courtId.localeCompare(b.courtId)||a.startHour-b.startHour);
+  const ranges = [];
+  for (const slot of slots) {
+    const last = ranges[ranges.length-1];
+    if (last && last.courtId===slot.courtId && last.date===slot.date && last.endHour===slot.startHour) last.endHour=slot.endHour;
+    else ranges.push({...slot});
   }
-  if (button) {
-    button.disabled = requestTooLarge;
-    button.title = requestTooLarge ? 'Reserve a maximum of 6 dates at a time.' : '';
-  }
+  return ranges;
 }
-
-function populateBlockedCourtPicker(courts){
-  _blockedCourtOptions = Array.isArray(courts) ? courts : [];
-  const select = $('newBlkCourt');
-  if (!select) return;
-  const previous = select.value;
-  select.innerHTML = '<option value="">All courts</option>' + _blockedCourtOptions
-    .map(court => `<option value="${esc(court.id)}">${esc(court.name)}</option>`).join('');
-  if ([...select.options].some(option => option.value === previous)) select.value = previous;
-}
-
-function syncBlockedCourt(){
-  const courtId = $('newBlkCourt')?.value || '';
-  const court = _blockedCourtOptions.find(item => item.id === courtId) || _blockedCourtOptions[0];
-  populateBlockedTimePickers(court);
-}
-
-function syncBlockedEndDate(){
-  const start = $('newBlk')?.value || '';
-  const end = $('newBlkEnd');
-  if (!end) return;
-  end.min = start || blockedTodayDate();
-  if (start) {
-    const maximum = new Date(start + 'T00:00:00');
-    maximum.setDate(maximum.getDate() + 5);
-    end.max = `${maximum.getFullYear()}-${String(maximum.getMonth() + 1).padStart(2, '0')}-${String(maximum.getDate()).padStart(2, '0')}`;
-  } else {
-    end.removeAttribute('max');
-  }
-  if (end.value && start && end.value < start) end.value = start;
-  if (end.value && end.max && end.value > end.max) end.value = end.max;
-  syncBlockedLiveLimit();
-  if (start && $('blockedBoardDate') && $('blockedBoardDate').value !== start) {
-    $('blockedBoardDate').value = start;
-    loadBlockedSlotBoard();
-  }
-}
-
-function blockedHourLabel(hour){
-  if (hour === 24) return '12:00 AM';
-  return `${hour % 12 || 12}:00 ${hour >= 12 ? 'PM' : 'AM'}`;
-}
-
-function populateBlockedTimePickers(court){
-  const start = $('newBlkStart');
-  const end = $('newBlkEndTime');
-  if (!start || !end) return;
-  const unavailable = message => {
-    start.innerHTML = `<option value="">${esc(message)}</option>`;
-    end.innerHTML = `<option value="">${esc(message)}</option>`;
-    start.disabled = true;
-    end.disabled = true;
-  };
-  if (!court) { unavailable('Configure a court first'); return; }
-  const openText = String(court.opensAt || '').trim();
-  const closeText = String(court.closesAt || '').trim();
-  const openMatch = /^(\d{2}):(\d{2})/.exec(openText);
-  const closeMatch = /^(\d{2}):(\d{2})/.exec(closeText);
-  const openHour = openMatch && Number(openMatch[2]) === 0 ? Number(openMatch[1]) : NaN;
-  const closeHour = closeText.startsWith('00:00') || closeText.startsWith('23:59')
-    ? 24
-    : closeMatch && Number(closeMatch[2]) === 0 ? Number(closeMatch[1]) : NaN;
-  if (!Number.isInteger(openHour) || openHour < 0 || openHour > 23 || !Number.isInteger(closeHour) || closeHour <= openHour || closeHour > 24) {
-    unavailable('Configure court hours first');
-    return;
-  }
-  const previousStart = start.value;
-  const previousEnd = end.value;
-  start.disabled = false;
-  end.disabled = false;
-  start.innerHTML = '<option value="">Choose start time</option>' + Array.from({ length:closeHour - openHour }, (_, index) => openHour + index)
-    .map(hour => `<option value="${String(hour).padStart(2, '0')}:00:00" data-hour="${hour}">${blockedHourLabel(hour)}</option>`).join('');
-  end.innerHTML = '<option value="">Choose end time</option>' + Array.from({ length:closeHour - openHour }, (_, index) => openHour + index + 1)
-    .map(hour => `<option value="${hour === 24 ? '23:59:59' : String(hour).padStart(2, '0') + ':00:00'}" data-hour="${hour}">${blockedHourLabel(hour)}</option>`).join('');
-  if ([...start.options].some(option => option.value === previousStart)) start.value = previousStart;
-  if ([...end.options].some(option => option.value === previousEnd)) end.value = previousEnd;
-  syncBlockedTimeRange();
-}
-
-function syncBlockedTimeRange(){
-  const start = $('newBlkStart');
-  const end = $('newBlkEndTime');
-  if (!start || !end) return;
-  const startHour = Number(start.selectedOptions[0]?.dataset.hour);
-  if (!Number.isFinite(startHour)) {
-    [...end.options].forEach(option => { option.disabled = option.value !== ''; });
-    end.value = '';
-    return;
-  }
-  [...end.options].forEach(option => { option.disabled = Number(option.dataset.hour) <= startHour; });
-  if (Number(end.selectedOptions[0]?.dataset.hour) <= startHour) {
-    const next = [...end.options].find(option => !option.disabled);
-    if (next) end.value = next.value;
-  }
-}
-
-function syncBlockedTimeMode(){
-  const timed = $('newBlkCoverage')?.value === 'specific_hours';
-  if ($('newBlkStartWrap')) $('newBlkStartWrap').hidden = !timed;
-  if ($('newBlkEndWrap')) $('newBlkEndWrap').hidden = !timed;
-  if (timed) syncBlockedTimeRange();
+function updateBlockedSlotSelection(){
+  const count = _blockedSelectedSlots.size;
+  const ranges = blockedSelectedRanges();
+  $('blockedSelectionSummary').textContent = count ? count+' slot'+(count===1?'':'s')+' selected · '+ranges.map(r=>r.courtName+' '+blockedHourLabel(r.startHour)+'–'+blockedHourLabel(r.endHour)).join(' · ') : 'No slots selected.';
+  $('newBlkBtn').disabled = !count || _blockedSaving;
+  $('newBlkBtn').textContent = _blockedSaving ? 'Blocking…' : 'Block Selected Slots'+(count?' ('+count+')':'');
+  $('clearBlockedSelectionBtn').disabled = !count || _blockedSaving;
+  for (const id of ['blockedBoardDate','newBlkType','newBlkReason']) $(id).disabled = _blockedSaving;
+  document.querySelectorAll('#blockedSlotBoard .blk-slot.free').forEach(button=>{
+    const court = _blockedBoardCourts[Number(button.dataset.courtIndex)];
+    const selected = court && _blockedSelectedSlots.has(court.id+':'+button.dataset.hour);
+    button.classList.toggle('selected',!!selected);
+    button.setAttribute('aria-pressed',String(!!selected));
+    button.textContent = selected ? '✓ Selected' : 'Available';
+    button.disabled = _blockedSaving;
+  });
 }
 
 function blockedLabelClass(label){
@@ -14753,21 +14620,18 @@ function blockedRecordsHtml(records, courts = []){
 }
 
 async function renderBlocked(){
+  if (_blockedSaving) return;
   if (!canManageBlockedDates()) { applyBlockedDateAccessVisibility(); return; }
   renderBlockedDateAccessState();
   const today = blockedTodayDate();
-  if ($('newBlk')) $('newBlk').min = today;
-  if ($('newBlkEnd')) $('newBlkEnd').min = today;
+
   const [records, courts] = await Promise.all([
     typeof DB.getBlockedDateRecords === 'function'
       ? DB.getBlockedDateRecords()
       : DB.getBlockedDates().then(dates => dates.map(date => ({ id:date, blockedOn:date, publicLabel:'Closed' }))),
     DB.getCourts(),
   ]);
-  populateBlockedCourtPicker(courts);
-  syncBlockedLiveLimit();
-  syncBlockedCourt();
-  syncBlockedTimeMode();
+  _blockedCourtOptions = Array.isArray(courts) ? courts : [];
   $('blkList').innerHTML = blockedRecordsHtml(records, courts);
   if ($('blockedBoardDate')) {
     if (!$('blockedBoardDate').value) $('blockedBoardDate').value = today;
@@ -14776,64 +14640,45 @@ async function renderBlocked(){
 }
 
 async function addBlocked(){
-  if (!requireBlockedDateManagement()) return;
-  const startDate = $('newBlk')?.value || '';
-  const endDate = $('newBlkEnd')?.value || startDate;
-  const publicLabel = $('newBlkType')?.value || 'Reserved';
-  const internalReason = $('newBlkReason')?.value.trim() || '';
-  const courtId = $('newBlkCourt')?.value || null;
-  const specificHours = $('newBlkCoverage')?.value === 'specific_hours';
-  const startsAt = specificHours ? ($('newBlkStart')?.value || '') : null;
-  const endsAt = specificHours ? ($('newBlkEndTime')?.value || '') : null;
-  if (!startDate) { toast('Choose a start date.', 'err'); return; }
-  if (endDate < startDate) { toast('End date cannot be before the start date.', 'err'); return; }
-  const rangeDays = selectedBlockedRangeDays();
-  if (!Number.isFinite(rangeDays) || rangeDays < 1 || rangeDays > 6) {
-    toast('Reserve up to 6 dates at a time.', 'err');
-    return;
-  }
-  if (specificHours) {
-    if ($('newBlkStart')?.disabled || $('newBlkEndTime')?.disabled) {
-      toast('Configure court operating hours before blocking specific hours.', 'err');
-      return;
-    }
-    const startHour = Number($('newBlkStart')?.selectedOptions[0]?.dataset.hour);
-    const endHour = Number($('newBlkEndTime')?.selectedOptions[0]?.dataset.hour);
-    if (!startsAt || !endsAt || !Number.isFinite(startHour) || !Number.isFinite(endHour) || endHour <= startHour) {
-      toast('Choose a valid start and end time.', 'err');
-      return;
-    }
-  }
-  const button = $('newBlkBtn');
-  const originalText = button?.textContent || 'Reserve Selected Date(s)';
-  if (button) { button.disabled = true; button.textContent = 'Saving…'; }
+  if (!requireBlockedDateManagement() || _blockedSaving) return;
+  const ranges = blockedSelectedRanges();
+  const date = $('blockedBoardDate').value;
+  if (!ranges.length || ranges.some(r=>r.date!==date) || date < blockedTodayDate()) return;
+  const publicLabel = $('newBlkType').value;
+  const internalReason = $('newBlkReason').value.trim();
+  _blockedSaving = true;
+  updateBlockedSlotSelection();
+  let saved = 0;
   try {
-    const result = await DB.addBlockedDate({ startDate, endDate, courtId, startsAt, endsAt, publicLabel, internalReason });
-    $('newBlk').value = '';
-    $('newBlkEnd').value = '';
+    for (const range of ranges) {
+      // Never block the gaps between separate selections.
+      await DB.addBlockedDate({startDate:date,endDate:date,courtId:range.courtId,
+        startsAt:String(range.startHour).padStart(2,'0')+':00:00',
+        endsAt:range.endHour===24?'23:59:59':String(range.endHour).padStart(2,'0')+':00:00',
+        publicLabel,internalReason});
+      saved += range.endHour-range.startHour;
+    }
     $('newBlkReason').value = '';
-    $('newBlkCoverage').value = 'whole_day';
-    syncBlockedEndDate();
-    syncBlockedTimeMode();
-    await renderBlocked();
-    const count = Number(result?.createdCount || rangeDays);
-    toast(`${count} date${count === 1 ? '' : 's'} reserved.`);
-  } catch (error) {
-    console.error('Reserve date failed:', error);
-    toast(error?.message || 'The selected dates could not be reserved.', 'err');
+    toast(saved+' time slot'+(saved===1?'':'s')+' blocked.');
+  } catch(error) {
+    toast((saved?saved+' slots were saved. ':'')+(error?.message || 'Could not block the selected slots.')+' Refresh and select any remaining available slots to retry.','err');
   } finally {
-    if (button) button.textContent = originalText;
-    syncBlockedLiveLimit();
+    _blockedSaving = false;
+    clearBlockedSlotSelection();
+    try { await renderBlocked(); } catch(error) {
+      $('blockedSlotBoard').innerHTML='';
+      $('blockedBoardStatus').textContent='Could not refresh availability. Refresh before selecting more slots.';
+    }
   }
 }
 
 async function removeBlocked(identifier){
   if (!requireBlockedDateManagement()) return;
-  if (!confirm('Make this date available for customer bookings again?')) return;
+  if (!confirm('Remove this block and make its time slots available again?')) return;
   try {
     await DB.removeBlockedDate(identifier);
     await renderBlocked();
-    toast('Date is available again.', 'inf');
+    toast('Blocked time slots are available again.', 'inf');
   } catch (error) {
     console.error('Remove reserved date failed:', error);
     toast(error?.message || 'The reserved date could not be removed.', 'err');
