@@ -1,0 +1,35 @@
+{
+  "hash": "b3d752fc199d14c5f78a836cb4d868da08e67e7345750faeeb877b36b90bb929",
+  "rolledBack": true,
+  "checkedAt": "2026-10-23T01:24:39.850Z",
+  "results": [
+    {
+      "name": "Anonymous rejection denied; original bookings unchanged",
+      "passed": true
+    },
+    {
+      "name": "Attempt/session mismatch stays pending",
+      "passed": true
+    },
+    {
+      "name": "Different provider namespace stays pending",
+      "passed": true
+    },
+    {
+      "name": "OCR service failure does not hide exact submitted duplicate",
+      "passed": true
+    },
+    {
+      "name": "Reference normalization and idempotent rejection",
+      "passed": true
+    },
+    {
+      "name": "Unclaimed reference stays pending",
+      "passed": true
+    },
+    {
+      "name": "Unreadable receipt does not hide submitted duplicate",
+      "passed": true
+    }
+  ]
+}
