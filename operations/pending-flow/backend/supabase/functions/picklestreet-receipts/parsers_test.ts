@@ -39,14 +39,25 @@ Deno.test('internal credentials are never accepted from this endpoint',async()=>
 
 const reviewId='10000000-0000-4000-8000-000000000001';
 const attemptId='10000000-0000-4000-8000-000000000002';
-function reviewDatabase(overrides:Record<string,unknown>={}) {
+function reviewDatabase(overrides:Record<string,unknown>={},rpcError:unknown=null) {
  const queries:{table:string;filters:unknown[]}[]=[],calls:unknown[]=[];
  const rows:Record<string,unknown>={receipt_verifications:{id:reviewId,booking_id:'booking-1',status:'manual_review',storage_path:'private/path'},
    bookings:{id:'booking-1',reference:'PS-TEST',status:'payment_review',payment_status:'pending'},
    picklestreet_receipt_jobs:{receipt_id:reviewId,current_attempt_id:attemptId},...overrides};
  const db={from(table:string){const q={table,filters:[] as unknown[]};queries.push(q);return {select(){return this;},eq(key:string,value:unknown){q.filters.push([key,value]);return this;},async maybeSingle(){return {data:rows[table],error:null};}};},
-   async rpc(name:string,args:unknown){calls.push({name,args});return {data:{ok:true,receiptStatus:'rejected',status:'rejected',bookingStatus:'cancelled',paymentStatus:'rejected'},error:null};}};
+   async rpc(name:string,args:unknown){calls.push({name,args});return {data:{ok:true,receiptStatus:'rejected',status:'rejected',bookingStatus:'cancelled',paymentStatus:'rejected'},error:rpcError};}};
  return {db,queries,calls};
+}
+for(const message of ['duplicate_payment_route_reference','duplicate_payment_reference']) {
+ Deno.test('manual confirmation explains '+message+' without retrying or emailing',async()=>{
+  const h=reviewDatabase({}, {message,code:'23505'});
+  await assert.rejects(staffReviewResponse(h.db as any,{action:'review',verificationId:reviewId,bookingReference:'PS-TEST',expectedAttemptId:attemptId,idempotencyKey:'10000000-0000-4000-8000-000000000003',decision:'approve',note:'Payment checked'},'verified-staff','https://picklestreetcourt.com'),(error:any)=>{
+   assert.equal(error.code,'DUPLICATE_PAYMENT_REFERENCE');assert.equal(error.status,409);
+   assert.match(error.message,/already been used/);assert.match(error.message,/not changed/);return true;
+  });
+  assert.equal(h.calls.length,1);
+  assert.deepEqual(h.queries.map(q=>q.table),['receipt_verifications','bookings']);
+ });
 }
 Deno.test('staff review context returns the active attempt without disclosing storage paths',async()=>{
  const h=reviewDatabase();const r=await staffReviewResponse(h.db as any,{action:'review_context',verificationId:reviewId,bookingReference:'PS-TEST'},'verified-staff','https://picklestreet.pages.dev');

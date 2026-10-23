@@ -347,6 +347,7 @@ export async function staffReviewResponse(db:DB,body:Obj,actor:string,origin:str
   });
   if(reviewed.error){
     const message=String(reviewed.error.message||'');
+    if(/duplicate_payment_(?:route_)?reference/i.test(message))fail('DUPLICATE_PAYMENT_REFERENCE','This payment reference has already been used for another accepted receipt. Check the existing paid booking before confirming this payment. The pending booking was not changed.');
     if(/stale|changed|attempt|already|pending|idempotency/i.test(message))fail('RECEIPT_CHANGED','This receipt changed or was already reviewed. Reload its details before deciding.');
     if(/slot|court|overlap|blocked|unavailable|23P01/i.test(message+' '+reviewed.error.code))fail('COURT_UNAVAILABLE','The court time is no longer available. The payment decision was not saved.');
     if(/started|past|time/i.test(message))fail('BOOKING_STARTED','This booking time has already started. The payment decision was not saved.');
