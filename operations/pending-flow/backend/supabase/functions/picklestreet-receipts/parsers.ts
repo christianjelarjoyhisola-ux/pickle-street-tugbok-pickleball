@@ -41,6 +41,8 @@ export function verifyByMethod(input:Input):Result {
 }
 export function publicPendingReason(flags:string[],errorCode=''):string {
   const all=[...flags,errorCode].join(' ').toLowerCase();
+  if(/bank_completion_unverified/.test(all)) return 'Pending — this bank receipt says processed, but does not confirm completion. Upload the completed transfer details from the sending bank’s transaction history, including its name and destination account.';
+  if(/critical_field_confidence_missing|low_ocr_confidence/.test(all)) return 'Pending — a payment detail could not be read confidently. Upload the original downloaded receipt or a clear screenshot showing the full transaction.';
   if(/transaction_not_successful|transfer_pending/.test(all)) return 'Pending — this transfer is still processing or was not completed. Upload the completed transaction details when available.';
   if(/payment_source_mismatch|payment_source_unverified/.test(all)) return 'Pending — choose the app you sent money from, even if you paid a GCash recipient, and upload that app’s completed receipt.';
   if(/receiving_account_unconfigured/.test(all)) return 'Pending — the venue needs to check its receiving account settings. Your receipt is saved.';

@@ -47,6 +47,7 @@ export type VisionTextResult = {
   text: string;
   layoutText?: string;
   confidence: number | null;
+  words?: Array<{text:string;confidence:number|null}>;
 };
 
 export type SafeReceiptExtraction = {
@@ -348,6 +349,17 @@ function objectValue(value: unknown): Record<string, unknown> {
     : {};
 }
 
+export function receiptVisionWords(annotation: Record<string, unknown>) {
+  const result: Array<{text:string;confidence:number|null}>=[];
+  for(const page of (Array.isArray(annotation.pages)?annotation.pages:[]) as any[])
+    for(const block of page.blocks||[]) for(const paragraph of block.paragraphs||[])
+      for(const word of paragraph.words||[]) result.push({
+        text:(word.symbols||[]).map((s:any)=>s.text||'').join(''),
+        confidence:typeof word.confidence==='number'&&Number.isFinite(word.confidence)&&word.confidence>=0&&word.confidence<=1?word.confidence:null,
+      });
+  return result;
+}
+
 function averageVisionConfidence(annotation: Record<string, unknown>) {
   const values: number[] = [];
   const pages = Array.isArray(annotation.pages) ? annotation.pages : [];
@@ -473,7 +485,7 @@ export async function detectReceiptText(options: {
   // OCR text stays in memory only and is bounded before any parsing.
   const text = textValue.slice(0, 100_000);
   const layoutText = googleVisionLayoutText(fullText);
-  return { text, layoutText: layoutText && layoutText !== text ? layoutText.slice(0, 100_000) : undefined, confidence: averageVisionConfidence(fullText) };
+  return { text, layoutText: layoutText && layoutText !== text ? layoutText.slice(0, 100_000) : undefined, confidence: averageVisionConfidence(fullText), words:receiptVisionWords(fullText) };
 }
 
 function extractAmounts(text: string): number[] {

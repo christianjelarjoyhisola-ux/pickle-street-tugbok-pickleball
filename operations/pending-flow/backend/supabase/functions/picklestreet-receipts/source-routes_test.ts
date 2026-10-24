@@ -674,3 +674,27 @@ Deno.test('Maya spatial QR receipt matches only the configured receiving token',
   assert.equal(verifySourceRoute(f).autoApprove,false);
  }
 });
+
+Deno.test('single-reading critical word confidence permits weak unrelated text',()=>{
+ const f=fixture('gcash');f.vision.confidence=.8929;
+ f.vision.words=f.vision.text.split(/\s+/).map(text=>({text,confidence:.99}));
+ f.vision.words.push({text:'Advertisement',confidence:.2});
+ const r=verifySourceRoute(f);assert.equal(r.autoApprove,true,JSON.stringify(r.flags));
+ assert.equal(r.extractedData.confidence.vision,.8929);assert.equal(r.extractedData.confidence.effective,.99);
+ assert.equal(Object.keys(r.extractedData.detected.route.fieldConfidence||{}).length,7);
+});
+Deno.test('low confidence critical amount cannot hide behind a high image average',()=>{
+ const f=fixture('gcash');f.vision.words=f.vision.text.split(/\s+/).map(text=>({text,confidence:text==='215.00'?.7:.99}));
+ const r=verifySourceRoute(f);assert.equal(r.autoApprove,false);assert.ok(r.flags.includes('low_ocr_confidence'));
+});
+Deno.test('missing native scores for critical words remain pending',()=>{
+ const f=fixture('gcash');f.vision.words=f.vision.text.split(/\s+/).map(text=>({text,confidence:null}));
+ const r=verifySourceRoute(f);assert.equal(r.autoApprove,false);assert.ok(r.flags.includes('critical_field_confidence_missing'));
+});
+Deno.test('matching bank destination is diagnostic evidence, not completed payment',()=>{
+ const f=fixture('gcash');f.vision.text='Your transaction has been processed.\nInstaPay Reference No. 1234567890123\nDestination Account\n'+NAME+'\nGCASH\n'+QR+'\nAmount PHP 215.00';
+ const r=verifySourceRoute(f);assert.equal(r.autoApprove,false);assert.equal(r.extractedData.detected.route.recipientMatched,true);
+ assert.equal(r.extractedData.detected.route.sourceMatched,false);assert.equal(r.extractedData.detected.route.successMatched,false);
+ assert.ok(r.flags.includes('bank_completion_unverified'));
+ f.route.gcashQrToken='WRONGQR999999';assert.equal(verifySourceRoute(f).extractedData.detected.route.recipientMatched,false);
+});

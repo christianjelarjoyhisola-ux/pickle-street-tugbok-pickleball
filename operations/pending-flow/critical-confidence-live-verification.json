@@ -1,0 +1,23 @@
+{
+  "hash": "5f4ffb34fbed56b54eb714431a92fe91938d8bfedd8ddc2b055181233ece49f8",
+  "rolledBack": true,
+  "at": "2026-10-24T15:58:24.470Z",
+  "result": [
+    {
+      "name": "Single-response field evidence permits valid payment through database finalization",
+      "passed": true
+    },
+    {
+      "name": "All seven critical scores required; weak/missing/nonnumeric values rejected",
+      "passed": true
+    },
+    {
+      "name": "Source, recipient, success, reference, amount and timing gates preserved",
+      "passed": true
+    },
+    {
+      "name": "Original bookings preserved; all fixtures rolled back",
+      "passed": true
+    }
+  ]
+}

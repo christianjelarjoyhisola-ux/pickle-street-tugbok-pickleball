@@ -3,6 +3,8 @@
  * All context except OCR and the compared customer reference is server-owned.
  */
 import { Temporal } from "@js-temporal/polyfill";
+import {criticalFieldConfidence} from './field-confidence.ts';
+import {inspectBankTransfer} from './bank-transfer-diagnostics.ts';
 import {
   type DedicatedReceiptProvider,
   parseProviderReceipt,
@@ -68,6 +70,8 @@ export type RouteEvidence = {
   mayaReferenceOnlyPolicy?: true;
   mayaStatus?: "completed" | "processing";
   secondaryReferences: SecondaryReference[];
+  fieldConfidence?: Record<string,number>;
+  fieldConfidenceVersion?: 1;
   recipient?: {
     observedName: string | null;
     observedNumber: string | null;
@@ -218,9 +222,7 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
     native >= 0 && native <= 1;
   const nativeConfidence = validNative ? native : null;
   if (!validNative) add("native_ocr_confidence_missing");
-  else if (native < SOURCE_ROUTE_MIN_NATIVE_CONFIDENCE) {
-    add("low_ocr_confidence");
-  }
+  let selectedConfidence=nativeConfidence;
   if (
     input.route?.tenantId !== SOURCE_ROUTE_TENANT_ID ||
     input.route?.tenantSlug !== SOURCE_ROUTE_TENANT_SLUG
@@ -344,6 +346,18 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
         parsed.receipt.indicators.nativeWalletLayout
       ) add("maya_provider_confirmation_required");
       const receipt = parsed.receipt;
+      if(parsed.provider==='gcash' && parsed.receipt.indicators.classification==='gcash' && input.vision.words?.length){
+        const fields=criticalFieldConfidence(input.vision.words,{
+          recipientName:parsed.receipt.receiver.name.raw,
+          recipientAccount:parsed.receipt.receiver.phone.raw,
+          amount:parsed.receipt.amount.selectedCandidate?.raw,
+          reference:parsed.receipt.reference.raw,
+          timestamp:parsed.receipt.timestamp.raw,
+          source:'Sent via GCash',success:'Total Amount Sent',
+        });
+        if(fields){route.fieldConfidence=fields;route.fieldConfidenceVersion=1;selectedConfidence=Math.min(...Object.values(fields));}
+        else add('critical_field_confidence_missing');
+      }
       const matched = routeMatches(parsed);
       route.parserVersion = parsed.parserVersion;
       route.sourceMatched = matched.source;
@@ -461,8 +475,22 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
       add("receipt_parser_unavailable");
     }
   }
-  // Never invent OCR confidence from a checklist of matching values. Evidence
-  // can only lower the actual native confidence, never replace or raise it.
+  const bankTransfer=inspectBankTransfer(text,input.route.gcashQrAlias||'',input.route.gcashQrToken||'');
+  if(bankTransfer){
+    route.recipient=bankTransfer.recipient;
+    route.recipientMatched=bankTransfer.recipientMatched;
+    route.sourceMatched=false;route.successMatched=false;
+    add('bank_receipt_layout_unsupported');
+    add('bank_completion_unverified');
+    if(bankTransfer.recipientMatched){
+      for(const name of ['number_unreadable','receiver_name_unreadable','payment_receiver_unverified']){
+        const i=flags.indexOf(name);if(i>=0)flags.splice(i,1);
+      }
+    }
+  }
+  if(selectedConfidence!==null && selectedConfidence<SOURCE_ROUTE_MIN_NATIVE_CONFIDENCE)add('low_ocr_confidence');
+  // Use observed critical-word scores when available, preserving the full-image
+  // native score separately. Evidence can only lower the selected OCR score.
   const evidence = [
     route.sourceMatched,
     route.destinationMatched,
@@ -473,9 +501,9 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
     withinWindow,
   ]
     .filter(Boolean).length / 7;
-  const effective = nativeConfidence === null
+  const effective = selectedConfidence === null
     ? 0
-    : Math.min(nativeConfidence, evidence);
+    : Math.min(selectedConfidence, evidence);
   const autoApprove = flags.length === 0 &&
     effective >= SOURCE_ROUTE_MIN_NATIVE_CONFIDENCE;
   const finalFlags = autoApprove ? ["auto_approval_eligible"] : [

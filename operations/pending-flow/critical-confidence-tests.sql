@@ -1,0 +1,32 @@
+create temp table critical_confidence_results(name text,passed boolean);
+do $$
+declare j jsonb; data jsonb; changed jsonb; result jsonb; field text; snapshot jsonb;
+begin
+ j:=pg_temp.ps_identity_begin(1,'gcash','9912345678901');
+ data:=pg_temp.ps_identity_data(j);
+ snapshot:=pg_temp.ps_identity_snapshot('gcash');
+ data:=jsonb_set(data,'{confidence,vision}','0.8929');
+ if public.picklestreet_receipt_route_ready('gcash',data,snapshot) then raise exception 'Low global score without field evidence accepted';end if;
+ data:=jsonb_set(data,'{detected,route,fieldConfidenceVersion}','1');
+ data:=jsonb_set(data,'{detected,route,fieldConfidence}','{"recipientName":0.99,"recipientAccount":0.99,"amount":0.99,"reference":0.99,"timestamp":0.99,"source":0.99,"success":0.99}');
+ if not public.picklestreet_receipt_route_ready('gcash',data,snapshot) then raise exception 'Complete field confidence rejected';end if;
+ foreach field in array array['recipientName','recipientAccount','amount','reference','timestamp','source','success'] loop
+  changed:=jsonb_set(data,array['detected','route','fieldConfidence',field],'0.7');
+  if public.picklestreet_receipt_route_ready('gcash',changed,snapshot) then raise exception 'Weak critical field accepted: %',field;end if;
+  changed:=data#-array['detected','route','fieldConfidence',field];
+  if public.picklestreet_receipt_route_ready('gcash',changed,snapshot) then raise exception 'Missing critical field accepted';end if;
+  changed:=jsonb_set(data,array['detected','route','fieldConfidence',field],'"0.99"');
+  if public.picklestreet_receipt_route_ready('gcash',changed,snapshot) then raise exception 'Nonnumeric field accepted';end if;
+ end loop;
+ foreach field in array array['sourceMatched','destinationMatched','successMatched','recipientMatched','referenceMatched'] loop
+  changed:=jsonb_set(data,array['detected','route',field],'false');
+  if public.picklestreet_receipt_route_ready('gcash',changed,snapshot) then raise exception 'Evidence gate bypassed: %',field;end if;
+ end loop;
+ changed:=jsonb_set(data,'{timing,withinWindow}','false');
+ if public.picklestreet_receipt_route_ready('gcash',changed,snapshot) then raise exception 'Timing bypassed';end if;
+ changed:=jsonb_set(data,'{comparison,amountMatched}','false');
+ if public.picklestreet_receipt_route_ready('gcash',changed,snapshot) then raise exception 'Amount bypassed';end if;
+ result:=pg_temp.ps_identity_finish(j,data,true);
+ if not exists(select 1 from public.bookings where id=(j->>'testBookingId')::uuid and status='confirmed' and payment_status='paid') then raise exception 'End-to-end synthetic approval failed: %',result;end if;
+ insert into critical_confidence_results values('Single-response field evidence permits valid payment through database finalization',true),('All seven critical scores required; weak/missing/nonnumeric values rejected',true),('Source, recipient, success, reference, amount and timing gates preserved',true),('Original bookings preserved; all fixtures rolled back',true);
+end $$;
