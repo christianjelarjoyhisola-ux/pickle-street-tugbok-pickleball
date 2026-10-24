@@ -1,0 +1,23 @@
+{
+  "hash": "e2c37681bcb8088c0508a38d9cc7feda9c279f1deaa0d89ea19ab14d871c1836",
+  "rolledBack": true,
+  "at": "2026-10-24T16:10:50.212Z",
+  "result": [
+    {
+      "name": "Compatible masked name with exact full account passes database finalization",
+      "passed": true
+    },
+    {
+      "name": "Normal names retain seven-field checks; masked exception rejects wrong or partial accounts",
+      "passed": true
+    },
+    {
+      "name": "Source, recipient, success, reference, amount and timing gates preserved",
+      "passed": true
+    },
+    {
+      "name": "Original bookings preserved; all fixtures rolled back",
+      "passed": true
+    }
+  ]
+}

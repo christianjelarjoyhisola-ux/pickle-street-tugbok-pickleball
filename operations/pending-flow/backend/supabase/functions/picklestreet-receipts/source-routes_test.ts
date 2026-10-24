@@ -698,3 +698,20 @@ Deno.test('matching bank destination is diagnostic evidence, not completed payme
  assert.ok(r.flags.includes('bank_completion_unverified'));
  f.route.gcashQrToken='WRONGQR999999';assert.equal(verifySourceRoute(f).extractedData.detected.route.recipientMatched,false);
 });
+
+for(const observed of ['DA****O J* A.','DAO J. A.']) Deno.test('masked name uses exact full mobile while preserving actual OCR scores: '+observed,()=>{
+ const f=fixture('gcash');f.payment.receiverName='DANILO JOSE ALONZO';f.vision.text=f.vision.text.replace(NAME,observed);f.vision.confidence=.8929;
+ f.vision.words=f.vision.text.split(/\s+/).map(text=>({text,confidence:/^(DA|J|A\.)/.test(text)?.65:.99}));
+ const r=verifySourceRoute(f);assert.equal(r.autoApprove,true,JSON.stringify(r.flags));
+ assert.equal(r.extractedData.detected.route.maskedNameExactAccountPolicy,true);
+ assert.equal(r.extractedData.detected.route.fieldConfidence?.recipientName,.65);assert.equal(r.extractedData.confidence.effective,.99);
+ const wrongName=structuredClone(f);wrongName.payment.receiverName='OTHER PERSON ONLY';assert.equal(verifySourceRoute(wrongName).autoApprove,false);
+ const wrongNumber=structuredClone(f);wrongNumber.payment.receiverReference='09170000002';assert.equal(verifySourceRoute(wrongNumber).autoApprove,false);
+ const weakNumber=structuredClone(f);weakNumber.vision.words!.find(w=>w.text===MOBILE)!.confidence=.6;assert.equal(verifySourceRoute(weakNumber).autoApprove,false);
+ const weakReference=structuredClone(f);weakReference.vision.words!.find(w=>w.text==='1234567890123')!.confidence=.6;assert.equal(verifySourceRoute(weakReference).autoApprove,false);
+ const partialNumber=structuredClone(f);partialNumber.vision.text=partialNumber.vision.text.replace(MOBILE,'0917***0001');partialNumber.vision.words=partialNumber.vision.text.split(/\s+/).map(text=>({text,confidence:/^(DA|J|A\.)/.test(text)?.65:.99}));assert.equal(verifySourceRoute(partialNumber).autoApprove,false);
+});
+Deno.test('unmasked names still require high critical OCR confidence',()=>{
+ const f=fixture('gcash');f.vision.words=f.vision.text.split(/\s+/).map(text=>({text,confidence:text==='TEST'?.65:.99}));
+ const r=verifySourceRoute(f);assert.equal(r.autoApprove,false);assert.equal(r.extractedData.detected.route.maskedNameExactAccountPolicy,undefined);
+});

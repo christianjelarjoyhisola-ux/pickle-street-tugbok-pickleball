@@ -72,6 +72,7 @@ export type RouteEvidence = {
   secondaryReferences: SecondaryReference[];
   fieldConfidence?: Record<string,number>;
   fieldConfidenceVersion?: 1;
+  maskedNameExactAccountPolicy?: true;
   recipient?: {
     observedName: string | null;
     observedNumber: string | null;
@@ -355,7 +356,19 @@ export function verifySourceRoute(input: SourceRouteInput): SourceRouteResult {
           timestamp:parsed.receipt.timestamp.raw,
           source:'Sent via GCash',success:'Total Amount Sent',
         });
-        if(fields){route.fieldConfidence=fields;route.fieldConfidenceVersion=1;selectedConfidence=Math.min(...Object.values(fields));}
+        if(fields){
+          route.fieldConfidence=fields;route.fieldConfidenceVersion=1;
+          // Masking reduces OCR confidence in name characters. The compatible
+          // name remains mandatory supporting evidence; an exact full mobile
+          // is the recipient identifier. Keep the measured name score intact.
+          const maskedExact=evidence.provider==='gcash' &&
+            evidence.recipientComparison.name==='masked_compatible' &&
+            evidence.recipientComparison.phone==='exact' &&
+            parsed.receipt.receiver.phone.visibility==='full';
+          if(maskedExact)route.maskedNameExactAccountPolicy=true;
+          selectedConfidence=Math.min(...Object.entries(fields)
+            .filter(([key])=>!maskedExact||key!=='recipientName').map(([,value])=>value));
+        }
         else add('critical_field_confidence_missing');
       }
       const matched = routeMatches(parsed);
